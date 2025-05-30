@@ -462,20 +462,13 @@ def stop_notification_system() -> None:
     """Stop the notification system"""
     global _notification_system_shutdown_event
     _notification_system_shutdown_event.set()
-    logi("🛑 Notification system shutdown requested")    
+    logi("🛑 Notification system shutdown requested")
+    
     if notification_batcher:
         logi("📦 Flushing final notification batch...")
         try:
-            # Process remaining items in the queue directly
-            from notification_tools.gmail_client import OptimizedGmailClient
-            if isinstance(notification_client, OptimizedGmailClient):
-                # Give the Gmail client's processor a moment
-                time.sleep(1)
-                # The OptimizedGmailClient handles its own queue on shutdown
-                pass
-            else:
-                # For other clients, flush the batcher directly
-                flush_notification_batch(notification_client)
+            # Give the system a moment to process
+            time.sleep(1)
         except Exception as e:
             logw(f"Error during final notification batch flush: {str(e)}")
 

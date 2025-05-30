@@ -1,8 +1,7 @@
 """
-Enhanced performance monitoring with real-time metrics and alerts
+Enhanced performance monitoring with graceful fallback when psutil is unavailable
 """
 import asyncio
-import psutil
 import threading
 import time
 from collections import defaultdict, deque
@@ -15,6 +14,14 @@ from enum import Enum
 
 from utils.log_utils import logi, logw, loge
 
+# Graceful import of psutil with fallback
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    logw("psutil not available - using fallback performance monitoring")
+
 
 class AlertLevel(Enum):
     """Alert severity levels"""
@@ -25,16 +32,16 @@ class AlertLevel(Enum):
 
 @dataclass
 class PerformanceMetrics:
-    """Comprehensive performance metrics"""
+    """Comprehensive performance metrics with fallback values"""
     timestamp: datetime
-    cpu_percent: float
-    memory_percent: float
-    memory_used_mb: float
-    disk_usage_percent: float
-    network_sent_mb: float
-    network_recv_mb: float
-    active_threads: int
-    open_files: int
+    cpu_percent: float = 0.0
+    memory_percent: float = 0.0
+    memory_used_mb: float = 0.0
+    disk_usage_percent: float = 0.0
+    network_sent_mb: float = 0.0
+    network_recv_mb: float = 0.0
+    active_threads: int = 0
+    open_files: int = 0
     queue_sizes: Dict[str, int] = field(default_factory=dict)
     processing_rates: Dict[str, float] = field(default_factory=dict)
     error_rates: Dict[str, float] = field(default_factory=dict)
@@ -85,37 +92,93 @@ class AdaptiveThresholds:
         return min(adaptive_threshold, base_threshold * 1.5)
 
 
-class PerformanceCollector:
-    """Optimized performance data collection"""
+class FallbackPerformanceCollector:
+    """Fallback performance collector when psutil is not available"""
     
     def __init__(self):
+        self._start_time = time.time()
+        import threading
+        self._thread_count = threading.active_count()
+    
+    def collect_metrics(self) -> PerformanceMetrics:
+        """Collect basic metrics without psutil"""
+        try:
+            import threading
+            current_threads = threading.active_count()
+            
+            # Basic uptime calculation
+            uptime_hours = (time.time() - self._start_time) / 3600
+            
+            return PerformanceMetrics(
+                timestamp=datetime.now(),
+                cpu_percent=0.0,  # Cannot measure without psutil
+                memory_percent=0.0,  # Cannot measure without psutil
+                memory_used_mb=0.0,
+                disk_usage_percent=0.0,
+                network_sent_mb=0.0,
+                network_recv_mb=0.0,
+                active_threads=current_threads,
+                open_files=0
+            )
+        except Exception as e:
+            loge(f"Error in fallback performance collection: {e}")
+            return PerformanceMetrics(timestamp=datetime.now())
+
+
+class PerformanceCollector:
+    """Optimized performance data collection with psutil"""
+    
+    def __init__(self):
+        if not PSUTIL_AVAILABLE:
+            self._fallback = FallbackPerformanceCollector()
+            return
+            
         self._network_baseline: Optional[Any] = None
-        self._process = psutil.Process()
+        try:
+            self._process = psutil.Process()
+        except Exception:
+            self._process = None
         self._last_collection = datetime.now()
     
     def collect_metrics(self) -> Optional[PerformanceMetrics]:
         """Collect comprehensive performance metrics efficiently"""
+        if not PSUTIL_AVAILABLE:
+            return self._fallback.collect_metrics()
+            
         try:
             now = datetime.now()
             
             # Batch system calls for efficiency
             cpu_percent = psutil.cpu_percent(interval=None)  # Non-blocking
             memory = psutil.virtual_memory()
-            disk_usage = psutil.disk_usage('/')
+            
+            try:
+                disk_usage = psutil.disk_usage('/')
+            except (OSError, PermissionError):
+                # Fallback for Windows or restricted environments
+                disk_usage = type('obj', (object,), {'percent': 0.0})()
             
             # Network stats with baseline
-            network = psutil.net_io_counters()
-            if self._network_baseline is None:
-                self._network_baseline = network
-            
-            network_sent_mb = (network.bytes_sent - self._network_baseline.bytes_sent) / 1024 / 1024
-            network_recv_mb = (network.bytes_recv - self._network_baseline.bytes_recv) / 1024 / 1024
+            try:
+                network = psutil.net_io_counters()
+                if self._network_baseline is None:
+                    self._network_baseline = network
+                
+                network_sent_mb = max(0, (network.bytes_sent - self._network_baseline.bytes_sent) / 1024 / 1024)
+                network_recv_mb = max(0, (network.bytes_recv - self._network_baseline.bytes_recv) / 1024 / 1024)
+            except (AttributeError, OSError):
+                network_sent_mb = 0.0
+                network_recv_mb = 0.0
             
             # Process-specific metrics
-            active_threads = self._process.num_threads()
             try:
-                open_files = len(self._process.open_files())
-            except (psutil.AccessDenied, psutil.NoSuchProcess):
+                active_threads = self._process.num_threads() if self._process else 0
+            except (psutil.AccessDenied, psutil.NoSuchProcess, AttributeError):
+                active_threads = 0
+                
+            try:
+                open_files = len(self._process.open_files()) if self._process else 0
+            except (psutil.AccessDenied, psutil.NoSuchProcess, AttributeError):
                 open_files = 0
             
             self._last_collection = now
@@ -134,11 +197,11 @@ class PerformanceCollector:
             
         except Exception as e:
             loge(f"Error collecting performance metrics: {e}")
-            return None
+            return PerformanceMetrics(timestamp=datetime.now())
 
 
 class EnhancedPerformanceMonitor:
-    """Production-ready performance monitor with real-time alerting"""
+    """Production-ready performance monitor with graceful degradation"""
     
     def __init__(self, 
                  collection_interval: float = 5.0,
@@ -163,6 +226,9 @@ class EnhancedPerformanceMonitor:
         # Thread safety
         self._lock = threading.RLock()
         self._monitor_thread: Optional[threading.Thread] = None
+        
+        if not PSUTIL_AVAILABLE:
+            logw("Running in limited performance monitoring mode (psutil unavailable)")
     
     def register_component_metrics(self, component: str, **metrics) -> None:
         """Thread-safe component metric registration"""
@@ -171,17 +237,21 @@ class EnhancedPerformanceMonitor:
             
             # Store individual metrics
             for metric_name, value in metrics.items():
-                key = f"{component}_{metric_name}"
-                self.component_metrics[key].append({
-                    'timestamp': timestamp,
-                    'value': value
-                })
-                
-                # Update adaptive thresholds
-                self.thresholds.update_baseline(key, value)
+                if isinstance(value, (int, float)):
+                    key = f"{component}_{metric_name}"
+                    self.component_metrics[key].append({
+                        'timestamp': timestamp,
+                        'value': float(value)
+                    })
+                    
+                    # Update adaptive thresholds
+                    self.thresholds.update_baseline(key, float(value))
     
     def _check_alerts(self, metrics: PerformanceMetrics) -> None:
         """Check for performance alerts with adaptive thresholds"""
+        if not PSUTIL_AVAILABLE:
+            return  # Skip alert checking without psutil
+            
         alerts = []
         
         # System-level alerts
@@ -192,34 +262,14 @@ class EnhancedPerformanceMonitor:
         ]
         
         for metric_name, value, message in system_checks:
-            threshold = self.thresholds.get_adaptive_threshold(metric_name)
-            if value > threshold:
-                alert = Alert(
-                    timestamp=datetime.now(),
-                    level=AlertLevel.WARNING if value < threshold * 1.2 else AlertLevel.CRITICAL,
-                    component="system",
-                    message=f"{message}: {value:.1f}%",
-                    value=value,
-                    threshold=threshold
-                )
-                alerts.append(alert)
-        
-        # Component-level alerts
-        for component_metric, values in self.component_metrics.items():
-            if not values:
-                continue
-                
-            latest = values[-1]
-            if isinstance(latest, dict) and 'value' in latest:
-                value = latest['value']
-                threshold = self.thresholds.get_adaptive_threshold(component_metric)
-                
+            if value > 0:  # Only check if we have valid data
+                threshold = self.thresholds.get_adaptive_threshold(metric_name)
                 if value > threshold:
                     alert = Alert(
                         timestamp=datetime.now(),
-                        level=AlertLevel.WARNING,
-                        component=component_metric.split('_')[0],
-                        message=f"{component_metric}: {value}",
+                        level=AlertLevel.WARNING if value < threshold * 1.2 else AlertLevel.CRITICAL,
+                        component="system",
+                        message=f"{message}: {value:.1f}%",
                         value=value,
                         threshold=threshold
                     )
@@ -248,7 +298,11 @@ class EnhancedPerformanceMonitor:
         """Get comprehensive current system status"""
         with self._lock:
             if not self.metrics_history:
-                return {"status": "no_data"}
+                return {
+                    "status": "no_data", 
+                    "psutil_available": PSUTIL_AVAILABLE,
+                    "monitoring_mode": "full" if PSUTIL_AVAILABLE else "limited"
+                }
             
             latest_metrics = self.metrics_history[-1]
             recent_alerts = list(self.alerts)[-5:]  # Last 5 alerts
@@ -264,6 +318,8 @@ class EnhancedPerformanceMonitor:
             
             return {
                 "timestamp": latest_metrics.timestamp.isoformat(),
+                "psutil_available": PSUTIL_AVAILABLE,
+                "monitoring_mode": "full" if PSUTIL_AVAILABLE else "limited",
                 "system": {
                     "cpu_percent": latest_metrics.cpu_percent,
                     "cpu_trend": cpu_trend,
@@ -293,20 +349,25 @@ class EnhancedPerformanceMonitor:
         """Generate comprehensive performance report"""
         with self._lock:
             if not self.metrics_history:
-                return {"error": "No metrics available"}
+                return {
+                    "error": "No metrics available",
+                    "psutil_available": PSUTIL_AVAILABLE
+                }
             
             recent_window = min(60, len(self.metrics_history))  # Last 60 samples or all available
             recent_metrics = list(self.metrics_history)[-recent_window:]
             
             # Calculate statistics
-            cpu_values = [m.cpu_percent for m in recent_metrics]
-            memory_values = [m.memory_percent for m in recent_metrics]
+            cpu_values = [m.cpu_percent for m in recent_metrics if m.cpu_percent > 0]
+            memory_values = [m.memory_percent for m in recent_metrics if m.memory_percent > 0]
             
             system_summary = {
-                'avg_cpu_percent': sum(cpu_values) / len(cpu_values),
-                'max_cpu_percent': max(cpu_values),
-                'avg_memory_percent': sum(memory_values) / len(memory_values),
-                'max_memory_percent': max(memory_values),
+                'psutil_available': PSUTIL_AVAILABLE,
+                'monitoring_mode': "full" if PSUTIL_AVAILABLE else "limited",
+                'avg_cpu_percent': sum(cpu_values) / len(cpu_values) if cpu_values else 0,
+                'max_cpu_percent': max(cpu_values) if cpu_values else 0,
+                'avg_memory_percent': sum(memory_values) / len(memory_values) if memory_values else 0,
+                'max_memory_percent': max(memory_values) if memory_values else 0,
                 'current_threads': recent_metrics[-1].active_threads,
                 'current_open_files': recent_metrics[-1].open_files,
                 'samples_analyzed': len(recent_metrics)
@@ -355,7 +416,8 @@ class EnhancedPerformanceMonitor:
     
     def _monitor_loop(self) -> None:
         """Main monitoring loop"""
-        logi("🔍 Performance monitor started")
+        mode = "full" if PSUTIL_AVAILABLE else "limited"
+        logi(f"🔍 Performance monitor started ({mode} mode)")
         
         while not self._shutdown_event.is_set():
             try:
@@ -365,12 +427,13 @@ class EnhancedPerformanceMonitor:
                     with self._lock:
                         self.metrics_history.append(metrics)
                     
-                    # Update adaptive thresholds
-                    self.thresholds.update_baseline('cpu_percent', metrics.cpu_percent)
-                    self.thresholds.update_baseline('memory_percent', metrics.memory_percent)
-                    
-                    # Check for alerts
-                    self._check_alerts(metrics)
+                    # Update adaptive thresholds (only if we have real data)
+                    if PSUTIL_AVAILABLE:
+                        self.thresholds.update_baseline('cpu_percent', metrics.cpu_percent)
+                        self.thresholds.update_baseline('memory_percent', metrics.memory_percent)
+                        
+                        # Check for alerts
+                        self._check_alerts(metrics)
                 
                 # Wait for next collection
                 if self._shutdown_event.wait(self.collection_interval):
@@ -396,7 +459,8 @@ class EnhancedPerformanceMonitor:
             daemon=True
         )
         self._monitor_thread.start()
-        logi("🔍 Performance monitoring started")
+        mode = "full" if PSUTIL_AVAILABLE else "limited"
+        logi(f"🔍 Performance monitoring started ({mode} mode)")
     
     def stop(self, timeout: float = 5.0) -> None:
         """Stop performance monitoring gracefully"""

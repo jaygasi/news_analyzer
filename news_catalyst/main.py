@@ -26,10 +26,22 @@ load_dotenv()
 # Import optimized components
 from config import CONFIG, OptimizedConfig, Environment
 from utils.log_utils import loge, logi, logw, logd
-from utils.performance_monitor import EnhancedPerformanceMonitor, start_performance_monitoring, stop_performance_monitoring
-from utils.notification_utils import stop_notification_system
 
 # Conditional imports with graceful fallbacks
+try:
+    from utils.performance_monitor import EnhancedPerformanceMonitor, start_performance_monitoring, stop_performance_monitoring
+    PERFORMANCE_MONITOR_AVAILABLE = True
+except ImportError as e:
+    PERFORMANCE_MONITOR_AVAILABLE = False
+    logw(f"Performance monitor not fully available: {e}")
+
+try:
+    from utils.notification_utils import stop_notification_system
+    NOTIFICATION_UTILS_AVAILABLE = True
+except ImportError as e:
+    NOTIFICATION_UTILS_AVAILABLE = False
+    logw(f"Notification utilities not available: {e}")
+
 try:
     import torch
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
@@ -169,7 +181,15 @@ class EnhancedTradingSystem:
     def __init__(self, config: OptimizedConfig):
         self.config = config
         self.component_manager = ComponentManager()
-        self.performance_monitor = EnhancedPerformanceMonitor()
+        
+        if PERFORMANCE_MONITOR_AVAILABLE:
+            try:
+                self.performance_monitor = EnhancedPerformanceMonitor()
+            except Exception as e:
+                logw(f"Failed to initialize performance monitor: {e}")
+                self.performance_monitor = None
+        else:
+            self.performance_monitor = None
         
         # System state
         self.is_running = False
@@ -193,8 +213,8 @@ class EnhancedTradingSystem:
                 
                 from notification_tools.gmail_client import EnterpriseGmailClient
                 
-                gmail_email = self.config.get_api_key('gmail_email') or CONFIG.gmail_email
-                gmail_password = self.config.get_api_key('gmail_app_password') or CONFIG.gmail_app_password
+                gmail_email = self.config.get_api_key('gmail_email') or CONFIG.get_api_key('gmail_email')
+                gmail_password = self.config.get_api_key('gmail_app_password') or CONFIG.get_api_key('gmail_app_password')
                 
                 if not gmail_email or not gmail_password:
                     logw("Gmail credentials not configured, disabling notifications")
@@ -296,7 +316,7 @@ class EnhancedTradingSystem:
             
             # News processing
             news_processor_manager = NewsProcessorManager(
-                num_workers=self.config.data.api_rate_limit_calls // 20,  # Dynamic worker count
+                num_workers=max(1, self.config.data.api_rate_limit_calls // 20),  # Dynamic worker count
                 model=model,
                 tokenizer=tokenizer,
                 device=device,
@@ -310,22 +330,22 @@ class EnhancedTradingSystem:
             news_event_tracker = NewsEventTracker(
                 fmp_api_key=fmp_api_key,
                 tiingo_api_key=tiingo_api_key or "",
-                data_collection_interval=self.config.data.news_check_interval
+                data_collection_interval=int(self.config.data.news_check_interval)
             )
             self.components['news_event_tracker'] = news_event_tracker
             self.component_manager.register_component('news_event_tracker', news_event_tracker)
             
             press_release_tracker = PressReleaseTracker(
                 fmp_api_key=fmp_api_key,
-                data_collection_interval=self.config.data.news_check_interval
+                data_collection_interval=int(self.config.data.news_check_interval)
             )
             self.components['press_release_tracker'] = press_release_tracker
             self.component_manager.register_component('press_release_tracker', press_release_tracker)
             
             # Momentum tracking
             momentum_tracker_manager = MomentumTrackerManager(
-                num_workers=self.config.trading.max_position_size * 20,  # Scale with position limits
-                data_collection_interval=self.config.data.momentum_calc_interval,
+                num_workers=max(1, int(self.config.trading.max_position_size * 20)),  # Scale with position limits
+                data_collection_interval=int(self.config.data.momentum_calc_interval),
                 notification_client=self.notification_client,
                 notification_type=self.notification_type
             )
@@ -375,10 +395,12 @@ class EnhancedTradingSystem:
                 symbol_list = universe_selector.get_symbol_list()
                 symbol_count = len(symbol_list) if symbol_list else 0
             
-            # Get system info
-            import psutil
-            cpu_count = psutil.cpu_count()
-            memory_gb = psutil.virtual_memory().total / (1024**3)
+            # Get basic system info
+            try:
+                import threading
+                thread_count = threading.active_count()
+            except Exception:
+                thread_count = 0
             
             subject = "🚀 Enhanced Trading System Started"
             body = f"""
@@ -390,10 +412,9 @@ class EnhancedTradingSystem:
                     <h3>📊 System Configuration:</h3>
                     <ul>
                         <li><strong>Environment:</strong> {self.config.env.value}</li>
-                        <li><strong>CPU Cores:</strong> {cpu_count}</li>
-                        <li><strong>Memory:</strong> {memory_gb:.1f} GB</li>
+                        <li><strong>Active Threads:</strong> {thread_count}</li>
                         <li><strong>PyTorch Available:</strong> {'✅' if TORCH_AVAILABLE else '❌'}</li>
-                        <li><strong>CUDA Available:</strong> {'✅' if torch.cuda.is_available() else '❌'}</li>
+                        <li><strong>Performance Monitor:</strong> {'✅' if PERFORMANCE_MONITOR_AVAILABLE else '❌'}</li>
                     </ul>
                 </div>
                 
@@ -429,9 +450,10 @@ class EnhancedTradingSystem:
             """
             
             # Send to first configured email address
-            if hasattr(self.notification_client, 'send_email_async'):
+            email_addresses = CONFIG.get_api_key('alert_to_email') or CONFIG.get_api_key('gmail_email')
+            if email_addresses and hasattr(self.notification_client, 'send_email_async'):
                 success = self.notification_client.send_email_async(
-                    to_email=CONFIG.alert_to_email.split(',')[0] if CONFIG.alert_to_email else CONFIG.gmail_email,
+                    to_email=email_addresses.split(',')[0] if ',' in email_addresses else email_addresses,
                     subject=subject,
                     body=body,
                     priority=1
@@ -527,14 +549,18 @@ class EnhancedTradingSystem:
                         
                         logi(f"💓 Health check: {running_count}/{total_count} components running")
                         
-                        # Register performance metrics
-                        from utils.performance_monitor import register_component_performance
-                        register_component_performance(
-                            'system_health',
-                            running_components=running_count,
-                            total_components=total_count,
-                            uptime_hours=(datetime.now() - self.startup_time).total_seconds() / 3600
-                        )
+                        # Register performance metrics if available
+                        if PERFORMANCE_MONITOR_AVAILABLE and self.performance_monitor:
+                            try:
+                                from utils.performance_monitor import register_component_performance
+                                register_component_performance(
+                                    'system_health',
+                                    running_components=running_count,
+                                    total_components=total_count,
+                                    uptime_hours=(datetime.now() - self.startup_time).total_seconds() / 3600
+                                )
+                            except Exception as e:
+                                logd(f"Performance monitoring error: {e}")
                         
                         self.last_health_check = datetime.now()
                     
@@ -565,7 +591,8 @@ class EnhancedTradingSystem:
             
             # Stop notification system first
             try:
-                stop_notification_system()
+                if NOTIFICATION_UTILS_AVAILABLE:
+                    stop_notification_system()
                 if self.notification_client and hasattr(self.notification_client, 'stop'):
                     self.notification_client.stop(timeout=5)
                 logi("✅ Notification system stopped")
@@ -621,7 +648,9 @@ class EnhancedTradingSystem:
             logi("🎯 Enhanced News Catalyst Trading System Starting...")
             logi(f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             logi(f"🐍 Python: {sys.version}")
-            logi(f"🚀 PyTorch CUDA: {torch.cuda.is_available() if TORCH_AVAILABLE else False}")
+            logi(f"🚀 PyTorch Available: {TORCH_AVAILABLE}")
+            if TORCH_AVAILABLE:
+                logi(f"🚀 CUDA Available: {torch.cuda.is_available()}")
             logi(f"⚙️  Environment: {self.config.env.value}")
             
             # Initialize components
@@ -630,7 +659,11 @@ class EnhancedTradingSystem:
                 return False
             
             # Start performance monitoring
-            start_performance_monitoring()
+            if PERFORMANCE_MONITOR_AVAILABLE:
+                try:
+                    start_performance_monitoring()
+                except Exception as e:
+                    logw(f"Performance monitoring failed to start: {e}")
             
             # Start services
             await self.start_services()
@@ -664,7 +697,11 @@ class EnhancedTradingSystem:
         
         finally:
             await self.shutdown_services()
-            stop_performance_monitoring()
+            if PERFORMANCE_MONITOR_AVAILABLE:
+                try:
+                    stop_performance_monitoring()
+                except Exception as e:
+                    logw(f"Error stopping performance monitoring: {e}")
 
 
 # Global shutdown handling

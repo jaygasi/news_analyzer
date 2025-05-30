@@ -41,9 +41,9 @@ class DirectoryConfig:
 class DataConfig:
     """Data collection and processing configuration"""
     # Real-time data intervals (seconds)
-    price_tick_interval: float = 0.1  # 100ms for real-time
-    news_check_interval: float = 1.0  # 1 second
-    momentum_calc_interval: float = 0.5  # 500ms
+    price_tick_interval: float = 1.0
+    news_check_interval: float = 30.0
+    momentum_calc_interval: float = 5.0
     
     # API rate limits
     api_rate_limit_calls: int = 100
@@ -52,7 +52,7 @@ class DataConfig:
     request_timeout: int = 30
     
     # Data providers with priorities
-    primary_provider: DataProvider = DataProvider.POLYGON
+    primary_provider: DataProvider = DataProvider.FMP
     backup_providers: List[DataProvider] = None
     
     def __post_init__(self):
@@ -75,7 +75,7 @@ class AIConfig:
     
     # Feature flags
     use_openai: bool = False
-    use_gemini: bool = False
+    use_gemini: bool = True
     use_ollama: bool = False
     use_ensemble: bool = True
 
@@ -103,19 +103,24 @@ class TradingConfig:
 @dataclass(frozen=True)
 class NotificationConfig:
     """Notification system configuration"""
-    enable_notifications: bool = True
-    use_gmail: bool = True
+    enable_notifications: bool = False
+    use_gmail: bool = False
     use_sendgrid: bool = False
     
     # Rate limiting
     max_emails_per_minute: int = 25
     batch_size: int = 5
     batch_timeout: float = 3.0
+    cooldown_minutes: int = 1
+    duplicate_window_minutes: int = 5
     
     # Retry logic
     max_retry_attempts: int = 3
     retry_delay: float = 2.0
-    cooldown_minutes: int = 1
+    
+    # Email settings
+    send_email_notifications: bool = True
+    send_daily_summary: bool = True
 
 
 class OptimizedConfig:
@@ -194,7 +199,8 @@ STOP_LOSS_PERCENT = 0.02  # Will be replaced by dynamic ATR-based stops
 # AI parameters
 USE_OPENAI_ANALYSIS = CONFIG.ai.use_openai
 MIN_NEWS_TOPIC_CONFIDENCE = 1
-MAX_NEWS_ARTICLE_AGE_MINS = 60.0  # Reduced from 8 hours to 1 hour
+MAX_NEWS_ARTICLE_AGE_MINS = 60.0
+NEWS_AGE_BUFFER = 5.0  # Buffer in minutes for news age validation
 
 # Data collection intervals
 NEWS_DATA_COLLECTION_INTERVAL = int(CONFIG.data.news_check_interval)
@@ -209,10 +215,20 @@ GMAIL_APP_PASSWORD = os.getenv('GMAIL_APP_PASSWORD')
 ALERT_TO_EMAIL = os.getenv('ALERT_TO_EMAIL')
 ALERT_FROM_EMAIL = os.getenv('GMAIL_EMAIL')
 
+# Missing notification constants that were causing errors
+NOTIFICATION_BATCH_TIMEOUT = CONFIG.notifications.batch_timeout
+NOTIFICATION_RATE_LIMIT = CONFIG.notifications.max_emails_per_minute
+NOTIFICATION_COOLDOWN_MINUTES = CONFIG.notifications.cooldown_minutes
+NOTIFICATION_DUPLICATE_WINDOW = CONFIG.notifications.duplicate_window_minutes * 60  # Convert to seconds
+NOTIFICATION_BATCH_SIZE = CONFIG.notifications.batch_size
+SEND_EMAIL_NOTIFICATIONS = CONFIG.notifications.send_email_notifications
+SEND_DAILY_SUMMARY = CONFIG.notifications.send_daily_summary
+GMAIL_MAX_RATE_PER_MINUTE = CONFIG.notifications.max_emails_per_minute
+
 # Performance settings
 SHUTDOWN_TIMEOUT = 15
-MAX_MEMORY_USAGE_MB = 2000  # Increased from 1000MB
-MAX_DATAFRAME_ROWS = 100000  # Increased capacity
+MAX_MEMORY_USAGE_MB = 2000
+MAX_DATAFRAME_ROWS = 100000
 ENABLE_PERFORMANCE_METRICS = True
 
 # Biotech settings
@@ -220,13 +236,28 @@ BIOTECH_INDUSTRY_LIST = CONFIG.biotech_industries
 MIN_PHASE3_SUCCESS_SCORE_THRESHOLD = 0.4
 
 # Worker configuration
-NUM_NEWS_EVENT_PROCESSOR_WORKERS = 3  # Increased from 2
-MOMENTUM_TRACKER_NUM_WORKERS = 3  # Increased from 2
+NUM_NEWS_EVENT_PROCESSOR_WORKERS = 3
+MOMENTUM_TRACKER_NUM_WORKERS = 3
 
 # Universe selection
-STOCK_SCREENER_LIMIT = 2000  # Increased from 1000
+STOCK_SCREENER_LIMIT = 2000
 EXCHANGE_LIST = CONFIG.exchange_list
-PRICE_MORE_THAN = 2.0  # Increased minimum price
-PRICE_LESS_THAN = 500.0  # Decreased maximum price for better liquidity
+PRICE_MORE_THAN = 2.0
+PRICE_LESS_THAN = 500.0
 MARKET_CAP_LOWER_THAN = 10000000000  # 10B market cap limit
-VOLUME_MORE_THAN = 50000  # Increased minimum volume
+VOLUME_MORE_THAN = 50000
+
+# Momentum tracking
+MOMENTUM_MAX_TRACKING_MINS = 60
+MOMENTUM_LOOKBACK_PERIOD = 5
+PRICE_PERCENT_CHANGE_THRESHOLD = 0.02
+
+# Model names
+GEMINI_MODEL = "gemini-pro"
+
+# Additional constants that other modules might need
+NEWS_PROCESSOR_TIMEOUT = 30
+EVENT_TRACKER_RETRY_DELAY = 5
+MAX_RETRY_ATTEMPTS = 3
+DEFAULT_BATCH_SIZE = 100
+CONNECTION_TIMEOUT = 30
