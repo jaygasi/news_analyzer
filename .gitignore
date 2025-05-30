@@ -1,0 +1,35 @@
+# Environment variables
+.env
+*.env
+.env.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+ENV/
+*.pyc
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+.n_c/
+
+# Logs and Data
+logs/
+*.log
+cache/
+*.db
+
+# System
+.DS_Store
+Thumbs.db
+
+# Git-related
+.git/
+.gitmodules

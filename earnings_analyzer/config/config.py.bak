@@ -1,0 +1,160 @@
+import os
+from dotenv import load_dotenv
+from pathlib import Path
+
+# Load environment variables
+load_dotenv()
+
+class Config:
+    """Configuration class for the earnings news trader"""
+    
+    # =============================================================================
+    # API KEYS - Add your keys to .env file
+    # =============================================================================
+    
+    # Required APIs
+    ALPHA_VANTAGE_API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY')
+    
+    # LLM Provider API Keys (add the ones you want to use)
+    ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')        # Claude
+    OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')              # GPT
+    GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')              # Gemini  
+    GROK_API_KEY = os.getenv('GROK_API_KEY')                  # Grok (X AI)
+    
+    # Optional APIs
+    FMP_API_KEY = os.getenv('FMP_API_KEY')                    # Financial Modeling Prep
+    POLYGON_API_KEY = os.getenv('POLYGON_API_KEY')            # Polygon.io
+    
+    # =============================================================================
+    # LLM PROVIDER CONFIGURATION
+    # =============================================================================
+    
+    # Enable/disable specific LLM providers
+    USE_CLAUDE = os.getenv('USE_CLAUDE', 'true').lower() == 'true'
+    USE_OPENAI = os.getenv('USE_OPENAI', 'false').lower() == 'true'
+    USE_GEMINI = os.getenv('USE_GEMINI', 'false').lower() == 'true'
+    USE_GROK = os.getenv('USE_GROK', 'false').lower() == 'true'
+    
+    # Model configurations
+    CLAUDE_MODEL = os.getenv('CLAUDE_MODEL', 'claude-3-haiku-20240307')
+    OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-3.5-turbo')
+    GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-pro')
+    GROK_MODEL = os.getenv('GROK_MODEL', 'grok-beta')
+    
+    # Priority order for LLM providers (first = primary, others = fallback)
+    LLM_PRIORITY_ORDER = os.getenv('LLM_PRIORITY_ORDER', 'claude,openai,gemini,grok').split(',')
+    
+    # Traditional sentiment analysis (faster, cheaper fallback)
+    USE_TEXTBLOB_ANALYSIS = os.getenv('USE_TEXTBLOB_ANALYSIS', 'true').lower() == 'true'
+    USE_VADER_ANALYSIS = os.getenv('USE_VADER_ANALYSIS', 'true').lower() == 'true'
+    
+    # =============================================================================
+    # GMAIL CONFIGURATION
+    # =============================================================================
+    GMAIL_EMAIL = os.getenv('GMAIL_EMAIL')
+    GMAIL_APP_PASSWORD = os.getenv('GMAIL_APP_PASSWORD')
+    ALERT_EMAIL = os.getenv('ALERT_EMAIL')
+    
+    # =============================================================================
+    # DATABASE CONFIGURATION
+    # =============================================================================
+    DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///earnings_trader.db')
+    
+    # =============================================================================
+    # TRADING PARAMETERS
+    # =============================================================================
+    MIN_CONFIDENCE_SCORE = float(os.getenv('MIN_CONFIDENCE_SCORE', 0.7))
+    MAX_POSITION_SIZE = float(os.getenv('MAX_POSITION_SIZE', 0.05))
+    
+    # =============================================================================
+    # SYSTEM SETTINGS
+    # =============================================================================
+    LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
+    MAX_ARTICLES_PER_RUN = int(os.getenv('MAX_ARTICLES_PER_RUN', 100))
+    EARNINGS_CALENDAR_DAYS = int(os.getenv('EARNINGS_CALENDAR_DAYS', 14))
+    
+    # =============================================================================
+    # NEWS SOURCES
+    # =============================================================================
+    NEWS_SOURCES = [
+        'https://feeds.finance.yahoo.com/rss/2.0/headline',
+        'https://feeds.marketwatch.com/marketwatch/topstories/',
+        'https://feeds.reuters.com/reuters/businessNews',
+        'https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&CIK=&type=8-K&company=&dateb=&owner=include&start=0&count=40&output=atom',
+    ]
+    
+    # =============================================================================
+    # EARNINGS KEYWORDS
+    # =============================================================================
+    EARNINGS_KEYWORDS = [
+        'earnings', 'quarterly results', 'q1 results', 'q2 results', 
+        'q3 results', 'q4 results', 'revenue', 'eps', 'earnings per share',
+        'guidance', 'outlook', 'forecast', 'beat expectations', 'miss expectations',
+        'earnings call', 'conference call', 'financial results', 'quarterly report',
+        'annual report', '10-Q', '10-K', '8-K', 'sec filing',
+        'profit', 'loss', 'net income', 'operating income', 'gross margin',
+        'revenue growth', 'sales growth', 'topline', 'bottom line'
+    ]
+    
+    # =============================================================================
+    # VALIDATION
+    # =============================================================================
+    @classmethod
+    def validate(cls):
+        """Validate required configuration"""
+        errors = []
+        
+        # Check required APIs
+        if not cls.ALPHA_VANTAGE_API_KEY:
+            errors.append("ALPHA_VANTAGE_API_KEY is required")
+        
+        # Check that at least one LLM provider is configured
+        llm_providers = []
+        if cls.USE_CLAUDE and cls.ANTHROPIC_API_KEY:
+            llm_providers.append("Claude")
+        if cls.USE_OPENAI and cls.OPENAI_API_KEY:
+            llm_providers.append("OpenAI")
+        if cls.USE_GEMINI and cls.GOOGLE_API_KEY:
+            llm_providers.append("Gemini")
+        if cls.USE_GROK and cls.GROK_API_KEY:
+            llm_providers.append("Grok")
+        
+        if not llm_providers:
+            errors.append("At least one LLM provider must be configured (Claude, OpenAI, Gemini, or Grok)")
+        
+        # Check Gmail configuration
+        if not cls.GMAIL_EMAIL or not cls.GMAIL_APP_PASSWORD:
+            errors.append("Gmail credentials (GMAIL_EMAIL and GMAIL_APP_PASSWORD) are required")
+            
+        if not cls.ALERT_EMAIL:
+            errors.append("ALERT_EMAIL is required")
+        
+        if errors:
+            raise ValueError("Configuration errors:\n" + "\n".join(f"- {error}" for error in errors))
+        
+        return True
+    
+    @classmethod
+    def get_active_llm_providers(cls):
+        """Get list of active LLM providers"""
+        providers = []
+        if cls.USE_CLAUDE and cls.ANTHROPIC_API_KEY:
+            providers.append("claude")
+        if cls.USE_OPENAI and cls.OPENAI_API_KEY:
+            providers.append("openai")
+        if cls.USE_GEMINI and cls.GOOGLE_API_KEY:
+            providers.append("gemini")
+        if cls.USE_GROK and cls.GROK_API_KEY:
+            providers.append("grok")
+        return providers
+    
+    @classmethod
+    def get_primary_llm_provider(cls):
+        """Get the primary LLM provider"""
+        active_providers = cls.get_active_llm_providers()
+        
+        for provider in cls.LLM_PRIORITY_ORDER:
+            if provider in active_providers:
+                return provider
+        
+        return active_providers[0] if active_providers else None

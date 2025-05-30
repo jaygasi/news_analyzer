@@ -1,0 +1,50 @@
+# Windows-Friendly Requirements for Earnings News Trader
+# This avoids packages that require C++ build tools
+
+# Core Dependencies
+requests>=2.31.0,<3.0.0
+python-dotenv>=1.0.0,<2.0.0
+sqlalchemy>=2.0.0,<3.0.0
+yfinance>=0.2.18,<1.0.0
+pandas>=2.0.0,<3.0.0
+numpy>=1.24.0,<2.0.0
+beautifulsoup4>=4.12.2,<5.0.0
+
+# RSS and Web Processing
+feedparser>=6.0.10,<7.0.0
+
+# Scheduling
+schedule>=1.2.0,<2.0.0
+
+# AI/ML Dependencies
+google-generativeai>=0.7.0,<1.0.0  # Gemini (recommended)
+textblob>=0.17.1,<1.0.0            # Traditional sentiment
+vaderSentiment>=3.3.2,<4.0.0       # VADER sentiment
+
+# Optional AI providers (if you have API keys)
+anthropic>=0.25.0,<1.0.0            # Claude (optional)
+openai>=1.30.0,<2.0.0               # GPT (optional)
+
+# Database Support
+# psycopg2-binary>=2.9.9,<3.0.0    # PostgreSQL (uncomment if needed)
+
+# Development Tools
+click>=8.1.7,<9.0.0
+rich>=13.7.0,<14.0.0
+
+# Date/Time Support
+python-dateutil>=2.8.2,<3.0.0
+pytz>=2023.3,<2024.0
+
+# HTTP and Security
+urllib3>=1.26.0,<3.0.0
+certifi>=2023.7.22
+
+# Optional Performance Monitoring
+psutil>=5.9.0,<6.0.0  # System monitoring
+
+# Note: Excluded packages that often cause Windows build issues:
+# - lxml (use beautifulsoup4 instead)
+# - aiohttp (not needed for basic functionality)  
+# - selenium (only needed for advanced web scraping)
+# - matplotlib/seaborn/plotly (visualization, not core functionality)

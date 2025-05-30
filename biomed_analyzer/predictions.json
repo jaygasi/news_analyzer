@@ -1,0 +1,20 @@
+[
+  {
+    "ticker": "OGN",
+    "confidence": 9,
+    "predicted_movement": "DOWN",
+    "reasoning": "The announcement of a securities fraud investigation into Organon & Co. is highly likely to negatively impact investor confidence and lead to a decrease in the company's stock price in the short term.  The news directly suggests potential legal and financial repercussions.",
+    "news_headline": "Securities Fraud Investigation Into Organon & Co. (OGN) Announced \u2013 Investors Who Lost Money Urged to Contact The Law Offices of Frank R. Cruz",
+    "news_url": "https://www.businesswire.com/news/home/20250528110137/en/Securities-Fraud-Investigation-Into-Organon-Co.-OGN-Announced-%E2%80%93-Investors-Who-Lost-Money-Urged-to-Contact-The-Law-Offices-of-Frank-R.-Cruz/",
+    "news_source": "businesswire.com"
+  },
+  {
+    "ticker": "NBIX",
+    "confidence": 7,
+    "predicted_movement": "UP",
+    "reasoning": "Positive Phase 2 data from a clinical trial for NBI-1117568 in schizophrenia, presented at a major psychopharmacology conference, suggests progress in drug development and could increase investor optimism, leading to a short-term stock price increase.  However, this is only Phase 2 data, limiting the strength of the prediction.",
+    "news_headline": "Nxera Pharma Notes Neurocrine Biosciences Presents New Positive Data from Phase 2 Study of NBI-1117568 in Adults with Schizophrenia at American Society of Clinical Psychopharmacology 2025",
+    "news_url": "https://www.globenewswire.com/news-release/2025/05/28/3090018/0/en/Nxera-Pharma-Notes-Neurocrine-Biosciences-Presents-New-Positive-Data-from-Phase-2-Study-of-NBI-1117568-in-Adults-with-Schizophrenia-at-American-Society-of-Clinical-Psychopharmacolo.html",
+    "news_source": "globenewswire.com"
+  }
+]

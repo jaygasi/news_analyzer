@@ -1,0 +1,61 @@
+# Directories
+LOG_DIR = "logs"
+CACHE_DIR = "cache"
+RESULTS_DIR = "results"
+PLOTS_DIR = "plots"
+TRADE_LOG_PATH = "trade_logs"
+TRADE_LOG_FILE_NAME = "trade_log.csv"
+
+# News tracking config
+NUM_NEWS_EVENT_PROCESSOR_WORKERS = 2  # Number of worker threads to be used to perform sentiment analysis
+NEWS_DATA_COLLECTION_INTERVAL = 60  # Second interval to fetch news articles
+
+# Stock screener config
+EXCHANGE_LIST = "nyse,nasdaq,amex"
+PRICE_MORE_THAN = 1.0  # Don't wanna trade below a buck
+PRICE_LESS_THAN = 1000.0  # Am I Buffett, or what???
+MARKET_CAP_LOWER_THAN = 5 * 1000000000  # Upper limit: Small/Medium cap companies
+VOLUME_MORE_THAN = 5000  # Need a bit of liquidity to trade
+COUNTRY = "US"
+STOCK_SCREENER_LIMIT = 3000
+
+# Filter of biotech industries for universe selection
+BIOTECH_INDUSTRY_LIST = ['Biotechnology', 'Medical - Diagnostics & Research']
+
+# Price Tracker config
+PRICE_TRACKER_DATA_COLLECTION_INTERVAL = 60  # Second interval to collect price data
+
+# Momentum tracking config
+MOMENTUM_TRACKING_TIME_INTERVAL = PRICE_TRACKER_DATA_COLLECTION_INTERVAL  # Second interval to check for price/volume momentum
+MOMENTUM_TRACKER_NUM_WORKERS = 1  # Number of momentum tracker worker threads
+MOMENTUM_LOOKBACK_PERIOD = 20  # Lookback period to be used to check momentum
+MOMENTUM_PRICE_CHANGE_WINDOW = 3  #  Number of periods to be used to calculate price changes
+MOMENTUM_VOLUME_CHANGE_WINDOW = 3  # Number of periods to be used to calculate volume changes
+MOMENTUM_PRICE_CHANGE_THRESHOLD = 2.0  # The price change during the window has to exceeed the avg. lookback price change by this threshold
+MOMENTUM_VOLUME_CHANGE_THRESHOLD = 2.0  # The volume change during the window has to exceeed the avg. lookback price change by this threshold
+MOMENTUM_MAX_TRACKING_MINS = 30  # Max time in minutes to track a symbol for momentum
+
+# Strategy config
+LOOKBACK_PERIOD = 200   # Periods for momentum analysis
+MIN_PRICE_CHANGE_THRESHOLD = 0.05  # Percent
+MIN_VOLUME_CHANGE_THRESHOLD = 0.05  # Percent
+STOP_LOSS_PERCENT = 0.01  # Percentage to be used to calculate stop loss, e.g. 1%
+MAX_BID_ASK_SPREAD = 0.1  # Max bid-ask spread, e.g. 3%
+PRICE_PERCENT_CHANGE_THRESHOLD = 0.01
+
+# News analysis
+FINBERT_NEWS_SENTIMENT_THRESHOLD = 0.6
+USE_OPENAI_ANALYSIS = False  # If you want to use detailed OpenAI analysis of the news content
+MAX_NEWS_ARTICLE_AGE_MINS = 10.0  # Maximum allowed news article age in mins to ensure only news articles are processed
+MIN_NEWS_TOPIC_CONFIDENCE = 2  # Number of keyword matches to consider a news topic to be identified
+HIGH_FINBERT_NEWS_SENTIMENT_THRESHOLD = 0.6  # High threshold sentiment for FinBert news catalysts
+MIN_OPENAI_NEWS_SENTIMENT = 0.6  # Minimum sentiment for OpenAI news catalysts
+MIN_OPENAI_SENTIMENT_CONFIDENCE = 0.6  # Minimum OpenAI news sentiment confidence
+
+# AI content analysis config
+MIN_PHASE3_SUCCESS_SCORE_THRESHOLD = 0.6  # Minimum threshold to determine Phase 3 success level
+
+# Notifications todo
+ALERT_FROM_EMAIL = "<Add your email address>"
+ALERT_TO_EMAIL = "<Add your email address>"
+ALERT_TO_SMS_EMAIL = "<Add your >"
