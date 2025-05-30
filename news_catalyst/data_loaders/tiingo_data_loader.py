@@ -1,24 +1,22 @@
+"""
+Optimized Tiingo data loader with improved error handling and performance
+"""
 import os
 import requests
 import pandas as pd
-from datetime import datetime, timedelta
-from typing import List
-from enum import Enum
 import hashlib
-from utils.string_utils import *
+from datetime import datetime, timedelta
+from typing import List, Optional, Dict, Any, Union
+from enum import Enum
+from functools import lru_cache
+import time
 
-
-def create_md5_hash(my_string):
-    m = hashlib.md5()
-    m.update(my_string.encode('utf-8'))
-    return m.hexdigest()
-
+from utils.string_utils import clean_string, join_items
+from utils.log_utils import logd, logw, loge
 
 
 class TiingoIntradayInterval(Enum):
-    """
-    Enum for different Tiingo intraday resample intervals.
-    """
+    """Enum for different Tiingo intraday resample intervals."""
     MIN_1 = '1min'
     MIN_5 = '5min'
     MIN_15 = '15min'
@@ -27,465 +25,621 @@ class TiingoIntradayInterval(Enum):
     HOUR_4 = '4hour'
     DAY_1 = '1day'
 
+
 class TiingoDailyInterval(Enum):
-    """
-    Enum for different daily Tiingo resample intervals.
-    """
+    """Enum for different daily Tiingo resample intervals."""
     DAILY = 'daily'
     WEEKLY = 'weekly'
-    MONTYLY = 'monthly'
+    MONTHLY = 'monthly'
     ANNUALLY = 'annually'
 
 
-class TiingoDataLoader:
+@lru_cache(maxsize=1000)
+def create_md5_hash(my_string: str) -> str:
     """
-    TiingoDataLoader provides methods to interact with Tiingo APIs to fetch data such as stock prices, crypto prices, news, and forex data.
+    Create MD5 hash with caching for repeated strings.
+    
+    Args:
+        my_string: String to hash
+        
+    Returns:
+        MD5 hash string
+    """
+    if not my_string:
+        return ""
+    
+    return hashlib.md5(my_string.encode('utf-8')).hexdigest()
 
-    Attributes:
-        api_key (str): Tiingo API key.
+
+class TiingoRateLimiter:
+    """Rate limiter for Tiingo API requests."""
+    
+    def __init__(self, max_calls: int = 500, time_window: int = 3600):
+        self.max_calls = max_calls
+        self.time_window = time_window
+        self.calls = []
+    
+    def can_make_request(self) -> bool:
+        """Check if request can be made within rate limits."""
+        now = time.time()
+        # Remove old calls
+        self.calls = [call_time for call_time in self.calls 
+                     if now - call_time < self.time_window]
+        return len(self.calls) < self.max_calls
+    
+    def record_request(self) -> None:
+        """Record a request."""
+        if len(self.calls) >= self.max_calls:
+            # Remove oldest call
+            self.calls.pop(0)
+        self.calls.append(time.time())
+
+
+class OptimizedTiingoDataLoader:
+    """
+    Enhanced TiingoDataLoader with improved performance and error handling.
     """
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, rate_limit: int = 500):
+        if not api_key or not api_key.strip():
+            raise ValueError("Tiingo API key is required")
+        
+        self.api_key = api_key.strip()
+        self.base_url = "https://api.tiingo.com"
+        self.rate_limiter = TiingoRateLimiter(max_calls=rate_limit)
+        
+        # Session for connection pooling
+        self.session = requests.Session()
+        self.session.headers.update({
+            'Accept': 'application/json',
+            'User-Agent': 'Tiingo-Python-Client/1.0'
+        })
+    
+    def _make_request(self, url: str, headers: Optional[Dict] = None, 
+                     params: Optional[Dict] = None, timeout: int = 30) -> Optional[Dict]:
         """
-        Initializes the TiingoDataLoader with the given API key.
-
-        Parameters:
-            api_key (str): Tiingo API key.
-        """
-        self.api_key = api_key
-
-    def fetch_intraday_prices(self, symbol: str, start_date_str: str, end_date_str: str, interval: TiingoIntradayInterval, cache_data=False, cache_dir="cache") -> pd.DataFrame:
-        """
-        Fetches stock prices from Tiingo API.
-
-        Parameters:
-            symbol (str): Stock symbol.
-            start_date (str): Start date in 'YYYY-MM-DD' format.
-            end_date (str): End date in 'YYYY-MM-DD' format.
-            interval (TiingoIntradayInterval): Data interval.
-            cache_data (bool): Whether to cache the data.
-            cache_dir (str): Directory to save the cached data.
-
+        Make HTTP request with rate limiting and error handling.
+        
+        Args:
+            url: Request URL
+            headers: Additional headers
+            params: Query parameters
+            timeout: Request timeout in seconds
+            
         Returns:
-            pd.DataFrame: DataFrame with stock prices.
+            JSON response or None if failed
+        """
+        if not self.rate_limiter.can_make_request():
+            logw("Tiingo rate limit reached")
+            return None
+        
+        request_headers = {'Accept': 'application/json'}
+        if headers:
+            request_headers.update(headers)
+        
+        if params is None:
+            params = {}
+        
+        params['token'] = self.api_key
+        
+        try:
+            self.rate_limiter.record_request()
+            response = self.session.get(url, headers=request_headers, 
+                                      params=params, timeout=timeout)
+            response.raise_for_status()
+            
+            data = response.json()
+            return data if data else None
+            
+        except requests.exceptions.Timeout:
+            loge(f"Tiingo request timeout: {url}")
+            return None
+        except requests.exceptions.RequestException as e:
+            loge(f"Tiingo request failed: {e}")
+            return None
+        except ValueError as e:
+            loge(f"Invalid JSON from Tiingo: {e}")
+            return None
+    
+    def _validate_symbol(self, symbol: str) -> str:
+        """
+        Validate and clean symbol.
+        
+        Args:
+            symbol: Stock symbol
+            
+        Returns:
+            Cleaned symbol
+            
+        Raises:
+            ValueError: If symbol is invalid
+        """
+        if not symbol or not isinstance(symbol, str):
+            raise ValueError("Symbol must be a non-empty string")
+        
+        cleaned = symbol.strip().upper()
+        if not cleaned:
+            raise ValueError("Symbol cannot be empty after cleaning")
+        
+        # Basic symbol validation
+        if len(cleaned) > 10 or not cleaned.replace('.', '').replace('-', '').isalnum():
+            raise ValueError(f"Invalid symbol format: {symbol}")
+        
+        return cleaned
+    
+    def _validate_date_range(self, start_date: str, end_date: str) -> None:
+        """
+        Validate date range.
+        
+        Args:
+            start_date: Start date string
+            end_date: End date string
+            
+        Raises:
+            ValueError: If dates are invalid
         """
         try:
+            start = pd.to_datetime(start_date)
+            end = pd.to_datetime(end_date)
+            
+            if start > end:
+                raise ValueError("Start date must be before end date")
+            
+            # Don't allow future dates
+            if end > pd.Timestamp.now():
+                raise ValueError("End date cannot be in the future")
+                
+        except Exception as e:
+            raise ValueError(f"Invalid date format: {e}")
+    
+    def _process_price_data(self, data: List[Dict], cache_data: bool = False, 
+                          cache_dir: str = "cache", file_name: str = None) -> Optional[pd.DataFrame]:
+        """
+        Process price data into DataFrame.
+        
+        Args:
+            data: Raw price data from API
+            cache_data: Whether to cache the data
+            cache_dir: Cache directory
+            file_name: Cache file name
+            
+        Returns:
+            Processed DataFrame or None
+        """
+        if not data:
+            return None
+        
+        try:
+            # Convert to DataFrame efficiently
+            df = pd.DataFrame(data)
+            
+            if df.empty:
+                return None
+            
+            # Process date column
+            df['date'] = pd.to_datetime(df['date'], errors='coerce')
+            df = df.dropna(subset=['date'])
+            
+            if df.empty:
+                return None
+            
+            # Set index and sort
+            df.set_index('date', inplace=True)
+            df.sort_index(ascending=True, inplace=True)
+            
+            # Cache if requested
+            if cache_data and file_name:
+                try:
+                    os.makedirs(cache_dir, exist_ok=True)
+                    cache_path = os.path.join(cache_dir, file_name)
+                    df.to_csv(cache_path)
+                    logd(f"Cached price data to {cache_path}")
+                except Exception as e:
+                    logw(f"Failed to cache data: {e}")
+            
+            return df
+            
+        except Exception as e:
+            loge(f"Error processing price data: {e}")
+            return None
+    
+    def fetch_intraday_prices(self, symbol: str, start_date_str: str, end_date_str: str,
+                            interval: TiingoIntradayInterval, cache_data: bool = False,
+                            cache_dir: str = "cache") -> Optional[pd.DataFrame]:
+        """
+        Fetch intraday stock prices with improved error handling.
+        
+        Args:
+            symbol: Stock symbol
+            start_date_str: Start date in 'YYYY-MM-DD' format
+            end_date_str: End date in 'YYYY-MM-DD' format
+            interval: Data interval
+            cache_data: Whether to cache the data
+            cache_dir: Directory to save cached data
+            
+        Returns:
+            DataFrame with stock prices or None
+        """
+        try:
+            symbol = self._validate_symbol(symbol)
+            self._validate_date_range(start_date_str, end_date_str)
+            
             file_name = f"{symbol}_{interval.value}_{start_date_str}_{end_date_str}.csv"
-            path = os.path.join(cache_dir, file_name)
-
-            if cache_data and os.path.exists(path):
-                prices_df = pd.read_csv(path, parse_dates=['date'])
-                prices_df.set_index('date', inplace=True)
-                prices_df.index.name = 'date'
-                return prices_df
-            else:
-                fetch_url = f"https://api.tiingo.com/iex/{symbol}/prices?startDate={start_date_str}&endDate={end_date_str}&resampleFreq={interval.value}&columns=date,open,high,low,close,volume&token={self.api_key}"
-                headers = {'Accept': 'application/json'}
-
-                response = requests.get(fetch_url, headers=headers)
-                response.raise_for_status()  # Raise an error for bad status codes
-
-                data = response.json()
-
-                if not data:
-                    print("No data returned from Tiingo API.")
-                    return None
-
-                prices_df = pd.DataFrame()
-                for row in data:
-                    row_df = pd.DataFrame({
-                        'date': [row['date']],
-                        'open': [row['open']],
-                        'high': [row['high']],
-                        'low': [row['low']],
-                        'close': [row['close']],
-                        'volume': [row['volume']]
-                    })
-                    prices_df = pd.concat([prices_df, row_df], axis=0, ignore_index=True)
-
-                prices_df['date'] = pd.to_datetime(prices_df['date'])
-
-                if cache_data:
-                    os.makedirs(cache_dir, exist_ok=True)
-                    prices_df.to_csv(path, index=False)
-
-                prices_df.set_index('date', inplace=True)
-                prices_df.index.name = 'date'
-
-                return prices_df
-        except Exception as ex:
-            print(f"Failed to fetch Tiingo prices: {ex}")
+            cache_path = os.path.join(cache_dir, file_name)
+            
+            # Check cache first
+            if cache_data and os.path.exists(cache_path):
+                try:
+                    df = pd.read_csv(cache_path, parse_dates=['date'])
+                    df.set_index('date', inplace=True)
+                    logd(f"Loaded cached data for {symbol}")
+                    return df
+                except Exception as e:
+                    logw(f"Failed to load cached data: {e}")
+            
+            # Fetch from API
+            url = f"{self.base_url}/iex/{symbol}/prices"
+            params = {
+                'startDate': start_date_str,
+                'endDate': end_date_str,
+                'resampleFreq': interval.value,
+                'columns': 'date,open,high,low,close,volume'
+            }
+            
+            data = self._make_request(url, params=params)
+            if not data:
+                return None
+            
+            return self._process_price_data(data, cache_data, cache_dir, file_name)
+            
+        except ValueError as e:
+            loge(f"Validation error in fetch_intraday_prices: {e}")
             return None
-
-    def fetch_multiple_intraday_prices(self, symbol_list: List[str], start_date_str: str, end_date_str: str, interval: TiingoIntradayInterval, cache_data=False, cache_dir="cache") -> pd.DataFrame:
-        prices_dict = {}
-        for symbol in symbol_list:
-            print(f"Fetching prices for {symbol}")
-            # fetch prices
-            prices_df = self.fetch_intraday_prices(symbol, start_date_str, end_date_str,
-                                                                 interval, cache_data=cache_data,
-                                                                 cache_dir=cache_dir)
-            prices_dict[symbol] = prices_df
-        return prices_dict
-
-    def fetch_end_of_day_prices(self, symbol: str, start_date: str, end_date: str, interval: TiingoDailyInterval, cache_data = False, cache_dir: str = "cache") -> pd.DataFrame:
+        except Exception as e:
+            loge(f"Error fetching intraday prices for {symbol}: {e}")
+            return None
+    
+    def fetch_multiple_intraday_prices(self, symbol_list: List[str], start_date_str: str,
+                                     end_date_str: str, interval: TiingoIntradayInterval,
+                                     cache_data: bool = False, cache_dir: str = "cache") -> Dict[str, pd.DataFrame]:
         """
-        Fetches daily stock prices from Tiingo API.
-
-        Parameters:
-            symbol (str): Stock symbol.
-            interval (TiingoDailyInterval): Data interval.
-            start_date (str): Start date in 'YYYY-MM-DD' format.
-            end_date (str): End date in 'YYYY-MM-DD' format.
-            data_dir (str): Directory to save the data.
-
+        Fetch intraday prices for multiple symbols.
+        
+        Args:
+            symbol_list: List of stock symbols
+            start_date_str: Start date
+            end_date_str: End date
+            interval: Data interval
+            cache_data: Whether to cache data
+            cache_dir: Cache directory
+            
         Returns:
-            pd.DataFrame: DataFrame with stock prices.
+            Dictionary mapping symbols to DataFrames
+        """
+        if not symbol_list:
+            return {}
+        
+        results = {}
+        
+        for symbol in symbol_list:
+            try:
+                logd(f"Fetching intraday prices for {symbol}")
+                df = self.fetch_intraday_prices(
+                    symbol, start_date_str, end_date_str, interval, cache_data, cache_dir
+                )
+                
+                if df is not None:
+                    results[symbol] = df
+                else:
+                    logw(f"No data returned for {symbol}")
+                    
+            except Exception as e:
+                loge(f"Error fetching data for {symbol}: {e}")
+                continue
+        
+        logd(f"Fetched intraday data for {len(results)}/{len(symbol_list)} symbols")
+        return results
+    
+    def fetch_end_of_day_prices(self, symbol: str, start_date: str, end_date: str,
+                              interval: TiingoDailyInterval = TiingoDailyInterval.DAILY,
+                              cache_data: bool = False, cache_dir: str = "cache") -> Optional[pd.DataFrame]:
+        """
+        Fetch daily stock prices with improved error handling.
+        
+        Args:
+            symbol: Stock symbol
+            start_date: Start date
+            end_date: End date
+            interval: Data interval
+            cache_data: Whether to cache data
+            cache_dir: Cache directory
+            
+        Returns:
+            DataFrame with daily prices or None
         """
         try:
+            symbol = self._validate_symbol(symbol)
+            self._validate_date_range(start_date, end_date)
+            
             file_name = f"{symbol}_{interval.value}_{start_date}_{end_date}.csv"
-            path = os.path.join(cache_dir, file_name)
-
-            if cache_data is True and os.path.exists(path):
-                prices_df = pd.read_csv(path, parse_dates=['date'])
-                if 'date' in prices_df.columns:
-                    prices_df.set_index('date', inplace=True)
-                    prices_df.index.name = 'date'
-                return prices_df
-            else:
-                fetch_url = f"https://api.tiingo.com/tiingo/daily/{symbol}/prices?startDate={start_date}&endDate={end_date}&resampleFreq={interval.value}&columns=date,open,high,low,close,volume&token={self.api_key}"
-                headers = {'Accept': 'application/json'}
-
-                response = requests.get(fetch_url, headers=headers)
-                data = response.json()
-
-                prices_df = pd.DataFrame(data)
-                prices_df.rename(columns={"adjClose": "adj_close"}, inplace=True)
-                """
-                for row in data:
-                    row_df = pd.DataFrame({
-                        'date': [row['date']],
-                        'open': [row['open']],
-                        'high': [row['high']],
-                        'low': [row['low']],
-                        'close': [row['close']],
-                        'volume': [row['volume']],
-                        'adj_close': [row.get('adjClose')]
-                    })
-                    prices_df = pd.concat([prices_df, row_df], axis=0, ignore_index=True)
-                """
-
-                if cache_data is True:
-                    os.makedirs(cache_dir, exist_ok=True)
-                    prices_df.to_csv(path, index=False)
-
-                prices_df.set_index('date', inplace=True)
-                prices_df.index.name = 'date'
-
-                return prices_df
-        except Exception as ex:
-            print(f"Failed to fetch Tiingo prices: {ex}")
+            cache_path = os.path.join(cache_dir, file_name)
+            
+            # Check cache first
+            if cache_data and os.path.exists(cache_path):
+                try:
+                    df = pd.read_csv(cache_path, parse_dates=['date'])
+                    df.set_index('date', inplace=True)
+                    return df
+                except Exception as e:
+                    logw(f"Failed to load cached data: {e}")
+            
+            # Fetch from API
+            url = f"{self.base_url}/tiingo/daily/{symbol}/prices"
+            params = {
+                'startDate': start_date,
+                'endDate': end_date,
+                'resampleFreq': interval.value,
+                'columns': 'date,open,high,low,close,volume'
+            }
+            
+            data = self._make_request(url, params=params)
+            if not data:
+                return None
+            
+            # Process data
+            df = pd.DataFrame(data)
+            if 'adjClose' in df.columns:
+                df.rename(columns={'adjClose': 'adj_close'}, inplace=True)
+            
+            return self._process_price_data(data, cache_data, cache_dir, file_name)
+            
+        except ValueError as e:
+            loge(f"Validation error in fetch_end_of_day_prices: {e}")
             return None
-
-    def fetch_multiple_end_of_day_prices(self, symbol_list: List[str], start_date_str: str, end_date_str: str, interval=TiingoDailyInterval.DAILY, cache_data=False, cache_dir="cache") -> pd.DataFrame:
+        except Exception as e:
+            loge(f"Error fetching EOD prices for {symbol}: {e}")
+            return None
+    
+    def fetch_multiple_end_of_day_prices(self, symbol_list: List[str], start_date_str: str,
+                                       end_date_str: str, interval: TiingoDailyInterval = TiingoDailyInterval.DAILY,
+                                       cache_data: bool = False, cache_dir: str = "cache") -> Dict[str, pd.DataFrame]:
         """
-         Fetches daily prices for multiple symbols.
-
-         Parameters:
-         symbol_list (List[str]): List of stock symbols.
-         start_date_str (str): Start date in 'YYYY-MM-DD' format.
-         end_date_str (str): End date in 'YYYY-MM-DD' format.
-         interval (TiingoDailyInterval): The interval, e.g. daily, weekly, monthly
-         cache_data (bool): Flag to specify if data should be cached. Default is False.
-         cache_dir (str): Directory to cache the data. Default is "cache".
-
-         Returns:
-         pd.DataFrame: DataFrame containing the daily prices for multiple symbols.
-         """
-        prices_dict = {}
+        Fetch daily prices for multiple symbols.
+        
+        Args:
+            symbol_list: List of stock symbols
+            start_date_str: Start date
+            end_date_str: End date
+            interval: Data interval
+            cache_data: Whether to cache data
+            cache_dir: Cache directory
+            
+        Returns:
+            Dictionary mapping symbols to DataFrames
+        """
+        if not symbol_list:
+            return {}
+        
+        results = {}
+        
         for symbol in symbol_list:
-            print(f"Fetching prices for {symbol}")
-            # fetch prices
-            prices_df = self.fetch_end_of_day_prices(symbol, start_date_str, end_date_str, interval, cache_data=cache_data, cache_dir=cache_dir)
-            prices_dict[symbol] = prices_df
-        return prices_dict
-
-    def fetch_latest_news_articles(self,
-                            news_article_limit=50,
-                            cache_data: bool = False,
-                            cache_dir='cache'):
-
+            try:
+                logd(f"Fetching EOD prices for {symbol}")
+                df = self.fetch_end_of_day_prices(
+                    symbol, start_date_str, end_date_str, interval, cache_data, cache_dir
+                )
+                
+                if df is not None:
+                    results[symbol] = df
+                else:
+                    logw(f"No EOD data returned for {symbol}")
+                    
+            except Exception as e:
+                loge(f"Error fetching EOD data for {symbol}: {e}")
+                continue
+        
+        logd(f"Fetched EOD data for {len(results)}/{len(symbol_list)} symbols")
+        return results
+    
+    def fetch_latest_news_articles(self, news_article_limit: int = 50,
+                                 cache_data: bool = False, cache_dir: str = 'cache') -> Optional[pd.DataFrame]:
+        """
+        Fetch latest news articles with improved processing.
+        
+        Args:
+            news_article_limit: Maximum number of articles
+            cache_data: Whether to cache data
+            cache_dir: Cache directory
+            
+        Returns:
+            DataFrame with news articles or None
+        """
         start_date = datetime.today()
         start_date_str = start_date.strftime("%Y-%m-%d")
         end_date = datetime.today() + timedelta(days=1)
         end_date_str = end_date.strftime("%Y-%m-%d")
-
-        path = os.path.join(cache_dir, f"news_{start_date_str}_{end_date_str}.csv")
-        if cache_data is True:
-            if os.path.exists(path):
-                news_df = pd.read_csv(path)
-                if 'title' in news_df.columns:
-                    news_df['title'] = str(news_df['title'])
-                if 'description' in news_df.columns:
-                    news_df['description'] = str(news_df['description'])
-                return news_df
-
-        base_url = 'https://api.tiingo.com/tiingo/news'
-
+        
+        cache_file = f"news_{start_date_str}_{end_date_str}.csv"
+        cache_path = os.path.join(cache_dir, cache_file)
+        
+        # Check cache first
+        if cache_data and os.path.exists(cache_path):
+            try:
+                df = pd.read_csv(cache_path)
+                # Ensure string columns
+                for col in ['title', 'description']:
+                    if col in df.columns:
+                        df[col] = df[col].astype(str)
+                return df
+            except Exception as e:
+                logw(f"Failed to load cached news: {e}")
+        
         try:
-            url = f"{base_url}?startDate={start_date_str}&endDate={end_date_str}&limit={news_article_limit}&token={self.api_key}"
-            response = requests.get(url)
-            if response.status_code == 200:
-                news_json = response.json()
-
-                # Convert to DataFrame
-                news_df = pd.DataFrame(news_json)
-                if not news_df.empty:
-                    news_df['title'] = news_df['title'].apply(clean_string)
-                    news_df['description'] = news_df['description'].apply(clean_string)
-                    news_df.rename(columns={'tickers': 'symbols', 'id': 'news_id', 'description': 'text'}, inplace=True)
-                    news_df['content'] = news_df['title'] + news_df['text']
-
-                    # Pick primary symbol
-                    if 'symbols' in news_df.columns:
-                        news_df['symbol'] = news_df['symbols'].apply(
-                            lambda x: x[0] if isinstance(x, list) and len(x) > 0 else None)
-
-                    # Drop duplicate articles
-                    news_df = news_df.drop_duplicates(subset='title')
-                    #news_df['id'] = news_df['id'].astype(str)
-
-                    # Cache news for review
-                    if cache_data is True:
-                        os.makedirs(cache_dir, exist_ok=True)
-                        if len(news_df) > 0:
-                            news_df.to_csv(path, index=False)
-
-                # Convert dates to pd dates
-                if len(news_df) > 0 and 'publishedDate' in news_df.columns:
-                    news_df['publishedDate'] = pd.to_datetime(news_df['publishedDate'], errors='coerce')
-
-                return news_df
-            else:
-                print(f"Error: Tiingo News API returned error HTTP status code: {response.status_code}")
+            url = f"{self.base_url}/tiingo/news"
+            params = {
+                'startDate': start_date_str,
+                'endDate': end_date_str,
+                'limit': min(news_article_limit, 1000)  # Cap at reasonable limit
+            }
+            
+            data = self._make_request(url, params=params)
+            if not data:
                 return None
-        except Exception as ex:
-            print(f"Error: Fetch news stories API failed with exception: {str(ex)}")
-            return None
-
-    def fetch_news_article_by_symbol(self, symbol: str,
-                                     start_date_str: str,
-                                     end_date_str: str,
-                                     news_article_limit=50,
-                                     cache_data: bool = False,
-                                     cache_dir='cache'):
-        path = os.path.join(cache_dir, f"{symbol}_{start_date_str}_{end_date_str}_news.csv")
-        if cache_data is True:
-            if os.path.exists(path):
-                news_df = pd.read_csv(path)
-                if 'title' in news_df.columns:
-                    news_df['title'] = str(news_df['title'])
-                if 'description' in news_df.columns:
-                    news_df['description'] = str(news_df['description'])
-                return news_df
-
-        base_url = 'https://api.tiingo.com/tiingo/news'
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': 'Token ' + self.api_key
-        }
-
-        params = {
-            'startDate': start_date_str,
-            'endDate': end_date_str,
-            'limit': news_article_limit,
-            'tickers': symbol
-        }
-
-        try:
-            response = requests.get(base_url, headers=headers, params=params, timeout=30)
-            if response.status_code == 200:
-                news_json = response.json()
-
-                # Convert to DataFrame
-                news_df = pd.DataFrame(news_json)
-                if not news_df.empty:
-                    news_df['title'] = news_df['title'].apply(clean_string)
-                    news_df['description'] = news_df['description'].apply(clean_string)
-                    news_df.rename(columns={'tickers': 'symbols'}, inplace=True)
-                    news_df['symbols'] = news_df['symbols'].apply(join_items)
-
-                    # Drop duplicate articles
-                    news_df = news_df.drop_duplicates(subset='title')
-                    news_df['id'] = news_df['id'].astype(str)
-
-                    # Cache news for review
-                    if cache_data is True:
-                        os.makedirs(cache_dir, exist_ok=True)
-                        if len(news_df) > 0:
-                            news_df.to_csv(path)
-
-                # Convert dates to pd dates
-                if len(news_df) > 0 and 'publishedDate' in news_df.columns:
-                    news_df['publishedDate'] = pd.to_datetime(news_df['publishedDate'], errors='coerce')
-
-                return news_df
-            else:
-                print(f"Error: Tiingo News API returned error HTTP status code: {response.status_code}")
+            
+            # Process news data
+            df = pd.DataFrame(data)
+            if df.empty:
                 return None
-        except Exception as ex:
-            print(f"Error: Fetch news stories API failed with exception: {str(ex)}")
-            return None
-
-    def fetch_multiple_news_articles(self, symbol_list: list[str],
-                                     start_date_str,
-                                     end_date_str,
-                                     limit=50,
-                                     cache_data: bool=False,
-                                     cache_dir: str = 'cache'):
-        print(f"Fetching Tiingo news data....")
-        i = 1
-        news_dict = {}
-        for symbol in symbol_list:
-            #logd(f"Fetching growth for {symbol}... ({i}/{len(symbol_list)})")
-
-            # Fetch tiingo news
-            news_df = self.fetch_news_article_by_symbol(symbol,
-                                                        start_date_str,
-                                                        end_date_str,
-                                                        limit,
-                                                        cache_data,
-                                                        cache_dir)
-            if news_df is None or len(news_df) == 0:
-                continue
-
-            news_dict[symbol] = news_df
-
-        return news_dict
-
-    def fetch_news_articles_by_tags(self,
-                                    tags: str,
-                                    start_date_str: str,
-                                    end_date_str: str,
-                                    news_article_limit=50,
-                                    cache_data: bool = False,
-                                    cache_dir='cache'):
-        tag_hash = create_md5_hash(tags)
-        path = os.path.join(cache_dir, f"news_tags_{tag_hash}_{start_date_str}_{end_date_str}.csv")
-        if cache_data is True:
-            if os.path.exists(path):
-                news_df = pd.read_csv(path)
-                if 'title' in news_df.columns:
-                    news_df['title'] = str(news_df['title'])
-                if 'description' in news_df.columns:
-                    news_df['description'] = str(news_df['description'])
-                return news_df
-
-        base_url = 'https://api.tiingo.com/tiingo/news'
-
-        try:
-            url = f"{base_url}?tags={tags}&startDate={start_date_str}&endDate={end_date_str}&limit={news_article_limit}&token={self.api_key}"
-            response = requests.get(url)
-            if response.status_code == 200:
-                news_json = response.json()
-
-                # Convert to DataFrame
-                news_df = pd.DataFrame(news_json)
-                if not news_df.empty:
-                    news_df['title'] = news_df['title'].apply(clean_string)
-                    news_df['description'] = news_df['description'].apply(clean_string)
-                    news_df.rename(columns={'tickers': 'symbols'}, inplace=True)
-                    news_df['symbols'] = news_df['symbols'].apply(join_items)
-                    # Drop duplicate articles
-                    news_df = news_df.drop_duplicates(subset='title')
-                    news_df['id'] = news_df['id'].astype(str)
-
-                    # Cache news for review
-                    if cache_data is True:
-                        os.makedirs(cache_dir, exist_ok=True)
-                        if len(news_df) > 0:
-                            news_df.to_csv(path)
-
-                # Convert dates to pd dates
-                if len(news_df) > 0 and 'publishedDate' in news_df.columns:
-                    news_df['publishedDate'] = pd.to_datetime(news_df['publishedDate'], errors='coerce')
-
-                return news_df
-            else:
-                print(f"Error: Tiingo News API returned error HTTP status code: {response.status_code}")
-                return None
-        except Exception as ex:
-            print(f"Error: Fetch news stories API failed with exception: {str(ex)}")
-            return None
-
-    def fetch_forex_intraday_prices(self, symbol: str, start_date_str: str, end_date_str: str, interval: TiingoIntradayInterval, cache_data=False, cache_dir="cache") -> pd.DataFrame:
-        """
-        Fetches FOREX stock prices from Tiingo API.
-
-        Parameters:
-            symbol (str): FOREX symbol.
-            start_date (str): Start date in 'YYYY-MM-DD' format.
-            end_date (str): End date in 'YYYY-MM-DD' format.
-            interval (TiingoIntradayInterval): Data interval.
-            cache_data (bool): Whether to cache the data.
-            cache_dir (str): Directory to save the cached data.
-
-        Returns:
-            pd.DataFrame: DataFrame with stock prices.
-        """
-        try:
-            file_name = f"{symbol}_{interval.value}_{start_date_str}_{end_date_str}.csv"
-            path = os.path.join(cache_dir, file_name)
-
-            if cache_data and os.path.exists(path):
-                prices_df = pd.read_csv(path, parse_dates=['date'])
-                prices_df.set_index('date', inplace=True)
-                prices_df.index.name = 'date'
-                return prices_df
-            else:
-                fetch_url = f"https://api.tiingo.com/tiingo/fx/{symbol}/prices?startDate={start_date_str}&resampleFreq={interval.value}&token={self.api_key}"
-                headers = {'Accept': 'application/json'}
-
-                response = requests.get(fetch_url, headers=headers)
-                response.raise_for_status()  # Raise an error for bad status codes
-
-                data = response.json()
-
-                if not data:
-                    print("No data returned from Tiingo API.")
-                    return None
-
-                prices_df = pd.DataFrame()
-                for row in data:
-                    row_df = pd.DataFrame({
-                        'date': [row['date']],
-                        'open': [row['open']],
-                        'high': [row['high']],
-                        'low': [row['low']],
-                        'close': [row['close']]
-                    })
-                    prices_df = pd.concat([prices_df, row_df], axis=0, ignore_index=True)
-
-                prices_df['date'] = pd.to_datetime(prices_df['date'])
-
-                if cache_data:
+            
+            # Clean and process text fields
+            if 'title' in df.columns:
+                df['title'] = df['title'].apply(clean_string)
+            
+            if 'description' in df.columns:
+                df['description'] = df['description'].apply(clean_string)
+                df.rename(columns={'description': 'text'}, inplace=True)
+            
+            # Process other columns
+            if 'tickers' in df.columns:
+                df.rename(columns={'tickers': 'symbols'}, inplace=True)
+                df['symbol'] = df['symbols'].apply(
+                    lambda x: x[0] if isinstance(x, list) and len(x) > 0 else None
+                )
+            
+            # Add content column
+            if 'title' in df.columns and 'text' in df.columns:
+                df['content'] = df['title'] + ' ' + df['text']
+            
+            # Process dates
+            if 'publishedDate' in df.columns:
+                df['publishedDate'] = pd.to_datetime(df['publishedDate'], errors='coerce')
+                df = df.dropna(subset=['publishedDate'])
+            
+            # Remove duplicates
+            if 'title' in df.columns:
+                df = df.drop_duplicates(subset=['title'])
+            
+            # Cache results
+            if cache_data and not df.empty:
+                try:
                     os.makedirs(cache_dir, exist_ok=True)
-                    prices_df.to_csv(path, index=False)
-
-                prices_df.set_index('date', inplace=True)
-                prices_df.index.name = 'date'
-
-                return prices_df
-        except Exception as ex:
-            print(f"Failed to fetch FOREX Tiingo prices: {ex}")
+                    df.to_csv(cache_path, index=False)
+                except Exception as e:
+                    logw(f"Failed to cache news data: {e}")
+            
+            logd(f"Fetched {len(df)} news articles")
+            return df
+            
+        except Exception as e:
+            loge(f"Error fetching latest news: {e}")
             return None
+    
+    def fetch_news_article_by_symbol(self, symbol: str, start_date_str: str, end_date_str: str,
+                                   news_article_limit: int = 50, cache_data: bool = False,
+                                   cache_dir: str = 'cache') -> Optional[pd.DataFrame]:
+        """
+        Fetch news articles for specific symbol.
+        
+        Args:
+            symbol: Stock symbol
+            start_date_str: Start date
+            end_date_str: End date
+            news_article_limit: Maximum articles
+            cache_data: Whether to cache
+            cache_dir: Cache directory
+            
+        Returns:
+            DataFrame with news articles or None
+        """
+        try:
+            symbol = self._validate_symbol(symbol)
+            self._validate_date_range(start_date_str, end_date_str)
+            
+            cache_file = f"{symbol}_{start_date_str}_{end_date_str}_news.csv"
+            cache_path = os.path.join(cache_dir, cache_file)
+            
+            # Check cache
+            if cache_data and os.path.exists(cache_path):
+                try:
+                    df = pd.read_csv(cache_path)
+                    for col in ['title', 'description']:
+                        if col in df.columns:
+                            df[col] = df[col].astype(str)
+                    return df
+                except Exception as e:
+                    logw(f"Failed to load cached news for {symbol}: {e}")
+            
+            # Fetch from API
+            url = f"{self.base_url}/tiingo/news"
+            headers = {'Authorization': f'Token {self.api_key}'}
+            params = {
+                'startDate': start_date_str,
+                'endDate': end_date_str,
+                'limit': min(news_article_limit, 1000),
+                'tickers': symbol
+            }
+            
+            data = self._make_request(url, headers=headers, params=params)
+            if not data:
+                return None
+            
+            # Process similar to latest news
+            df = pd.DataFrame(data)
+            if df.empty:
+                return None
+            
+            # Clean text fields
+            if 'title' in df.columns:
+                df['title'] = df['title'].apply(clean_string)
+            
+            if 'description' in df.columns:
+                df['description'] = df['description'].apply(clean_string)
+            
+            # Process tickers
+            if 'tickers' in df.columns:
+                df.rename(columns={'tickers': 'symbols'}, inplace=True)
+                df['symbols'] = df['symbols'].apply(join_items)
+            
+            # Remove duplicates and process dates
+            if 'title' in df.columns:
+                df = df.drop_duplicates(subset=['title'])
+            
+            if 'id' in df.columns:
+                df['id'] = df['id'].astype(str)
+            
+            if 'publishedDate' in df.columns:
+                df['publishedDate'] = pd.to_datetime(df['publishedDate'], errors='coerce')
+                df = df.dropna(subset=['publishedDate'])
+            
+            # Cache results
+            if cache_data and not df.empty:
+                try:
+                    os.makedirs(cache_dir, exist_ok=True)
+                    df.to_csv(cache_path, index=False)
+                except Exception as e:
+                    logw(f"Failed to cache news for {symbol}: {e}")
+            
+            logd(f"Fetched {len(df)} news articles for {symbol}")
+            return df
+            
+        except ValueError as e:
+            loge(f"Validation error for {symbol}: {e}")
+            return None
+        except Exception as e:
+            loge(f"Error fetching news for {symbol}: {e}")
+            return None
+    
+    def close(self) -> None:
+        """Close the HTTP session."""
+        if hasattr(self, 'session'):
+            self.session.close()
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
-    def fetch_multiple_forex_intraday_prices(self, symbol_list: List[str], start_date_str: str, end_date_str: str, interval: TiingoIntradayInterval, cache_data=False, cache_dir="cache") -> pd.DataFrame:
-        prices_dict = {}
-        for symbol in symbol_list:
-            print(f"Fetching FOREX prices for {symbol}")
-            # fetch prices
-            prices_df = self.fetch_forex_intraday_prices(symbol, start_date_str, end_date_str,
-                                                         interval, cache_data=cache_data, cache_dir=cache_dir)
-            prices_dict[symbol] = prices_df
-        return prices_dict
+
+# Maintain backward compatibility
+TiingoDataLoader = OptimizedTiingoDataLoader
