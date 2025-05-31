@@ -18,3 +18,4 @@ sendgrid
 kaleido==0.1.0post1
 numpy
 pandas
+psutil>=5.8.0

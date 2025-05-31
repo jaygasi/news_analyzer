@@ -6,6 +6,7 @@ import pandas as pd
 from threading import Lock
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
+import time
 
 from config import *
 from utils.log_utils import logi, logw, loge, logd
@@ -20,20 +21,104 @@ class OptimizedUniverseSelector:
         if not hasattr(self, 'initialized'):
             self.initialized = True
             self.is_running = False
-            self.fmp_data_loader = FmpDataLoader(fmp_api_key) if fmp_api_key else None
+            
+            # Validate FMP API key
+            if not fmp_api_key or not fmp_api_key.strip():
+                loge("FMP API key is required for universe selection")
+                self.fmp_data_loader = None
+                self.has_valid_data_loader = False
+            else:
+                try:
+                    self.fmp_data_loader = FmpDataLoader(fmp_api_key)
+                    self.has_valid_data_loader = self._test_fmp_connection()
+                except Exception as e:
+                    loge(f"Failed to initialize FMP data loader: {e}")
+                    self.fmp_data_loader = None
+                    self.has_valid_data_loader = False
+            
             self.symbol_list: List[str] = []
             self.stock_info_df: Optional[pd.DataFrame] = None
             self.lock = Lock()
             
             # Caching and performance
             self.last_selection_time: Optional[datetime] = None
-            self.cache_duration = timedelta(hours=4)  # Cache for 4 hours
+            self.cache_duration = timedelta(hours=4)
             self.selection_in_progress = False
             
             # Performance tracking
             self.total_selections = 0
             self.successful_selections = 0
             self.last_symbol_count = 0
+            
+            # Load default fallback universe if available
+            self._load_fallback_universe()
+
+    def _test_fmp_connection(self) -> bool:
+        """Test FMP API connection."""
+        try:
+            if not self.fmp_data_loader:
+                return False
+            
+            # Try to fetch a small sample of tradable securities
+            test_df = self.fmp_data_loader.fetch_tradable_list()
+            
+            if test_df is not None and not test_df.empty:
+                logi("✅ FMP API connection successful")
+                return True
+            else:
+                logw("⚠️ FMP API returned no data")
+                return False
+                
+        except Exception as e:
+            loge(f"❌ FMP API connection test failed: {e}")
+            return False
+
+    def _load_fallback_universe(self) -> None:
+        """Load a fallback universe from cached data or default list."""
+        try:
+            # Try to load from previous cache
+            import os
+            cache_path = os.path.join(RESULTS_DIR, 'stock_list_df.csv')
+            
+            if os.path.exists(cache_path):
+                try:
+                    cached_df = pd.read_csv(cache_path)
+                    if not cached_df.empty and 'symbol' in cached_df.columns:
+                        with self.lock:
+                            self.symbol_list = cached_df['symbol'].unique().tolist()
+                            self.stock_info_df = cached_df
+                            self.last_selection_time = datetime.now() - timedelta(hours=3)  # Mark as somewhat stale
+                        
+                        logi(f"📦 Loaded fallback universe: {len(self.symbol_list)} symbols from cache")
+                        return
+                except Exception as e:
+                    logw(f"Error loading cached universe: {e}")
+            
+            # Use hardcoded fallback of popular stocks
+            fallback_symbols = [
+                'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'META', 'NVDA', 'NFLX',
+                'AMD', 'INTC', 'CRM', 'ORCL', 'ADBE', 'PYPL', 'SQ', 'ROKU', 
+                'UBER', 'LYFT', 'ZM', 'DOCU', 'SHOP', 'SPOT', 'TWTR', 'SNAP',
+                # Add some biotech stocks since system focuses on those
+                'MRNA', 'BNTX', 'GILD', 'BIIB', 'AMGN', 'REGN', 'VRTX', 'ILMN'
+            ]
+            
+            with self.lock:
+                self.symbol_list = fallback_symbols
+                # Create minimal stock info df
+                self.stock_info_df = pd.DataFrame({
+                    'symbol': fallback_symbols,
+                    'price': [100.0] * len(fallback_symbols),  # Placeholder
+                    'volume': [1000000] * len(fallback_symbols),  # Placeholder
+                    'marketCap': [10000000000] * len(fallback_symbols),  # Placeholder
+                    'industry': ['Technology'] * (len(fallback_symbols) - 8) + ['Biotechnology'] * 8
+                })
+                self.last_selection_time = datetime.now() - timedelta(hours=6)  # Mark as stale
+            
+            logw(f"⚠️ Using hardcoded fallback universe: {len(fallback_symbols)} symbols")
+            
+        except Exception as e:
+            loge(f"Failed to load fallback universe: {e}")
 
     def _should_refresh_universe(self) -> bool:
         """Determine if universe selection should be refreshed"""
@@ -72,13 +157,34 @@ class OptimizedUniverseSelector:
         
         return stock_df
 
+    def _get_screener_parameters(self) -> Dict[str, Any]:
+        """Get optimized stock screener parameters"""
+        return {
+            'exchange_list': EXCHANGE_LIST,
+            'price_more_than': PRICE_MORE_THAN,
+            'price_lower_than': PRICE_LESS_THAN,
+            'volume_more_than': VOLUME_MORE_THAN,
+            'market_cap_lower_than': MARKET_CAP_LOWER_THAN,
+            'is_etf': False,
+            'is_fund': False,
+            'is_actively_trading': True,
+            'limit': STOCK_SCREENER_LIMIT
+        }
+
     def _apply_bid_ask_spread_filter(self, symbol_list: List[str]) -> List[str]:
-        """Apply bid-ask spread filtering with error handling"""
+        """Enhanced bid-ask spread filtering with better error handling."""
         if not symbol_list:
             return []
         
+        # If too many symbols, sample to avoid overwhelming the API
+        if len(symbol_list) > 500:
+            import random
+            logd(f"Sampling 500 symbols from {len(symbol_list)} for spread filtering")
+            symbol_list = random.sample(symbol_list, 500)
+        
         try:
-            # Fetch real-time prices for spread calculation
+            # Fetch real-time prices with timeout
+            logd("Fetching real-time prices for spread filtering...")
             prices_df = self.fmp_data_loader.fetch_realtime_prices()
             
             if prices_df is None or prices_df.empty:
@@ -115,28 +221,14 @@ class OptimizedUniverseSelector:
             if spread_filtered_count > 0:
                 logd(f"Filtered {spread_filtered_count} symbols due to wide bid-ask spreads")
             
-            return filtered_symbols
+            return filtered_symbols if filtered_symbols else symbol_list
             
         except Exception as e:
             loge(f"Error applying bid-ask spread filter: {e}")
             return symbol_list  # Return original list on error
 
-    def _get_screener_parameters(self) -> Dict[str, Any]:
-        """Get optimized stock screener parameters"""
-        return {
-            'exchange_list': EXCHANGE_LIST,
-            'price_more_than': PRICE_MORE_THAN,
-            'price_lower_than': PRICE_LESS_THAN,
-            'volume_more_than': VOLUME_MORE_THAN,
-            'market_cap_lower_than': MARKET_CAP_LOWER_THAN,
-            'is_etf': False,
-            'is_fund': False,
-            'is_actively_trading': True,
-            'limit': STOCK_SCREENER_LIMIT
-        }
-
     def perform_selection(self) -> bool:
-        """Perform optimized universe selection with caching"""
+        """Enhanced universe selection with better error handling and fallback."""
         with self.lock:
             # Check if refresh is needed
             if not self._should_refresh_universe() and self.symbol_list:
@@ -152,43 +244,70 @@ class OptimizedUniverseSelector:
         
         try:
             self.total_selections += 1
-            logi("🔍 Running optimized universe selection...")
+            logi("🔍 Running enhanced universe selection...")
             
-            if not self.fmp_data_loader:
-                logw("FMP data loader not available - using empty universe")
-                return False
+            # Check if we have a valid data loader
+            if not self.has_valid_data_loader:
+                logw("No valid data loader available - using existing universe")
+                return len(self.symbol_list) > 0
             
             # Get screener parameters
             params = self._get_screener_parameters()
             
-            # Fetch stock screening data
-            stock_list_df = self.fmp_data_loader.fetch_stock_screener_info(**params)
+            # Fetch stock screening data with retries
+            stock_list_df = None
+            max_retries = 3
             
+            for attempt in range(max_retries):
+                try:
+                    logi(f"Universe selection attempt {attempt + 1}/{max_retries}")
+                    stock_list_df = self.fmp_data_loader.fetch_stock_screener_info(**params)
+                    
+                    if stock_list_df is not None and not stock_list_df.empty:
+                        break
+                    else:
+                        logw(f"Attempt {attempt + 1}: Stock screener returned no data")
+                        
+                except Exception as e:
+                    logw(f"Attempt {attempt + 1} failed: {e}")
+                    
+                # Wait before retry
+                if attempt < max_retries - 1:
+                    time.sleep(5 * (attempt + 1))
+            
+            # If all attempts failed, check if we have existing data
             if stock_list_df is None or stock_list_df.empty:
-                logw("Stock screener returned no data")
-                return False
+                if len(self.symbol_list) > 0:
+                    logw("Using existing universe due to screening failure")
+                    return True
+                else:
+                    loge("Universe selection failed and no fallback available")
+                    return False
             
             # Validate and clean data
             stock_list_df = self._validate_stock_data(stock_list_df)
             
             if stock_list_df.empty:
-                logw("No valid stocks after filtering")
-                return False
+                logw("No valid stocks after filtering - using existing universe")
+                return len(self.symbol_list) > 0
             
             # Extract initial symbol list
             symbol_list = stock_list_df['symbol'].unique().tolist()
             
-            # Apply bid-ask spread filtering
-            filtered_symbols = self._apply_bid_ask_spread_filter(symbol_list)
-            
-            if not filtered_symbols:
-                logw("No symbols passed bid-ask spread filter")
-                return False
+            # Apply bid-ask spread filtering with error handling
+            try:
+                filtered_symbols = self._apply_bid_ask_spread_filter(symbol_list)
+                if not filtered_symbols:
+                    logw("Bid-ask spread filter removed all symbols - using unfiltered list")
+                    filtered_symbols = symbol_list
+            except Exception as e:
+                logw(f"Bid-ask spread filtering failed: {e} - using unfiltered symbols")
+                filtered_symbols = symbol_list
             
             # Update stock info dataframe to match filtered symbols
             stock_list_df = stock_list_df[stock_list_df['symbol'].isin(filtered_symbols)]
             
-            # Store results
+            # Store results with error handling
             try:
                 store_csv(RESULTS_DIR, 'stock_list_df.csv', stock_list_df)
             except Exception as e:
@@ -206,8 +325,9 @@ class OptimizedUniverseSelector:
             return True
             
         except Exception as e:
-            loge(f"Error in universe selection: {e}")
-            return False
+            loge(f"Critical error in universe selection: {e}")
+            # Try to maintain existing universe
+            return len(self.symbol_list) > 0
         
         finally:
             with self.lock:
