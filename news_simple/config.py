@@ -1,5 +1,5 @@
 """
-Enhanced configuration with testing parameters for debugging
+Enhanced configuration with testing parameters and multi-API support
 """
 import os
 from dataclasses import dataclass, field
@@ -12,7 +12,7 @@ load_dotenv()
 
 @dataclass
 class Config:
-    """Enhanced configuration with comprehensive type hints and validation."""
+    """Enhanced configuration with comprehensive type hints and multi-API support."""
     
     # Directories
     log_dir: Path = field(default_factory=lambda: Path("logs"))
@@ -53,8 +53,9 @@ class Config:
     min_market_cap: int = 100_000_000
     
     # AI ensemble weights
-    finbert_weight: float = 0.6
-    keyword_weight: float = 0.4
+    finbert_weight: float = 0.4          # Reduced to make room for Gemini
+    keyword_weight: float = 0.2          # Reduced to make room for Gemini
+    gemini_weight: float = 0.4           # NEW: Gemini gets significant weight
     
     # Position sizing factors
     min_position_multiplier: float = 0.5
@@ -81,14 +82,38 @@ class Config:
             raise ValueError("Take profit percentage must be between 0 and 1")
         if not (0 <= self.min_confidence_score <= 1):
             raise ValueError("Minimum confidence score must be between 0 and 1")
+        
+        # Validate ensemble weights sum close to 1.0
+        total_weight = self.finbert_weight + self.keyword_weight + self.gemini_weight
+        if abs(total_weight - 1.0) > 0.1:
+            raise ValueError(f"AI ensemble weights should sum to 1.0, got {total_weight}")
     
     def get_api_key(self, provider: str) -> Optional[str]:
         """Get API key from environment variables with validation."""
         if not provider:
             return None
         
-        key = os.getenv(f"{provider.upper()}_API_KEY")
+        # Map provider names to environment variable names
+        provider_map = {
+            'fmp': 'FMP_API_KEY',
+            'gemini': 'GEMINI_API_KEY',
+            'polygon': 'POLYGON_API_KEY',
+            'tiingo': 'TIINGO_API_KEY',
+            'alpha_vantage': 'ALPHA_VANTAGE_API_KEY'
+        }
+        
+        env_var = provider_map.get(provider.lower(), f"{provider.upper()}_API_KEY")
+        key = os.getenv(env_var)
         return key.strip() if key else None
+    
+    def get_gemini_model(self) -> str:
+        """Get Gemini model from environment variable with fallback."""
+        model = os.getenv('GEMINI_MODEL')
+        if model and model.strip():
+            return model.strip()
+        
+        # Default fallback models in order of preference
+        return 'gemini-1.5-pro'  # Default to the latest model
 
 
 # Global config instance
