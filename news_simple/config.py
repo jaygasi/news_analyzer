@@ -1,36 +1,41 @@
 """
-Enhanced configuration with technical analysis parameters
+Enhanced configuration with testing parameters for debugging
 """
 import os
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field
+from typing import Optional
 from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
 
+
 @dataclass
 class Config:
-    """Enhanced configuration with technical analysis settings"""
+    """Enhanced configuration with comprehensive type hints and validation."""
     
     # Directories
-    log_dir: Path = Path("logs")
-    cache_dir: Path = Path("cache")
-    results_dir: Path = Path("results")
-    trade_log_path: Path = Path("trade_logs")
+    log_dir: Path = field(default_factory=lambda: Path("logs"))
+    cache_dir: Path = field(default_factory=lambda: Path("cache"))
+    results_dir: Path = field(default_factory=lambda: Path("results"))
+    trade_log_path: Path = field(default_factory=lambda: Path("trade_logs"))
     trade_log_file: str = "enhanced_trade_log.csv"
     
     # Trading parameters
-    position_size: float = 10000.0  # Base position size
-    stop_loss_pct: float = 0.05     # 5% stop loss
-    take_profit_pct: float = 0.10   # 10% take profit
-    min_confidence_score: float = 0.7  # Minimum combined confidence
+    position_size: float = 10000.0
+    stop_loss_pct: float = 0.05
+    take_profit_pct: float = 0.10
+    
+    # CONFIDENCE THRESHOLD - LOWER FOR TESTING
+    # Set to 0.5 to see more trading activity for debugging
+    # Change back to 0.7 once you confirm the system works
+    min_confidence_score: float = 0.5  # Was 0.7 - temporarily lowered for testing
     
     # Technical analysis thresholds
-    min_liquidity_score: float = 0.3      # Minimum liquidity requirement
-    max_bid_ask_spread: float = 0.05      # 5% maximum spread
-    min_volume_score: float = 0.2         # Minimum volume activity
-    min_technical_confidence: float = 0.3 # Minimum technical confidence
+    min_liquidity_score: float = 0.3
+    max_bid_ask_spread: float = 0.05
+    min_volume_score: float = 0.2
+    min_technical_confidence: float = 0.3
     
     # Data collection intervals (seconds)
     news_check_interval: int = 30
@@ -44,29 +49,47 @@ class Config:
     max_symbols: int = 500
     min_price: float = 2.0
     max_price: float = 500.0
-    min_volume: int = 100000  # Increased for better liquidity
-    min_market_cap: int = 100_000_000  # $100M minimum
+    min_volume: int = 100000
+    min_market_cap: int = 100_000_000
     
     # AI ensemble weights
     finbert_weight: float = 0.6
     keyword_weight: float = 0.4
     
     # Position sizing factors
-    min_position_multiplier: float = 0.5   # 50% minimum position
-    max_position_multiplier: float = 1.5   # 150% maximum position
+    min_position_multiplier: float = 0.5
+    max_position_multiplier: float = 1.5
     
-    def __post_init__(self):
-        """Create directories if they don't exist"""
-        for directory in [self.log_dir, self.cache_dir, self.results_dir, self.trade_log_path]:
+    def __post_init__(self) -> None:
+        """Create directories and validate configuration."""
+        self._create_directories()
+        self._validate_parameters()
+    
+    def _create_directories(self) -> None:
+        """Create required directories if they don't exist."""
+        directories = [self.log_dir, self.cache_dir, self.results_dir, self.trade_log_path]
+        for directory in directories:
             directory.mkdir(parents=True, exist_ok=True)
     
+    def _validate_parameters(self) -> None:
+        """Validate configuration parameters."""
+        if self.position_size <= 0:
+            raise ValueError("Position size must be positive")
+        if not (0 < self.stop_loss_pct < 1):
+            raise ValueError("Stop loss percentage must be between 0 and 1")
+        if not (0 < self.take_profit_pct < 1):
+            raise ValueError("Take profit percentage must be between 0 and 1")
+        if not (0 <= self.min_confidence_score <= 1):
+            raise ValueError("Minimum confidence score must be between 0 and 1")
+    
     def get_api_key(self, provider: str) -> Optional[str]:
-        """Get API key from environment variables"""
+        """Get API key from environment variables with validation."""
+        if not provider:
+            return None
+        
         key = os.getenv(f"{provider.upper()}_API_KEY")
         return key.strip() if key else None
 
+
 # Global config instance
 CONFIG = Config()
-
-# Ensure directories exist
-CONFIG.__post_init__()
