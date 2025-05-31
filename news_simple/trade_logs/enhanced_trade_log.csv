@@ -1,0 +1,1 @@
+trade_id,symbol,side,entry_price,position_size,entry_time,exit_price,exit_time,exit_reason,pnl,news_title,news_confidence,combined_confidence,finbert_score,keyword_score,topic,technical_confidence,liquidity_score,momentum_score,volume_score,rsi,price_trend,bid_ask_spread,market_regime,market_stress,time_score,entry_timing
