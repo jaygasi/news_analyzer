@@ -1,5 +1,5 @@
 """
-Enhanced configuration with testing parameters and multi-API support
+Enhanced configuration with better Gemini model and rate limiting
 """
 import os
 from dataclasses import dataclass, field
@@ -45,6 +45,9 @@ class Config:
     api_rate_limit: int = 100
     request_timeout: int = 30
     
+    # TESTING MODE - Set to True to bypass market hours for testing
+    testing_mode: bool = False  # Set to True for testing after market hours
+    
     # Universe selection - enhanced criteria
     max_symbols: int = 500
     min_price: float = 2.0
@@ -52,10 +55,10 @@ class Config:
     min_volume: int = 100000
     min_market_cap: int = 100_000_000
     
-    # AI ensemble weights
-    finbert_weight: float = 0.4          # Reduced to make room for Gemini
-    keyword_weight: float = 0.2          # Reduced to make room for Gemini
-    gemini_weight: float = 0.4           # NEW: Gemini gets significant weight
+    # AI ensemble weights - Adjusted for better Gemini fallback
+    finbert_weight: float = 0.5          # Increased when Gemini fails
+    keyword_weight: float = 0.3          # Increased when Gemini fails  
+    gemini_weight: float = 0.2           # Reduced weight due to rate limits
     
     # Position sizing factors
     min_position_multiplier: float = 0.5
@@ -107,13 +110,15 @@ class Config:
         return key.strip() if key else None
     
     def get_gemini_model(self) -> str:
-        """Get Gemini model from environment variable with fallback."""
+        """Get Gemini model from environment variable with better fallback."""
         model = os.getenv('GEMINI_MODEL')
         if model and model.strip():
             return model.strip()
         
-        # Default fallback models in order of preference
-        return 'gemini-1.5-pro'  # Default to the latest model
+        # BETTER DEFAULT: Use Flash for much better rate limits
+        # Flash: 15 RPM, 1M TPM, 1500 RPD (FREE)
+        # vs Pro: 2 RPM, 32K TPM, 50 RPD (FREE)
+        return 'gemini-1.5-flash'  # Much better rate limits!
 
 
 # Global config instance
