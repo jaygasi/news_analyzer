@@ -1,10 +1,10 @@
 """
-Optimized trader with comprehensive filtering and improved performance
+Optimized trader with comprehensive filtering, improved performance, and enhanced article combination
 """
 import pandas as pd
 from typing import List, Optional, Dict, Any, Tuple
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import csv
 from pathlib import Path
 from config import CONFIG
@@ -14,7 +14,7 @@ from analysis.market_filters import (
     MarketFilter, NewsQualityFilter, PriceActionFilter, 
     PortfolioRiskFilter, EntryTimingOptimizer
 )
-from utils.simple_logger import log_info, log_error, log_warning
+from utils.simple_logger import log_info, log_error, log_warning, log_debug
 
 
 @dataclass
@@ -61,7 +61,7 @@ class EnhancedTrade:
 
 
 class EnhancedTrader:
-    """Optimized trader with comprehensive filtering and performance improvements."""
+    """Optimized trader with comprehensive filtering, performance improvements, and enhanced article combination."""
     
     def __init__(self, fmp_loader) -> None:
         """Initialize with optimized components and error handling."""
@@ -69,6 +69,10 @@ class EnhancedTrader:
         self.active_trades: Dict[str, EnhancedTrade] = {}
         self.trade_log_file = CONFIG.trade_log_path / CONFIG.trade_log_file
         self.trade_counter = 0
+        
+        # Article combination settings
+        self.article_combination_window = timedelta(hours=4)
+        self.breaking_news_window = timedelta(minutes=30)
         
         # Initialize filter components
         self._initialize_filters()
@@ -228,16 +232,16 @@ class EnhancedTrader:
     
     def process_news_signals(self, analyses: List[EnhancedNewsAnalysis], 
                            current_prices: pd.DataFrame) -> None:
-        """Process news signals with deduplication and ALWAYS log recommendations to CSV for backtesting."""
+        """Process news signals with enhanced deduplication and ALWAYS log recommendations to CSV for backtesting."""
         if not analyses or current_prices is None or current_prices.empty:
             return
         
         try:
-            # STEP 1: Deduplicate signals by symbol (take highest confidence per symbol)
+            # STEP 1: Enhanced deduplicate signals by symbol with article combination
             deduplicated_analyses = self._deduplicate_signals_by_symbol(analyses)
             
             if len(deduplicated_analyses) < len(analyses):
-                log_info(f"Deduplicated signals: {len(analyses)} -> {len(deduplicated_analyses)} (removed duplicates)")
+                log_info(f"Enhanced deduplication: {len(analyses)} -> {len(deduplicated_analyses)} signals")
             
             # STEP 2: Always log all deduplicated recommendations regardless of market conditions
             recommendations_logged = self._log_all_recommendations(deduplicated_analyses, current_prices)
@@ -264,39 +268,246 @@ class EnhancedTrader:
             log_error(f"Error processing news signals: {e}")
     
     def _deduplicate_signals_by_symbol(self, analyses: List[EnhancedNewsAnalysis]) -> List[EnhancedNewsAnalysis]:
-        """Deduplicate signals by symbol, keeping the highest confidence signal for each symbol."""
+        """Enhanced deduplication with article combination logic"""
         if not analyses:
             return analyses
         
         try:
-            # Group by symbol and keep highest confidence
-            symbol_best_signals = {}
+            # Group articles by symbol with time intelligence
+            symbol_groups = self._group_articles_by_symbol_enhanced(analyses)
             
-            for analysis in analyses:
-                symbol = analysis.symbol
-                current_confidence = analysis.combined_confidence
-                
-                if symbol not in symbol_best_signals:
-                    symbol_best_signals[symbol] = analysis
-                else:
-                    # Keep the analysis with higher confidence
-                    existing_confidence = symbol_best_signals[symbol].combined_confidence
-                    if current_confidence > existing_confidence:
-                        log_info(f"Updated {symbol} signal: conf {existing_confidence:.3f} -> {current_confidence:.3f}")
-                        symbol_best_signals[symbol] = analysis
-                    else:
-                        log_info(f"Kept existing {symbol} signal: conf {existing_confidence:.3f} > {current_confidence:.3f}")
-            
-            deduplicated = list(symbol_best_signals.values())
+            # Create combined analyses
+            combined_analyses = []
+            for symbol, articles in symbol_groups.items():
+                try:
+                    combined_analysis = self._create_combined_analysis(symbol, articles)
+                    if combined_analysis:
+                        combined_analyses.append(combined_analysis)
+                        if len(articles) > 1:
+                            log_debug(f"Combined {len(articles)} articles for {symbol} -> conf={combined_analysis.combined_confidence:.3f}")
+                except Exception as e:
+                    log_error(f"Error combining articles for {symbol}: {e}")
+                    # Fallback to highest confidence (original logic)
+                    best_analysis = max(articles, key=lambda x: x.combined_confidence)
+                    combined_analyses.append(best_analysis)
             
             # Sort by confidence descending
-            deduplicated.sort(key=lambda x: x.combined_confidence, reverse=True)
+            combined_analyses.sort(key=lambda x: x.combined_confidence, reverse=True)
             
-            return deduplicated
+            return combined_analyses
             
         except Exception as e:
-            log_error(f"Error deduplicating signals: {e}")
-            return analyses
+            log_error(f"Error in enhanced deduplication: {e}")
+            # Fallback to original simple logic
+            return self._deduplicate_signals_simple_fallback(analyses)
+    
+    def _group_articles_by_symbol_enhanced(self, analyses: List[EnhancedNewsAnalysis]) -> Dict[str, List[EnhancedNewsAnalysis]]:
+        """Group articles by symbol with time filtering"""
+        symbol_groups = {}
+        current_time = datetime.now(timezone.utc)
+        
+        for analysis in analyses:
+            symbol = analysis.symbol
+            
+            # Calculate article age
+            try:
+                article_time = analysis.timestamp.to_pydatetime() if hasattr(analysis.timestamp, 'to_pydatetime') else current_time
+                time_diff = current_time - article_time
+                
+                # Only include articles within combination window (4 hours)
+                if time_diff <= self.article_combination_window:
+                    if symbol not in symbol_groups:
+                        symbol_groups[symbol] = []
+                    symbol_groups[symbol].append(analysis)
+                else:
+                    log_debug(f"Excluding stale article for {symbol}: {time_diff.total_seconds()/3600:.1f}h old")
+            except Exception as e:
+                log_debug(f"Error processing timestamp for {symbol}: {e}")
+                # Include article anyway if timestamp processing fails
+                if symbol not in symbol_groups:
+                    symbol_groups[symbol] = []
+                symbol_groups[symbol].append(analysis)
+        
+        return symbol_groups
+    
+    def _create_combined_analysis(self, symbol: str, articles: List[EnhancedNewsAnalysis]) -> EnhancedNewsAnalysis:
+        """Create combined analysis from multiple articles"""
+        if len(articles) == 1:
+            return articles[0]
+        
+        # Use highest confidence article as base
+        base_analysis = max(articles, key=lambda x: x.combined_confidence)
+        
+        # Calculate enhanced metrics
+        enhanced_sentiment = self._calculate_enhanced_sentiment(articles)
+        combined_confidence = self._calculate_article_synergy_confidence(articles, base_analysis)
+        combined_title = f"[{len(articles)} ARTICLES] {base_analysis.title}"
+        
+        # Create new combined analysis
+        combined_analysis = EnhancedNewsAnalysis(
+            symbol=symbol,
+            title=combined_title,
+            content=base_analysis.content,  # Keep base content
+            sentiment_score=enhanced_sentiment,
+            confidence=base_analysis.confidence,
+            topic=base_analysis.topic,
+            timestamp=base_analysis.timestamp,
+            finbert_score=base_analysis.finbert_score,
+            keyword_score=base_analysis.keyword_score,
+            gemini_score=base_analysis.gemini_score,
+            gemini_confidence=base_analysis.gemini_confidence,
+            gemini_reasoning=base_analysis.gemini_reasoning,
+            technical_analysis=base_analysis.technical_analysis,
+            strategy_signals=base_analysis.strategy_signals,
+            best_strategy=base_analysis.best_strategy,
+            combined_confidence=combined_confidence
+        )
+        
+        log_info(f"COMBINED SIGNAL: {symbol} ({len(articles)} articles) "
+                f"sentiment={enhanced_sentiment:.3f} -> {combined_confidence:.3f} "
+                f"theme_boost={(combined_confidence/base_analysis.combined_confidence):.2f}x")
+        
+        return combined_analysis
+    
+    def _calculate_enhanced_sentiment(self, articles: List[EnhancedNewsAnalysis]) -> float:
+        """Calculate sentiment with article combination logic"""
+        if not articles:
+            return 0.0
+        
+        # Time-weighted average
+        current_time = datetime.now(timezone.utc)
+        weighted_sentiment = 0.0
+        total_weight = 0.0
+        sentiments = []
+        
+        for analysis in articles:
+            try:
+                article_time = analysis.timestamp.to_pydatetime() if hasattr(analysis.timestamp, 'to_pydatetime') else current_time
+                time_diff = current_time - article_time
+                hours_old = time_diff.total_seconds() / 3600
+                
+                # Time weight (more recent = higher weight)
+                if hours_old <= 0.5:
+                    time_weight = 1.0
+                elif hours_old <= 1:
+                    time_weight = 0.9
+                elif hours_old <= 2:
+                    time_weight = 0.7
+                else:
+                    time_weight = 0.5
+                
+                # Combine with confidence weight
+                final_weight = time_weight * analysis.combined_confidence
+                
+                weighted_sentiment += analysis.sentiment_score * final_weight
+                total_weight += final_weight
+                sentiments.append(analysis.sentiment_score)
+                
+            except Exception as e:
+                log_debug(f"Error calculating sentiment weight: {e}")
+                # Fallback to equal weight
+                weighted_sentiment += analysis.sentiment_score
+                total_weight += 1.0
+                sentiments.append(analysis.sentiment_score)
+        
+        if total_weight == 0:
+            return 0.0
+        
+        base_sentiment = weighted_sentiment / total_weight
+        
+        # Theme consistency bonus
+        theme_bonus = self._calculate_theme_consistency(sentiments)
+        enhanced_sentiment = base_sentiment * theme_bonus
+        
+        return max(-1.0, min(1.0, enhanced_sentiment))
+    
+    def _calculate_article_synergy_confidence(self, articles: List[EnhancedNewsAnalysis], base_analysis: EnhancedNewsAnalysis) -> float:
+        """Calculate confidence boost from multiple articles"""
+        base_confidence = base_analysis.combined_confidence
+        article_count = len(articles)
+        
+        # Article count bonus
+        if article_count >= 3:
+            count_bonus = 1.25
+        elif article_count == 2:
+            count_bonus = 1.1
+        else:
+            count_bonus = 1.0
+        
+        # Breaking news bonus (articles within 30 minutes)
+        current_time = datetime.now(timezone.utc)
+        breaking_count = 0
+        for analysis in articles:
+            try:
+                article_time = analysis.timestamp.to_pydatetime() if hasattr(analysis.timestamp, 'to_pydatetime') else current_time
+                time_diff = current_time - article_time
+                if time_diff <= self.breaking_news_window:
+                    breaking_count += 1
+            except:
+                pass
+        
+        breaking_bonus = 1.0 + (breaking_count * 0.05)  # 5% per breaking news article
+        
+        # Quality consistency check
+        confidences = [a.combined_confidence for a in articles]
+        min_confidence = min(confidences)
+        avg_confidence = sum(confidences) / len(confidences)
+        
+        if min_confidence > 0.5 and avg_confidence > 0.6:
+            quality_bonus = 1.1
+        else:
+            quality_bonus = 1.0
+        
+        # Calculate final confidence
+        combined_confidence = base_confidence * count_bonus * breaking_bonus * quality_bonus
+        
+        return min(combined_confidence, 1.0)
+    
+    def _calculate_theme_consistency(self, sentiments: List[float]) -> float:
+        """Calculate theme consistency bonus/penalty"""
+        if len(sentiments) <= 1:
+            return 1.0
+        
+        positive_count = sum(1 for s in sentiments if s > 0.2)
+        negative_count = sum(1 for s in sentiments if s < -0.2)
+        total_articles = len(sentiments)
+        
+        # Strong theme bonus
+        if positive_count / total_articles >= 0.8 or negative_count / total_articles >= 0.8:
+            return 1.3  # 30% boost for strong theme
+        
+        # Moderate theme bonus
+        elif positive_count / total_articles >= 0.6 or negative_count / total_articles >= 0.6:
+            return 1.15  # 15% boost
+        
+        # Mixed signals penalty
+        elif positive_count > 0 and negative_count > 0:
+            return 0.9  # 10% penalty for conflicting signals
+        
+        return 1.0
+    
+    def _deduplicate_signals_simple_fallback(self, analyses: List[EnhancedNewsAnalysis]) -> List[EnhancedNewsAnalysis]:
+        """Fallback to original simple deduplication"""
+        symbol_best_signals = {}
+        
+        for analysis in analyses:
+            symbol = analysis.symbol
+            current_confidence = analysis.combined_confidence
+            
+            if symbol not in symbol_best_signals:
+                symbol_best_signals[symbol] = analysis
+            else:
+                existing_confidence = symbol_best_signals[symbol].combined_confidence
+                if current_confidence > existing_confidence:
+                    log_info(f"Updated {symbol} signal: conf {existing_confidence:.3f} -> {current_confidence:.3f}")
+                    symbol_best_signals[symbol] = analysis
+                else:
+                    log_info(f"Kept existing {symbol} signal: conf {existing_confidence:.3f} > {current_confidence:.3f}")
+        
+        deduplicated = list(symbol_best_signals.values())
+        deduplicated.sort(key=lambda x: x.combined_confidence, reverse=True)
+        
+        return deduplicated
     
     def _log_all_recommendations(self, analyses: List[EnhancedNewsAnalysis], 
                                current_prices: pd.DataFrame) -> int:
