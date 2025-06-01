@@ -8,12 +8,27 @@ from typing import Optional
 from config import CONFIG
 
 
-def setup_logger(name: str = "trading_system") -> logging.Logger:
-    """Setup logger with proper encoding support for cross-platform compatibility."""
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
+class LoggerManager:
+    """Singleton logger manager for consistent logging across the application."""
     
-    if not logger.handlers:
+    _instance: Optional[logging.Logger] = None
+    
+    @classmethod
+    def get_logger(cls, name: str = "trading_system") -> logging.Logger:
+        """Get or create logger instance."""
+        if cls._instance is None:
+            cls._instance = cls._setup_logger(name)
+        return cls._instance
+    
+    @classmethod
+    def _setup_logger(cls, name: str) -> logging.Logger:
+        """Setup logger with proper encoding support for cross-platform compatibility."""
+        logger = logging.getLogger(name)
+        logger.setLevel(logging.INFO)
+        
+        if logger.handlers:
+            return logger
+        
         # Console handler with UTF-8 encoding
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(logging.INFO)
@@ -23,7 +38,7 @@ def setup_logger(name: str = "trading_system") -> logging.Logger:
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setLevel(logging.DEBUG)
         
-        # Formatter without problematic characters
+        # Clean formatter without problematic characters
         formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
@@ -32,59 +47,46 @@ def setup_logger(name: str = "trading_system") -> logging.Logger:
         
         logger.addHandler(console_handler)
         logger.addHandler(file_handler)
-    
-    return logger
+        
+        return logger
 
 
 # Global logger instance
-logger = setup_logger()
-
-
-def log_info(msg: str) -> None:
-    """Log info message with emoji removal for compatibility."""
-    # Remove emojis and problematic unicode characters
-    cleaned_msg = _clean_message(msg)
-    logger.info(cleaned_msg)
-
-
-def log_error(msg: str) -> None:
-    """Log error message with emoji removal for compatibility."""
-    cleaned_msg = _clean_message(msg)
-    logger.error(cleaned_msg)
-
-
-def log_debug(msg: str) -> None:
-    """Log debug message with emoji removal for compatibility."""
-    cleaned_msg = _clean_message(msg)
-    logger.debug(cleaned_msg)
-
-
-def log_warning(msg: str) -> None:
-    """Log warning message with emoji removal for compatibility."""
-    cleaned_msg = _clean_message(msg)
-    logger.warning(cleaned_msg)
+logger = LoggerManager.get_logger()
 
 
 def _clean_message(msg: str) -> str:
     """Remove emoji and problematic unicode characters for cross-platform compatibility."""
-    # Replace common emojis with text equivalents
-    replacements = {
-        '🚀': '[START]',
-        '📋': '[INFO]',
-        '✅': '[OK]',
-        '💰': '[MONEY]',
-        '🎯': '[TARGET]',
-        '📊': '[STATUS]',
-        '🏁': '[STOP]',
-        '⚠️': '[WARNING]',
+    # Emoji replacements
+    emoji_replacements = {
+        '🚀': '[START]', '📋': '[INFO]', '✅': '[OK]', '💰': '[MONEY]',
+        '🎯': '[TARGET]', '📊': '[STATUS]', '🏁': '[STOP]', '⚠️': '[WARNING]',
         '📈': '[CHART]'
     }
     
     cleaned = msg
-    for emoji, replacement in replacements.items():
+    for emoji, replacement in emoji_replacements.items():
         cleaned = cleaned.replace(emoji, replacement)
     
-    # Remove any remaining emoji characters (basic approach)
-    cleaned = ''.join(char for char in cleaned if ord(char) < 0x1F600 or ord(char) > 0x1F64F)
-    
-    return cleaned
+    # Remove remaining emoji characters
+    return ''.join(char for char in cleaned if ord(char) < 0x1F600 or ord(char) > 0x1F64F)
+
+
+def log_info(msg: str) -> None:
+    """Log info message with emoji removal for compatibility."""
+    logger.info(_clean_message(msg))
+
+
+def log_error(msg: str) -> None:
+    """Log error message with emoji removal for compatibility."""
+    logger.error(_clean_message(msg))
+
+
+def log_debug(msg: str) -> None:
+    """Log debug message with emoji removal for compatibility."""
+    logger.debug(_clean_message(msg))
+
+
+def log_warning(msg: str) -> None:
+    """Log warning message with emoji removal for compatibility."""
+    logger.warning(_clean_message(msg))

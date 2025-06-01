@@ -2,8 +2,8 @@
 Optimized trader with comprehensive filtering and improved performance
 """
 import pandas as pd
-from typing import List, Optional, Dict, Any
-from dataclasses import dataclass, asdict
+from typing import List, Optional, Dict, Any, Tuple
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import csv
 from pathlib import Path
@@ -30,6 +30,11 @@ class EnhancedTrade:
     exit_time: Optional[datetime] = None
     exit_reason: Optional[str] = None
     pnl: Optional[float] = None
+    
+    # Trade execution status
+    trade_type: str = "LIVE"  # "LIVE", "PAPER", "RECOMMENDATION"
+    execution_status: str = "PENDING"  # "PENDING", "EXECUTED", "REJECTED"
+    rejection_reason: str = ""
     
     # News analysis data
     news_title: str = ""
@@ -85,28 +90,34 @@ class EnhancedTrader:
     
     def _setup_trade_log(self) -> None:
         """Setup comprehensive trade log CSV with proper headers."""
+        if self.trade_log_file.exists():
+            return
+        
         try:
-            if not self.trade_log_file.exists():
-                headers = [
-                    # Trade basics
-                    'trade_id', 'symbol', 'side', 'entry_price', 'position_size',
-                    'entry_time', 'exit_price', 'exit_time', 'exit_reason', 'pnl',
-                    
-                    # News analysis
-                    'news_title', 'news_confidence', 'combined_confidence',
-                    'finbert_score', 'keyword_score', 'topic',
-                    
-                    # Technical analysis
-                    'technical_confidence', 'liquidity_score', 'momentum_score',
-                    'volume_score', 'rsi', 'price_trend', 'bid_ask_spread',
-                    
-                    # Market conditions
-                    'market_regime', 'market_stress', 'time_score', 'entry_timing'
-                ]
+            headers = [
+                # Trade basics
+                'trade_id', 'symbol', 'side', 'entry_price', 'position_size',
+                'entry_time', 'exit_price', 'exit_time', 'exit_reason', 'pnl',
                 
-                with open(self.trade_log_file, 'w', newline='', encoding='utf-8') as f:
-                    writer = csv.writer(f)
-                    writer.writerow(headers)
+                # Trade execution status (NEW COLUMNS)
+                'trade_type', 'execution_status', 'rejection_reason',
+                
+                # News analysis
+                'news_title', 'news_confidence', 'combined_confidence',
+                'finbert_score', 'keyword_score', 'topic',
+                
+                # Technical analysis
+                'technical_confidence', 'liquidity_score', 'momentum_score',
+                'volume_score', 'rsi', 'price_trend', 'bid_ask_spread',
+                
+                # Market conditions
+                'market_regime', 'market_stress', 'time_score', 'entry_timing'
+            ]
+            
+            with open(self.trade_log_file, 'w', newline='', encoding='utf-8') as f:
+                csv.writer(f).writerow(headers)
+                
+            log_info(f"Created new trade log with {len(headers)} columns including new execution tracking")
                     
         except Exception as e:
             log_error(f"Error setting up trade log: {e}")
@@ -115,25 +126,25 @@ class EnhancedTrader:
     def _log_trade(self, trade: EnhancedTrade) -> None:
         """Log comprehensive trade data to CSV with error handling."""
         try:
+            trade_data = [
+                trade.id, trade.symbol, trade.side, trade.entry_price,
+                trade.position_size, trade.entry_time, trade.exit_price,
+                trade.exit_time, trade.exit_reason, trade.pnl,
+                
+                # Trade execution status (NEW COLUMNS)
+                trade.trade_type, trade.execution_status, trade.rejection_reason,
+                
+                trade.news_title, trade.news_confidence, trade.combined_confidence,
+                trade.finbert_score, trade.keyword_score, trade.topic,
+                
+                trade.technical_confidence, trade.liquidity_score, trade.momentum_score,
+                trade.volume_score, trade.rsi, trade.price_trend, trade.bid_ask_spread,
+                
+                trade.market_regime, trade.market_stress, trade.time_score, trade.entry_timing
+            ]
+            
             with open(self.trade_log_file, 'a', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                
-                # Convert dataclass to ordered list
-                trade_data = [
-                    trade.id, trade.symbol, trade.side, trade.entry_price,
-                    trade.position_size, trade.entry_time, trade.exit_price,
-                    trade.exit_time, trade.exit_reason, trade.pnl,
-                    
-                    trade.news_title, trade.news_confidence, trade.combined_confidence,
-                    trade.finbert_score, trade.keyword_score, trade.topic,
-                    
-                    trade.technical_confidence, trade.liquidity_score, trade.momentum_score,
-                    trade.volume_score, trade.rsi, trade.price_trend, trade.bid_ask_spread,
-                    
-                    trade.market_regime, trade.market_stress, trade.time_score, trade.entry_timing
-                ]
-                
-                writer.writerow(trade_data)
+                csv.writer(f).writerow(trade_data)
                 
         except Exception as e:
             log_error(f"Error logging trade {trade.id}: {e}")
@@ -150,7 +161,6 @@ class EnhancedTrader:
             return news_df
         
         try:
-            # Apply news quality filters
             filtered_news = self.news_filter.filter_news_quality(news_df)
             
             if filtered_news is not None:
@@ -163,54 +173,41 @@ class EnhancedTrader:
                 return filtered_news
             else:
                 log_warning("News filter returned None")
-                return pd.DataFrame()  # Return empty DataFrame instead of None
+                return pd.DataFrame()
                 
         except Exception as e:
             log_error(f"Error in news pre-filtering: {e}")
-            return news_df  # Return original on error
+            return news_df
     
     def _determine_position_size(self, analysis: EnhancedNewsAnalysis) -> float:
         """Enhanced dynamic position sizing with risk management."""
         try:
             base_size = CONFIG.position_size
-            
-            # Start with combined confidence
             confidence_multiplier = analysis.combined_confidence
             
             # Technical adjustments
             if analysis.technical_analysis:
                 tech = analysis.technical_analysis
                 
-                # Volatility adjustment (reduce size for high volatility)
+                # Calculate adjustment factors
                 volatility_factor = max(0.5, 1.0 - (tech.volatility_score * 0.3))
-                
-                # Liquidity adjustment (reduce size for poor liquidity)
                 liquidity_factor = max(0.5, tech.liquidity_score)
                 
                 # Momentum alignment bonus
-                momentum_boost = 1.0
-                sentiment = analysis.sentiment_score
-                momentum = tech.momentum_score
-                
-                if abs(sentiment) > 0.3 and abs(momentum) > 0.2:
-                    if (sentiment > 0) == (momentum > 0):
-                        momentum_boost = 1.15  # Aligned signals
+                momentum_boost = self._calculate_momentum_boost(analysis.sentiment_score, tech.momentum_score)
                 
                 confidence_multiplier *= volatility_factor * liquidity_factor * momentum_boost
             
             # Topic-based multipliers
             topic_multipliers = {
-                'earnings': 1.1,
-                'biotech': 1.2,
-                'ma': 1.15,
-                'analyst': 0.9,
-                'general': 0.95
+                'earnings': 1.1, 'biotech': 1.2, 'ma': 1.15,
+                'analyst': 0.9, 'general': 0.95
             }
             
             topic_mult = topic_multipliers.get(analysis.topic, 1.0)
             confidence_multiplier *= topic_mult
             
-            # Apply position sizing bounds
+            # Apply bounds
             final_multiplier = max(
                 CONFIG.min_position_multiplier,
                 min(CONFIG.max_position_multiplier, confidence_multiplier)
@@ -222,33 +219,187 @@ class EnhancedTrader:
             log_error(f"Error calculating position size: {e}")
             return CONFIG.position_size * CONFIG.min_position_multiplier
     
+    def _calculate_momentum_boost(self, sentiment_score: float, momentum_score: float) -> float:
+        """Calculate momentum alignment boost."""
+        if abs(sentiment_score) > 0.3 and abs(momentum_score) > 0.2:
+            if (sentiment_score > 0) == (momentum_score > 0):
+                return 1.15  # Aligned signals
+        return 1.0
+    
     def process_news_signals(self, analyses: List[EnhancedNewsAnalysis], 
                            current_prices: pd.DataFrame) -> None:
-        """Process news signals with comprehensive filtering pipeline."""
+        """Process news signals with deduplication and ALWAYS log recommendations to CSV for backtesting."""
         if not analyses or current_prices is None or current_prices.empty:
             return
         
         try:
-            # 1. Market condition check
-            if not self._check_market_conditions():
+            # STEP 1: Deduplicate signals by symbol (take highest confidence per symbol)
+            deduplicated_analyses = self._deduplicate_signals_by_symbol(analyses)
+            
+            if len(deduplicated_analyses) < len(analyses):
+                log_info(f"Deduplicated signals: {len(analyses)} -> {len(deduplicated_analyses)} (removed duplicates)")
+            
+            # STEP 2: Always log all deduplicated recommendations regardless of market conditions
+            recommendations_logged = self._log_all_recommendations(deduplicated_analyses, current_prices)
+            
+            # STEP 3: Then check if we should actually execute trades
+            market_favorable = self._check_market_conditions()
+            
+            if not market_favorable:
+                log_info(f"[RECOMMENDATIONS] Logged {recommendations_logged} unique trading recommendations for backtesting")
                 return
             
-            # 2. Price action filtering
-            filtered_analyses = self._apply_price_action_filter(analyses, current_prices)
+            # STEP 4: If market conditions are favorable, process for actual execution
+            filtered_analyses = self._apply_price_action_filter(deduplicated_analyses, current_prices)
+            trades_created = self._process_filtered_signals(filtered_analyses, current_prices, is_live=True)
             
-            # 3. Process individual signals
-            trades_created = self._process_filtered_signals(filtered_analyses, current_prices)
-            
-            # 4. Cleanup and logging
             self.timing_optimizer.cleanup_stale_entries()
             
             if trades_created > 0:
-                log_info(f"[TRADES] Created {trades_created} trades from {len(analyses)} signals")
-            elif analyses:
-                log_info(f"[FILTER] No trades created from {len(analyses)} signals")
+                log_info(f"[TRADES] Created {trades_created} LIVE trades from {len(deduplicated_analyses)} signals")
+            elif deduplicated_analyses:
+                log_info(f"[FILTER] No LIVE trades created from {len(deduplicated_analyses)} signals (but recommendations logged)")
                 
         except Exception as e:
             log_error(f"Error processing news signals: {e}")
+    
+    def _deduplicate_signals_by_symbol(self, analyses: List[EnhancedNewsAnalysis]) -> List[EnhancedNewsAnalysis]:
+        """Deduplicate signals by symbol, keeping the highest confidence signal for each symbol."""
+        if not analyses:
+            return analyses
+        
+        try:
+            # Group by symbol and keep highest confidence
+            symbol_best_signals = {}
+            
+            for analysis in analyses:
+                symbol = analysis.symbol
+                current_confidence = analysis.combined_confidence
+                
+                if symbol not in symbol_best_signals:
+                    symbol_best_signals[symbol] = analysis
+                else:
+                    # Keep the analysis with higher confidence
+                    existing_confidence = symbol_best_signals[symbol].combined_confidence
+                    if current_confidence > existing_confidence:
+                        log_info(f"Updated {symbol} signal: conf {existing_confidence:.3f} -> {current_confidence:.3f}")
+                        symbol_best_signals[symbol] = analysis
+                    else:
+                        log_info(f"Kept existing {symbol} signal: conf {existing_confidence:.3f} > {current_confidence:.3f}")
+            
+            deduplicated = list(symbol_best_signals.values())
+            
+            # Sort by confidence descending
+            deduplicated.sort(key=lambda x: x.combined_confidence, reverse=True)
+            
+            return deduplicated
+            
+        except Exception as e:
+            log_error(f"Error deduplicating signals: {e}")
+            return analyses
+    
+    def _log_all_recommendations(self, analyses: List[EnhancedNewsAnalysis], 
+                               current_prices: pd.DataFrame) -> int:
+        """Log all trading recommendations to CSV regardless of market conditions."""
+        recommendations_count = 0
+        
+        try:
+            # Get market conditions for logging
+            market_conditions = self.market_filter.get_market_conditions()
+            
+            for analysis in analyses:
+                try:
+                    recommendation = self._create_recommendation(analysis, current_prices, market_conditions)
+                    if recommendation:
+                        self._log_trade(recommendation)
+                        recommendations_count += 1
+                        
+                        log_info(f"[RECOMMENDATION] {recommendation.side.upper()} {analysis.symbol} @ ${recommendation.entry_price:.2f} "
+                                f"conf={analysis.combined_confidence:.2f} (logged for backtesting)")
+                        
+                except Exception as e:
+                    log_error(f"Error creating recommendation for {analysis.symbol}: {e}")
+                    continue
+            
+            return recommendations_count
+            
+        except Exception as e:
+            log_error(f"Error logging recommendations: {e}")
+            return 0
+    
+    def _create_recommendation(self, analysis: EnhancedNewsAnalysis, current_prices: pd.DataFrame, 
+                             market_conditions) -> Optional[EnhancedTrade]:
+        """Create a recommendation trade record for logging."""
+        try:
+            # Determine trade direction
+            side = self._determine_trade_side(analysis)
+            if not side:
+                return None
+            
+            # Get current price
+            current_price = self._get_current_price(analysis.symbol, current_prices)
+            if current_price <= 0:
+                return None
+            
+            # Calculate position size
+            position_size = self._determine_position_size(analysis)
+            
+            # Calculate entry price with slippage
+            entry_price = current_price * (1.001 if side == 'long' else 0.999)
+            
+            # Extract technical data safely
+            tech_data = self._extract_technical_data(analysis.technical_analysis)
+            
+            # Determine trade type based on market conditions
+            trade_type = "RECOMMENDATION"  # Always log as recommendation first
+            execution_status = "PENDING"
+            rejection_reason = ""
+            
+            # Check various rejection reasons for logging
+            if not market_conditions.is_market_hours:
+                rejection_reason = "MARKET_CLOSED"
+            elif market_conditions.market_stress_level > 0.85:
+                rejection_reason = "HIGH_MARKET_STRESS"
+            elif market_conditions.market_regime == 'volatile':
+                rejection_reason = "VOLATILE_REGIME"
+            
+            # Create recommendation record
+            recommendation = EnhancedTrade(
+                id=self._generate_trade_id(),
+                symbol=analysis.symbol,
+                side=side,
+                entry_price=entry_price,
+                position_size=position_size,
+                entry_time=datetime.now(timezone.utc),
+                
+                # Trade execution info
+                trade_type=trade_type,
+                execution_status=execution_status,
+                rejection_reason=rejection_reason,
+                
+                # News data
+                news_title=analysis.title[:100],
+                news_confidence=analysis.confidence,
+                combined_confidence=analysis.combined_confidence,
+                finbert_score=analysis.finbert_score,
+                keyword_score=analysis.keyword_score,
+                topic=analysis.topic,
+                
+                # Technical data
+                **tech_data,
+                
+                # Market conditions
+                market_regime=market_conditions.market_regime,
+                market_stress=market_conditions.market_stress_level,
+                time_score=market_conditions.time_of_day_score,
+                entry_timing="recommendation_logged"
+            )
+            
+            return recommendation
+            
+        except Exception as e:
+            log_error(f"Error creating recommendation for {analysis.symbol}: {e}")
+            return None
     
     def _check_market_conditions(self) -> bool:
         """Check if market conditions are favorable for trading."""
@@ -288,13 +439,13 @@ class EnhancedTrader:
             return analyses
     
     def _process_filtered_signals(self, analyses: List[EnhancedNewsAnalysis], 
-                                 current_prices: pd.DataFrame) -> int:
+                                 current_prices: pd.DataFrame, is_live: bool = False) -> int:
         """Process filtered signals and create trades."""
         trades_created = 0
         
         for analysis in analyses:
             try:
-                if self._process_single_signal(analysis, current_prices):
+                if self._process_single_signal(analysis, current_prices, is_live):
                     trades_created += 1
             except Exception as e:
                 log_error(f"Error processing signal for {analysis.symbol}: {e}")
@@ -302,7 +453,7 @@ class EnhancedTrader:
         return trades_created
     
     def _process_single_signal(self, analysis: EnhancedNewsAnalysis, 
-                              current_prices: pd.DataFrame) -> bool:
+                              current_prices: pd.DataFrame, is_live: bool = False) -> bool:
         """Process a single trading signal with comprehensive validation."""
         symbol = analysis.symbol
         
@@ -319,8 +470,8 @@ class EnhancedTrader:
         # Calculate position size
         position_size = self._determine_position_size(analysis)
         
-        # Portfolio risk check
-        if not self._check_portfolio_limits(symbol, side, position_size):
+        # Portfolio risk check (only for live trades)
+        if is_live and not self._check_portfolio_limits(symbol, side, position_size):
             return False
         
         # Get current price
@@ -328,8 +479,8 @@ class EnhancedTrader:
         if current_price <= 0:
             return False
         
-        # Entry timing check
-        if not self._check_entry_timing(symbol, analysis, current_price):
+        # Entry timing check (only for live trades)
+        if is_live and not self._check_entry_timing(symbol, analysis, current_price):
             return False
         
         # Technical validation
@@ -337,14 +488,14 @@ class EnhancedTrader:
             return False
         
         # Create and execute trade
-        return self._create_trade(analysis, side, position_size, current_price)
+        return self._create_trade(analysis, side, position_size, current_price, is_live)
     
     def _determine_trade_side(self, analysis: EnhancedNewsAnalysis) -> Optional[str]:
         """Determine trade direction based on sentiment and confidence."""
         sentiment = analysis.sentiment_score
         confidence = analysis.combined_confidence
-        min_confidence = CONFIG.min_confidence_score
-        if confidence < min_confidence:
+        
+        if confidence < CONFIG.min_confidence_score:
             return None
         
         if sentiment > 0.25:
@@ -429,7 +580,7 @@ class EnhancedTrader:
             return False
     
     def _create_trade(self, analysis: EnhancedNewsAnalysis, side: str, 
-                     position_size: float, current_price: float) -> bool:
+                     position_size: float, current_price: float, is_live: bool = False) -> bool:
         """Create and log a new trade."""
         try:
             # Get market conditions for logging
@@ -438,25 +589,12 @@ class EnhancedTrader:
             # Calculate entry price with slippage
             entry_price = current_price * (1.001 if side == 'long' else 0.999)
             
-            # Safe access to technical analysis data with defaults
-            tech = analysis.technical_analysis
-            if tech is not None:
-                tech_confidence = tech.technical_confidence
-                liquidity_score = tech.liquidity_score
-                momentum_score = tech.momentum_score
-                volume_score = tech.volume_score
-                rsi = tech.rsi
-                price_trend = tech.price_trend
-                bid_ask_spread = tech.bid_ask_spread
-            else:
-                # Default values when technical analysis is not available
-                tech_confidence = 0.0
-                liquidity_score = 0.0
-                momentum_score = 0.0
-                volume_score = 0.0
-                rsi = 50.0
-                price_trend = "unknown"
-                bid_ask_spread = 0.05
+            # Extract technical data safely
+            tech_data = self._extract_technical_data(analysis.technical_analysis)
+            
+            # Determine trade type and status
+            trade_type = "LIVE" if is_live else "PAPER"
+            execution_status = "EXECUTED" if is_live else "SIMULATED"
             
             # Create trade record
             trade = EnhancedTrade(
@@ -467,6 +605,11 @@ class EnhancedTrader:
                 position_size=position_size,
                 entry_time=datetime.now(timezone.utc),
                 
+                # Trade execution info
+                trade_type=trade_type,
+                execution_status=execution_status,
+                rejection_reason="",
+                
                 # News data
                 news_title=analysis.title[:100],
                 news_confidence=analysis.confidence,
@@ -475,14 +618,8 @@ class EnhancedTrader:
                 keyword_score=analysis.keyword_score,
                 topic=analysis.topic,
                 
-                # Technical data (safely accessed)
-                technical_confidence=tech_confidence,
-                liquidity_score=liquidity_score,
-                momentum_score=momentum_score,
-                volume_score=volume_score,
-                rsi=rsi,
-                price_trend=price_trend,
-                bid_ask_spread=bid_ask_spread,
+                # Technical data
+                **tech_data,
                 
                 # Market conditions
                 market_regime=market_conditions.market_regime,
@@ -491,14 +628,16 @@ class EnhancedTrader:
                 entry_timing="trade_created"
             )
             
-            # Add to active trades
-            self.active_trades[analysis.symbol] = trade
+            # Add to active trades only if live
+            if is_live:
+                self.active_trades[analysis.symbol] = trade
             
-            # Log trade
+            # Always log trade
             self._log_trade(trade)
             
             # Log entry message
-            log_info(f"[ENTRY] {side} {analysis.symbol} @ ${entry_price:.2f} "
+            trade_type_label = "LIVE" if is_live else "SIMULATED"
+            log_info(f"[{trade_type_label}] {side} {analysis.symbol} @ ${entry_price:.2f} "
                     f"size=${position_size:.0f} | "
                     f"conf={analysis.combined_confidence:.2f} | "
                     f"regime={market_conditions.market_regime}")
@@ -508,6 +647,29 @@ class EnhancedTrader:
         except Exception as e:
             log_error(f"Error creating trade for {analysis.symbol}: {e}")
             return False
+    
+    def _extract_technical_data(self, technical_analysis: Optional[TechnicalAnalysis]) -> Dict[str, Any]:
+        """Extract technical analysis data safely."""
+        if technical_analysis is not None:
+            return {
+                'technical_confidence': technical_analysis.technical_confidence,
+                'liquidity_score': technical_analysis.liquidity_score,
+                'momentum_score': technical_analysis.momentum_score,
+                'volume_score': technical_analysis.volume_score,
+                'rsi': technical_analysis.rsi,
+                'price_trend': technical_analysis.price_trend,
+                'bid_ask_spread': technical_analysis.bid_ask_spread
+            }
+        else:
+            return {
+                'technical_confidence': 0.0,
+                'liquidity_score': 0.0,
+                'momentum_score': 0.0,
+                'volume_score': 0.0,
+                'rsi': 50.0,
+                'price_trend': "unknown",
+                'bid_ask_spread': 0.05
+            }
     
     def check_exits(self, current_prices: pd.DataFrame) -> None:
         """Enhanced exit logic with dynamic adjustments."""
@@ -530,7 +692,7 @@ class EnhancedTrader:
             
             # Close trades
             for symbol in trades_to_close:
-                del self.active_trades[symbol]
+                self.active_trades.pop(symbol, None)
                 
         except Exception as e:
             log_error(f"Error in exit checking: {e}")
@@ -555,12 +717,29 @@ class EnhancedTrader:
             return False
         
         # Calculate P&L percentage
-        if trade.side == 'long':
-            pnl_pct = (current_price - trade.entry_price) / trade.entry_price
-        else:
-            pnl_pct = (trade.entry_price - current_price) / trade.entry_price
+        pnl_pct = self._calculate_pnl_percentage(trade, current_price)
         
         # Dynamic stop/target adjustments
+        stop_loss_pct, take_profit_pct = self._calculate_dynamic_levels(trade, stress_multiplier)
+        
+        # Check exit conditions
+        exit_reason = self._determine_exit_reason(pnl_pct, stop_loss_pct, take_profit_pct, stress_multiplier)
+        
+        if exit_reason:
+            self._execute_exit(trade, current_price, exit_reason, pnl_pct)
+            return True
+        
+        return False
+    
+    def _calculate_pnl_percentage(self, trade: EnhancedTrade, current_price: float) -> float:
+        """Calculate P&L percentage for a trade."""
+        if trade.side == 'long':
+            return (current_price - trade.entry_price) / trade.entry_price
+        else:
+            return (trade.entry_price - current_price) / trade.entry_price
+    
+    def _calculate_dynamic_levels(self, trade: EnhancedTrade, stress_multiplier: float) -> Tuple[float, float]:
+        """Calculate dynamic stop loss and take profit levels."""
         stop_loss_pct = CONFIG.stop_loss_pct * stress_multiplier
         take_profit_pct = CONFIG.take_profit_pct
         
@@ -572,34 +751,35 @@ class EnhancedTrader:
         if trade.combined_confidence > 0.9:
             take_profit_pct *= 1.2
         
-        # Check exit conditions
-        exit_reason = None
-        
+        return stop_loss_pct, take_profit_pct
+    
+    def _determine_exit_reason(self, pnl_pct: float, stop_loss_pct: float, 
+                             take_profit_pct: float, stress_multiplier: float) -> Optional[str]:
+        """Determine exit reason based on conditions."""
         if pnl_pct <= -stop_loss_pct:
-            exit_reason = f'stop_loss_{stress_multiplier:.1f}x'
+            return f'stop_loss_{stress_multiplier:.1f}x'
         elif pnl_pct >= take_profit_pct:
-            exit_reason = 'take_profit'
+            return 'take_profit'
         elif stress_multiplier < 0.8 and pnl_pct > 0.02:  # Stress protection
-            exit_reason = 'market_stress_protect'
+            return 'market_stress_protect'
         
-        if exit_reason:
-            # Execute exit
-            trade.exit_price = current_price
-            trade.exit_time = datetime.now(timezone.utc)
-            trade.exit_reason = exit_reason
-            trade.pnl = trade.position_size * pnl_pct
-            
-            # Log exit
-            self._log_trade(trade)
-            
-            duration_minutes = (trade.exit_time - trade.entry_time).total_seconds() / 60
-            log_info(f"[EXIT] {trade.side} {trade.symbol} @ ${current_price:.2f} "
-                    f"P&L=${trade.pnl:.2f} ({exit_reason}) | "
-                    f"duration={duration_minutes:.1f}min")
-            
-            return True
+        return None
+    
+    def _execute_exit(self, trade: EnhancedTrade, current_price: float, 
+                     exit_reason: str, pnl_pct: float) -> None:
+        """Execute trade exit and log details."""
+        trade.exit_price = current_price
+        trade.exit_time = datetime.now(timezone.utc)
+        trade.exit_reason = exit_reason
+        trade.pnl = trade.position_size * pnl_pct
         
-        return False
+        # Log exit
+        self._log_trade(trade)
+        
+        duration_minutes = (trade.exit_time - trade.entry_time).total_seconds() / 60
+        log_info(f"[EXIT] {trade.side} {trade.symbol} @ ${current_price:.2f} "
+                f"P&L=${trade.pnl:.2f} ({exit_reason}) | "
+                f"duration={duration_minutes:.1f}min")
     
     def get_active_positions(self) -> List[EnhancedTrade]:
         """Get list of active trades."""
@@ -613,7 +793,6 @@ class EnhancedTrader:
         try:
             today = datetime.now(timezone.utc).date()
             
-            # Read trade log efficiently
             df = pd.read_csv(self.trade_log_file)
             
             if 'exit_time' not in df.columns or 'pnl' not in df.columns:
@@ -647,45 +826,61 @@ class EnhancedTrader:
                 return {}
             
             # Ensure numeric columns
-            completed_trades['pnl'] = pd.to_numeric(completed_trades['pnl'], errors='coerce')
-            completed_trades['market_stress'] = pd.to_numeric(completed_trades['market_stress'], errors='coerce')
-            completed_trades['time_score'] = pd.to_numeric(completed_trades['time_score'], errors='coerce')
-            completed_trades['technical_confidence'] = pd.to_numeric(completed_trades['technical_confidence'], errors='coerce')
+            numeric_columns = ['pnl', 'market_stress', 'time_score', 'technical_confidence']
+            for col in numeric_columns:
+                if col in completed_trades.columns:
+                    completed_trades[col] = pd.to_numeric(completed_trades[col], errors='coerce')
             
             performance_data = {}
             
-            # Performance by market regime
-            if 'market_regime' in completed_trades.columns:
-                regime_perf = completed_trades.groupby('market_regime')['pnl'].agg(['count', 'sum', 'mean'])
-                performance_data['regime_performance'] = regime_perf.to_dict()
-            
-            # Performance by entry timing
-            if 'entry_timing' in completed_trades.columns:
-                timing_perf = completed_trades.groupby('entry_timing')['pnl'].agg(['count', 'sum', 'mean'])
-                performance_data['timing_performance'] = timing_perf.to_dict()
-            
-            # Performance by technical confidence buckets
-            if 'technical_confidence' in completed_trades.columns:
-                completed_trades['tech_conf_bucket'] = pd.cut(
-                    completed_trades['technical_confidence'],
-                    bins=[0, 0.3, 0.6, 1.0],
-                    labels=['low', 'medium', 'high'],
-                    include_lowest=True
-                )
-                tech_perf = completed_trades.groupby('tech_conf_bucket')['pnl'].agg(['count', 'sum', 'mean'])
-                performance_data['technical_confidence_performance'] = tech_perf.to_dict()
-            
-            # Average metrics
-            performance_data.update({
-                'avg_market_stress': completed_trades['market_stress'].mean(),
-                'avg_time_score': completed_trades['time_score'].mean(),
-                'total_trades': len(completed_trades),
-                'win_rate': (completed_trades['pnl'] > 0).mean(),
-                'avg_pnl': completed_trades['pnl'].mean()
-            })
+            # Performance analytics
+            performance_data.update(self._calculate_regime_performance(completed_trades))
+            performance_data.update(self._calculate_timing_performance(completed_trades))
+            performance_data.update(self._calculate_technical_performance(completed_trades))
+            performance_data.update(self._calculate_summary_metrics(completed_trades))
             
             return performance_data
             
         except Exception as e:
             log_error(f"Error analyzing filter performance: {e}")
             return {}
+    
+    def _calculate_regime_performance(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Calculate performance by market regime."""
+        if 'market_regime' not in df.columns:
+            return {}
+        
+        regime_perf = df.groupby('market_regime')['pnl'].agg(['count', 'sum', 'mean'])
+        return {'regime_performance': regime_perf.to_dict()}
+    
+    def _calculate_timing_performance(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Calculate performance by entry timing."""
+        if 'entry_timing' not in df.columns:
+            return {}
+        
+        timing_perf = df.groupby('entry_timing')['pnl'].agg(['count', 'sum', 'mean'])
+        return {'timing_performance': timing_perf.to_dict()}
+    
+    def _calculate_technical_performance(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Calculate performance by technical confidence buckets."""
+        if 'technical_confidence' not in df.columns:
+            return {}
+        
+        df['tech_conf_bucket'] = pd.cut(
+            df['technical_confidence'],
+            bins=[0, 0.3, 0.6, 1.0],
+            labels=['low', 'medium', 'high'],
+            include_lowest=True
+        )
+        tech_perf = df.groupby('tech_conf_bucket')['pnl'].agg(['count', 'sum', 'mean'])
+        return {'technical_confidence_performance': tech_perf.to_dict()}
+    
+    def _calculate_summary_metrics(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Calculate summary performance metrics."""
+        return {
+            'avg_market_stress': df['market_stress'].mean() if 'market_stress' in df.columns else 0,
+            'avg_time_score': df['time_score'].mean() if 'time_score' in df.columns else 0,
+            'total_trades': len(df),
+            'win_rate': (df['pnl'] > 0).mean() if 'pnl' in df.columns else 0,
+            'avg_pnl': df['pnl'].mean() if 'pnl' in df.columns else 0
+        }

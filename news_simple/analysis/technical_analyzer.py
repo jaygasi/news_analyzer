@@ -49,8 +49,8 @@ class TechnicalAnalyzer:
             return self._price_history_cache[cache_key]
         
         try:
-            # Fetch new data
-            hist_data = self._fetch_historical_data(symbol, days)
+            # Fetch new data using the non-cached method
+            hist_data = self.fmp_loader.get_historical_data(symbol, days)
             
             if hist_data is not None and not hist_data.empty:
                 # Cache management
@@ -59,37 +59,6 @@ class TechnicalAnalyzer:
                 
         except Exception as e:
             log_error(f"Error fetching price history for {symbol}: {e}")
-        
-        return None
-    
-    def _fetch_historical_data(self, symbol: str, days: int) -> Optional[pd.DataFrame]:
-        """Fetch historical data with optimized processing."""
-        end_date = datetime.now().strftime('%Y-%m-%d')
-        start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
-        
-        data = self.fmp_loader._make_request(f"historical-price-full/{symbol}", {
-            'from': start_date,
-            'to': end_date
-        })
-        
-        if data and 'historical' in data and data['historical']:
-            df = pd.DataFrame(data['historical'])
-            
-            # Optimize data processing
-            df['date'] = pd.to_datetime(df['date'])
-            df = df.sort_values('date').reset_index(drop=True)
-            
-            # Ensure numeric columns with vectorized operations
-            numeric_columns = ['open', 'high', 'low', 'close', 'volume']
-            for col in numeric_columns:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
-            
-            # Remove invalid data
-            df = df.dropna(subset=['close'])
-            
-            if not df.empty:
-                return df
         
         return None
     

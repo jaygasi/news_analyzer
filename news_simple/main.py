@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timezone
 import signal
 import sys
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from config import CONFIG
 from utils.simple_logger import log_info, log_error, log_warning
 from data_loaders.simple_fmp_loader import SimpleFMPLoader
@@ -19,19 +19,18 @@ class ComprehensiveTradingSystem:
     
     def __init__(self) -> None:
         """Initialize trading system with proper validation."""
-        # Validate and extract API key with proper type handling
+        # Validate and extract API key
         api_key = CONFIG.get_api_key('fmp')
         if not api_key:
             raise ValueError("FMP_API_KEY environment variable is required")
         
-        # Store validated API key (now guaranteed to be str)
         self.fmp_api_key: str = api_key
         
-        # Initialize components with error handling
+        # Initialize components
         self._initialize_components()
         
         # System state
-        self.universe: list = []
+        self.universe: List[str] = []
         self.running = True
         
         # Setup signal handlers
@@ -66,18 +65,16 @@ class ComprehensiveTradingSystem:
             screener_df = self.fmp_loader.get_stock_screener(CONFIG.max_symbols)
             
             if screener_df is not None and not screener_df.empty:
-                # Validate and clean symbols
-                valid_symbols = []
-                for symbol in screener_df['symbol'].tolist():
-                    if isinstance(symbol, str) and symbol.strip():
-                        clean_symbol = symbol.strip().upper()
-                        if len(clean_symbol) <= 5 and clean_symbol.isalpha():
-                            valid_symbols.append(clean_symbol)
+                # FMP loader already did the filtering, so just extract symbols
+                # No need for additional filtering here since FMP loader handles it properly
+                self.universe = screener_df['symbol'].str.upper().tolist()
                 
-                self.universe = valid_symbols
                 log_info(f"Loaded {len(self.universe)} valid symbols in universe")
                 
-                # LOG THE ACTUAL UNIVERSE
+                # Debug: show first 20 symbols to verify they look correct
+                sample_symbols = self.universe[:20]
+                log_info(f"Sample universe symbols: {sample_symbols}")
+                
                 self._log_trading_universe()
                 
                 return len(self.universe) > 0
@@ -87,6 +84,8 @@ class ComprehensiveTradingSystem:
                 
         except Exception as e:
             log_error(f"Error initializing universe: {e}")
+            import traceback
+            log_error(f"Traceback: {traceback.format_exc()}")
             return False
     
     def _log_trading_universe(self) -> None:
@@ -98,61 +97,93 @@ class ComprehensiveTradingSystem:
         log_info(f"TRADING UNIVERSE ({len(self.universe)} stocks):")
         log_info("=" * 60)
         
-        # Group symbols by sectors for better readability
-        tech_stocks = []
-        healthcare_stocks = []
-        finance_stocks = []
-        energy_stocks = []
-        other_stocks = []
+        # Categorize stocks for better readability
+        categories = self._categorize_stocks()
         
-        # Simple sector classification
+        # Log each category
+        self._log_stock_categories(categories)
+        
+        log_info("=" * 60)
+        log_info("UNIVERSE CRITERIA: Market Cap >$100M, Price $2-$500, Volume >50K, NYSE/NASDAQ")
+        log_info("=" * 60)
+    
+    def _categorize_stocks(self) -> Dict[str, List[str]]:
+        """Categorize stocks by sector for better readability."""
+        categories = {
+            'TECHNOLOGY': [],
+            'HEALTHCARE': [],
+            'FINANCIALS': [],
+            'ENERGY': [],
+            'OTHER SECTORS': []
+        }
+        
+        # Define sector mappings
+        sector_mappings = self._get_sector_mappings()
+        
+        # Categorize symbols
         for symbol in self.universe:
-            if symbol in ['AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'TSLA', 'NVDA', 'META', 'CRM', 'ORCL', 'ADBE', 'NFLX', 'INTC', 'AMD', 'QCOM', 'CSCO', 'AVGO']:
-                tech_stocks.append(symbol)
-            elif symbol in ['JNJ', 'PFE', 'UNH', 'MRK', 'ABT', 'TMO', 'DHR', 'BMY', 'AMGN', 'GILD', 'BIIB', 'VRTX', 'REGN', 'ILMN']:
-                healthcare_stocks.append(symbol)
-            elif symbol in ['JPM', 'BAC', 'WFC', 'C', 'GS', 'MS', 'AXP', 'BLK', 'SCHW', 'CB', 'SPGI']:
-                finance_stocks.append(symbol)
-            elif symbol in ['XOM', 'CVX', 'COP', 'EOG', 'SLB', 'PXD', 'KMI', 'OXY', 'VLO', 'MPC']:
-                energy_stocks.append(symbol)
+            self._assign_symbol_to_category(symbol, sector_mappings, categories)
+        
+        return categories
+    
+    def _get_sector_mappings(self) -> Dict[str, set]:
+        """Get predefined sector mappings."""
+        return {
+            'TECHNOLOGY': {
+                'AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'TSLA', 'NVDA', 'META', 
+                'CRM', 'ORCL', 'ADBE', 'NFLX', 'INTC', 'AMD', 'QCOM', 'CSCO', 'AVGO'
+            },
+            'HEALTHCARE': {
+                'JNJ', 'PFE', 'UNH', 'MRK', 'ABT', 'TMO', 'DHR', 'BMY', 
+                'AMGN', 'GILD', 'BIIB', 'VRTX', 'REGN', 'ILMN'
+            },
+            'FINANCIALS': {
+                'JPM', 'BAC', 'WFC', 'C', 'GS', 'MS', 'AXP', 'BLK', 'SCHW', 'CB', 'SPGI'
+            },
+            'ENERGY': {
+                'XOM', 'CVX', 'COP', 'EOG', 'SLB', 'PXD', 'KMI', 'OXY', 'VLO', 'MPC'
+            }
+        }
+    
+    def _assign_symbol_to_category(self, symbol: str, sector_mappings: Dict[str, set], 
+                                 categories: Dict[str, List[str]]) -> None:
+        """Assign a symbol to the appropriate category."""
+        for category, symbols in sector_mappings.items():
+            if symbol in symbols:
+                categories[category].append(symbol)
+                return
+        
+        # If not found in any specific sector, add to "OTHER SECTORS"
+        categories['OTHER SECTORS'].append(symbol)
+    
+    def _log_stock_categories(self, categories: Dict[str, List[str]]) -> None:
+        """Log stock categories with proper formatting."""
+        for category, stocks in categories.items():
+            if not stocks:
+                continue
+                
+            if len(stocks) <= 50:
+                log_info(f"{category} ({len(stocks)}): {', '.join(sorted(stocks))}")
             else:
-                other_stocks.append(symbol)
+                self._log_large_category(category, stocks)
+    
+    def _log_large_category(self, category: str, stocks: List[str]) -> None:
+        """Log large categories in batches."""
+        log_info(f"{category} ({len(stocks)} total):")
+        sorted_stocks = sorted(stocks)
         
-        # Log by sectors
-        if tech_stocks:
-            log_info(f"TECHNOLOGY ({len(tech_stocks)}): {', '.join(sorted(tech_stocks))}")
+        # Print in batches of 20
+        for i in range(0, min(50, len(sorted_stocks)), 20):
+            batch = sorted_stocks[i:i+20]
+            log_info(f"  {', '.join(batch)}")
         
-        if healthcare_stocks:
-            log_info(f"HEALTHCARE ({len(healthcare_stocks)}): {', '.join(sorted(healthcare_stocks))}")
-        
-        if finance_stocks:
-            log_info(f"FINANCIALS ({len(finance_stocks)}): {', '.join(sorted(finance_stocks))}")
-        
-        if energy_stocks:
-            log_info(f"ENERGY ({len(energy_stocks)}): {', '.join(sorted(energy_stocks))}")
-        
-        # Show first 50 other stocks
-        if other_stocks:
-            if len(other_stocks) <= 50:
-                log_info(f"OTHER SECTORS ({len(other_stocks)}): {', '.join(sorted(other_stocks))}")
-            else:
-                log_info(f"OTHER SECTORS ({len(other_stocks)} total):")
-                # Print in batches of 20
-                sorted_others = sorted(other_stocks)
-                for i in range(0, min(50, len(sorted_others)), 20):
-                    batch = sorted_others[i:i+20]
-                    log_info(f"  {', '.join(batch)}")
-                if len(other_stocks) > 50:
-                    log_info(f"  ... and {len(other_stocks) - 50} more")
-        
-        log_info("=" * 60)
-        log_info(f"UNIVERSE CRITERIA: Market Cap >$100M, Price $2-$500, Volume >50K, NYSE/NASDAQ")
-        log_info("=" * 60)
+        if len(stocks) > 50:
+            log_info(f"  ... and {len(stocks) - 50} more")
     
     def process_comprehensive_news_cycle(self) -> None:
         """Optimized comprehensive news processing with error recovery."""
         try:
-            # Get latest news with validation
+            # Get and filter news
             raw_news_df = self.fmp_loader.get_news_rss()
             if raw_news_df is None or raw_news_df.empty:
                 log_warning("No news data received")
@@ -160,9 +191,9 @@ class ComprehensiveTradingSystem:
             
             # Filter to universe symbols efficiently
             universe_set = set(self.universe)
-            news_symbols = raw_news_df['symbol'].astype(str).str.upper()
-            mask = news_symbols.isin(universe_set)
-            filtered_news_df = raw_news_df[mask].copy()
+            filtered_news_df = raw_news_df[
+                raw_news_df['symbol'].str.upper().isin(universe_set)
+            ].copy()
             
             if filtered_news_df.empty:
                 log_info("No news for universe symbols")
@@ -171,44 +202,53 @@ class ComprehensiveTradingSystem:
             log_info(f"Raw news: {len(raw_news_df)} articles, "
                     f"filtered to universe: {len(filtered_news_df)} articles")
             
-            # Apply news quality pre-filters
-            quality_filtered_df = self.trader.pre_filter_news(filtered_news_df)
-            if quality_filtered_df is None or quality_filtered_df.empty:
-                log_info("All news filtered out by quality filters")
-                return
-            
-            log_info(f"Quality filtered news: {len(quality_filtered_df)} articles")
-            
-            # Get current prices for technical analysis
-            relevant_symbols = quality_filtered_df['symbol'].unique().tolist()
-            prices_df = self.fmp_loader.get_real_time_prices(relevant_symbols)
-            
-            if prices_df is None or prices_df.empty:
-                log_warning("Failed to get current prices for technical analysis")
-                return
-            
-            # Enhanced news analysis with technical validation
-            analyses = self.news_analyzer.analyze_news_with_technical(
-                quality_filtered_df, prices_df
-            )
-            
-            if not analyses:
-                log_info("No valid news analyses generated")
-                return
-            
-            # Filter for high combined confidence
-            high_confidence = self.news_analyzer.filter_high_confidence(
-                analyses, use_combined_confidence=True
-            )
-            
-            if high_confidence:
-                log_info(f"[SIGNALS] Found {len(high_confidence)} high-quality trading opportunities")
-                self.trader.process_news_signals(high_confidence, prices_df)
-            else:
-                log_info("No high-confidence signals after filtering")
+            # Apply quality filters and process
+            self._process_filtered_news(filtered_news_df)
                 
         except Exception as e:
             log_error(f"Error in comprehensive news cycle: {e}")
+    
+    def _process_filtered_news(self, filtered_news_df) -> None:
+        """Process filtered news through the analysis pipeline."""
+        # Apply quality filters
+        quality_filtered_df = self.trader.pre_filter_news(filtered_news_df)
+        if quality_filtered_df is None or quality_filtered_df.empty:
+            log_info("All news filtered out by quality filters")
+            return
+        
+        log_info(f"Quality filtered news: {len(quality_filtered_df)} articles")
+        
+        # Get current prices for technical analysis
+        relevant_symbols = quality_filtered_df['symbol'].unique().tolist()
+        prices_df = self.fmp_loader.get_real_time_prices(relevant_symbols)
+        
+        if prices_df is None or prices_df.empty:
+            log_warning("Failed to get current prices for technical analysis")
+            return
+        
+        # Enhanced news analysis
+        analyses = self.news_analyzer.analyze_news_with_technical(
+            quality_filtered_df, prices_df
+        )
+        
+        if not analyses:
+            log_info("No valid news analyses generated")
+            return
+        
+        # Filter for high confidence and process signals
+        self._process_analysis_results(analyses, prices_df)
+    
+    def _process_analysis_results(self, analyses, prices_df) -> None:
+        """Process analysis results and create trades."""
+        high_confidence = self.news_analyzer.filter_high_confidence(
+            analyses, use_combined_confidence=True
+        )
+        
+        if high_confidence:
+            log_info(f"[SIGNALS] Found {len(high_confidence)} high-quality trading opportunities")
+            self.trader.process_news_signals(high_confidence, prices_df)
+        else:
+            log_info("No high-confidence signals after filtering")
     
     def check_positions_cycle(self) -> None:
         """Check positions with enhanced error handling."""
@@ -237,41 +277,63 @@ class ComprehensiveTradingSystem:
             # Get filter performance analytics
             filter_perf = self.trader.get_filter_performance()
             
-            log_info(f"[STATUS] System Status:")
+            log_info("[STATUS] System Status:")
             log_info(f"   Active Positions: {active_positions}")
             log_info(f"   Daily P&L: ${daily_pnl:.2f}")
             log_info(f"   Confidence Threshold: {CONFIG.min_confidence_score}")
             
             if filter_perf:
-                log_info(f"[ANALYTICS] Filter Performance:")
-                
-                # Best performing regime
-                if 'regime_performance' in filter_perf:
-                    regime_data = filter_perf['regime_performance']
-                    if 'sum' in regime_data and regime_data['sum']:
-                        best_regime = max(regime_data['sum'].items(), 
-                                        key=lambda x: x[1] if x[1] is not None else -float('inf'))
-                        log_info(f"   Best Market Regime: {best_regime[0]}")
-                
-                # Average metrics
-                avg_stress = filter_perf.get('avg_market_stress', 0)
-                avg_time = filter_perf.get('avg_time_score', 0)
-                win_rate = filter_perf.get('win_rate', 0)
-                total_trades = filter_perf.get('total_trades', 0)
-                
-                log_info(f"   Total Trades: {total_trades}")
-                log_info(f"   Win Rate: {win_rate:.1%}")
-                log_info(f"   Avg Market Stress: {avg_stress:.2f}")
-                log_info(f"   Avg Time Score: {avg_time:.2f}")
+                self._log_performance_analytics(filter_perf)
                 
         except Exception as e:
             log_error(f"Error printing status: {e}")
+    
+    def _log_performance_analytics(self, filter_perf: Dict[str, Any]) -> None:
+        """Log detailed performance analytics."""
+        log_info("[ANALYTICS] Filter Performance:")
+        
+        # Best performing regime
+        self._log_best_regime(filter_perf)
+        
+        # Summary metrics
+        self._log_summary_metrics(filter_perf)
+    
+    def _log_best_regime(self, filter_perf: Dict[str, Any]) -> None:
+        """Log the best performing market regime."""
+        if 'regime_performance' not in filter_perf:
+            return
+            
+        regime_data = filter_perf['regime_performance']
+        if 'sum' not in regime_data or not regime_data['sum']:
+            return
+            
+        best_regime = max(
+            regime_data['sum'].items(), 
+            key=lambda x: x[1] if x[1] is not None else -float('inf')
+        )
+        log_info(f"   Best Market Regime: {best_regime[0]}")
+    
+    def _log_summary_metrics(self, filter_perf: Dict[str, Any]) -> None:
+        """Log summary performance metrics."""
+        metrics = ['total_trades', 'win_rate', 'avg_market_stress', 'avg_time_score']
+        
+        for metric in metrics:
+            if metric not in filter_perf:
+                continue
+                
+            value = filter_perf[metric]
+            if metric == 'win_rate':
+                log_info(f"   {metric.replace('_', ' ').title()}: {value:.1%}")
+            elif 'avg' in metric:
+                log_info(f"   {metric.replace('_', ' ').title()}: {value:.2f}")
+            else:
+                log_info(f"   {metric.replace('_', ' ').title()}: {value}")
     
     async def run(self) -> None:
         """Main run loop with optimized timing and error recovery."""
         log_info("[START] Starting COMPREHENSIVE News Catalyst Trading System")
         
-        # Log system features (without emojis)
+        # Log system features
         self._log_system_features()
         
         # Initialize universe
@@ -279,6 +341,13 @@ class ComprehensiveTradingSystem:
             log_error("Failed to initialize trading universe")
             return
         
+        # Run main loop
+        await self._main_trading_loop()
+        
+        log_info("[STOP] Comprehensive trading system stopped")
+    
+    async def _main_trading_loop(self) -> None:
+        """Main trading loop with error recovery."""
         # Initialize timing variables
         last_news_check = 0.0
         last_position_check = 0.0
@@ -298,7 +367,7 @@ class ComprehensiveTradingSystem:
                 if current_time - last_news_check >= CONFIG.news_check_interval:
                     self.process_comprehensive_news_cycle()
                     last_news_check = current_time
-                    error_count = 0  # Reset error count on success
+                    error_count = 0  # Reset on success
                 
                 # Position monitoring cycle
                 if current_time - last_position_check >= CONFIG.price_check_interval:
@@ -325,8 +394,6 @@ class ComprehensiveTradingSystem:
                     sleep_time = min(2 ** error_count, 60)
                     log_info(f"Sleeping {sleep_time}s before retry")
                     await asyncio.sleep(sleep_time)
-        
-        log_info("[STOP] Comprehensive trading system stopped")
     
     def _log_system_features(self) -> None:
         """Log system features without problematic characters."""
