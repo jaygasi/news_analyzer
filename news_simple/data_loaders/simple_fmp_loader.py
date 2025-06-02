@@ -1,5 +1,5 @@
 """
-Enhanced FMP data loader with multiple news endpoints and improved error handling
+Enhanced FMP data loader with optimized news endpoints and error handling
 """
 import requests
 import pandas as pd
@@ -11,215 +11,201 @@ from utils.simple_logger import log_info, log_error, log_debug, log_warning
 
 
 class SimpleFMPLoader:
-    """Enhanced FMP data loader with multiple news sources and comprehensive error handling."""
+    """Enhanced FMP data loader with comprehensive news sources and error handling."""
+    
+    # Class-level constants for better performance
+    BASE_URL = "https://financialmodelingprep.com/api/v3"
+    TIMEOUT = 30
+    MIN_REQUEST_INTERVAL = 0.1
     
     def __init__(self, api_key: str) -> None:
-        """Initialize FMP loader with API key validation."""
+        """Initialize FMP loader with validated API key."""
         if not api_key or not api_key.strip():
             raise ValueError("API key cannot be empty")
         
         self.api_key = api_key.strip()
-        self.base_url = "https://financialmodelingprep.com/api/v3"
         self._setup_session()
         self._setup_rate_limiting()
     
     def _setup_session(self) -> None:
-        """Setup optimized session with connection pooling."""
+        """Setup optimized HTTP session."""
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'TradingSystem/1.0',
             'Accept': 'application/json',
+            'Accept-Encoding': 'gzip, deflate',
             'Connection': 'keep-alive'
         })
+        
+        # Connection pooling
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=5,
+            pool_maxsize=10,
+            max_retries=3
+        )
+        self.session.mount('https://', adapter)
     
     def _setup_rate_limiting(self) -> None:
-        """Setup rate limiting configuration."""
+        """Initialize rate limiting."""
         self.last_request_time = 0.0
-        self.min_request_interval = 0.1
     
     def _rate_limit(self) -> None:
-        """Implement rate limiting with precise timing."""
+        """Enforce rate limiting between requests."""
         elapsed = time.time() - self.last_request_time
-        
-        if elapsed < self.min_request_interval:
-            time.sleep(self.min_request_interval - elapsed)
-        
+        if elapsed < self.MIN_REQUEST_INTERVAL:
+            time.sleep(self.MIN_REQUEST_INTERVAL - elapsed)
         self.last_request_time = time.time()
     
     def _make_request(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Optional[Union[Dict, List]]:
         """Make API request with comprehensive error handling."""
         self._rate_limit()
         
-        params = params or {}
-        params['apikey'] = self.api_key
-        url = f"{self.base_url}/{endpoint}"
+        request_params = params or {}
+        request_params['apikey'] = self.api_key
+        url = f"{self.BASE_URL}/{endpoint}"
         
         try:
-            response = self.session.get(url, params=params, timeout=30)
+            response = self.session.get(url, params=request_params, timeout=self.TIMEOUT)
             response.raise_for_status()
             
             data = response.json()
-            
             if not data:
                 log_debug(f"Empty response from {endpoint}")
                 return None
             
             return data
             
+        except requests.exceptions.Timeout:
+            log_error(f"Timeout requesting {endpoint}")
+        except requests.exceptions.ConnectionError:
+            log_error(f"Connection error for {endpoint}")
+        except requests.exceptions.HTTPError as e:
+            log_error(f"HTTP error {e.response.status_code} for {endpoint}")
         except requests.exceptions.RequestException as e:
             log_error(f"Request error for {endpoint}: {e}")
-            return None
         except ValueError as e:
             log_error(f"JSON decode error for {endpoint}: {e}")
-            return None
         except Exception as e:
             log_error(f"Unexpected error for {endpoint}: {e}")
-            return None
+        
+        return None
     
     def get_stock_screener(self, limit: int = 500) -> Optional[pd.DataFrame]:
-        """Get stock screener results with proper debugging and filtering."""
+        """Get stock screener with enhanced parameters for news-heavy stocks."""
         if limit <= 0:
-            log_error("Limit must be positive")
-            return None
+            raise ValueError("Limit must be positive")
         
-        params = self._build_screener_params(limit)
-        
-        log_info(f"Requesting stock screener with limit: {limit}")
-        api_response_data = self._make_request("stock-screener", params)
-        
-        if not self._validate_screener_response(api_response_data):
-            return None
-        
-        assert isinstance(api_response_data, list), "Screener data should be a list after validation"
-        
-        return self._process_screener_data(api_response_data)
-    
-    def _build_screener_params(self, limit: int) -> Dict[str, Any]:
-        """Build screener request parameters."""
-        return {
-            "marketCapMoreThan": 100_000_000,
-            "priceMoreThan": 2,
-            "priceLowerThan": 500,
-            "volumeMoreThan": 50_000,
+        # Enhanced screener parameters for better news coverage
+        params = {
+            "marketCapMoreThan": CONFIG.min_market_cap,
+            "priceMoreThan": CONFIG.min_price,
+            "priceLowerThan": CONFIG.max_price,
+            "volumeMoreThan": CONFIG.min_volume,
             "isActivelyTrading": "true",
-            "exchange": "NYSE,NASDAQ",
+            "exchange": "NYSE,NASDAQ,AMEX",  # Added AMEX for more coverage
+            "sector": "Technology,Healthcare,Financial Services,Consumer Cyclical,Industrials,Communication Services,Consumer Defensive,Energy",  # News-heavy sectors
             "limit": min(limit, 1000)
         }
+        
+        log_info(f"Requesting stock screener with enhanced parameters, limit: {limit}")
+        data = self._make_request("stock-screener", params)
+        
+        if not self._validate_response(data, "stock screener"):
+            return None
+        
+        return self._process_screener_data(data)
     
-    def _validate_screener_response(self, data: Any) -> bool:
-        """Validate screener API response."""
+    def _validate_response(self, data: Any, endpoint_name: str) -> bool:
+        """Validate API response."""
         if not data:
-            log_error("No data received from stock screener API")
+            log_error(f"No data from {endpoint_name}")
             return False
         
         if not isinstance(data, list):
-            log_error(f"Expected list response, got: {type(data)}")
+            log_error(f"Expected list from {endpoint_name}, got: {type(data)}")
             return False
         
-        log_info(f"Stock screener API returned {len(data)} results")
+        log_info(f"{endpoint_name} returned {len(data)} results")
         return True
     
     def _process_screener_data(self, data: List[Dict]) -> Optional[pd.DataFrame]:
-        """Process screener data with filtering and validation."""
+        """Process screener data with enhanced filtering."""
         try:
             df = pd.DataFrame(data)
-            if df.empty:
-                log_error("Empty DataFrame from stock screener")
+            if df.empty or 'symbol' not in df.columns:
+                log_error("Invalid screener data structure")
                 return None
             
-            if 'symbol' not in df.columns:
-                log_error(f"No 'symbol' column in response. Columns: {df.columns.tolist()}")
-                return None
+            log_info(f"Processing {len(df)} screener results")
             
-            log_info(f"DataFrame created with {len(df)} rows")
+            # Enhanced symbol filtering for news relevance
+            filtered_df = self._filter_symbols_for_news(df)
             
-            # Apply symbol filtering
-            filtered_df = self._filter_symbols(df)
-            
-            if filtered_df.empty:
-                log_error("All symbols filtered out!")
-                return None
-            
-            return filtered_df.reset_index(drop=True)
+            return filtered_df.reset_index(drop=True) if not filtered_df.empty else None
             
         except Exception as e:
             log_error(f"Error processing screener data: {e}")
             return None
     
-    def _filter_symbols(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Filter symbols with optimized logic."""
+    def _filter_symbols_for_news(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Filter symbols optimized for news coverage."""
         initial_count = len(df)
         
-        # Remove null/empty symbols
-        df = df[df['symbol'].notna()]
-        df = df[df['symbol'].astype(str).str.strip() != '']
-        log_info(f"After removing null/empty symbols: {len(df)} from {initial_count}")
+        # Basic filters
+        df = df[df['symbol'].notna() & (df['symbol'].str.strip() != '')]
         
-        # Apply length filter
-        length_mask = df['symbol'].str.len() <= 6
-        df_length = df[length_mask]
-        log_info(f"After length filter (<=6 chars): {len(df_length)} from {len(df)}")
-        
-        # Apply alphabetic filter
-        alpha_mask = df_length['symbol'].str.match(r'^[A-Z][A-Z0-9\-\.]*$')
-        df_filtered = df_length[alpha_mask]
-        log_info(f"After alpha filter: {len(df_filtered)} from {len(df_length)}")
-        
-        # Use lenient filtering if too few results
-        if len(df_filtered) < 50:
-            return self._apply_lenient_filter(df)
-        
-        return df_filtered
-    
-    def _apply_lenient_filter(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Apply more lenient filtering when strict filtering yields too few results."""
-        log_info("Applying lenient filtering...")
-        
-        lenient_mask = (
-            (df['symbol'].str.len() >= 1) & 
-            (df['symbol'].str.len() <= 8) &
-            (~df['symbol'].str.contains(r'[^A-Z0-9\-\.]', na=False))
+        # News-optimized filters
+        filters = (
+            (df['symbol'].str.len() <= 5) &  # Shorter symbols get more news
+            (df['symbol'].str.match(r'^[A-Z]+$')) &  # Only alphabetic
+            (~df['symbol'].str.contains(r'[.]')) &  # No dots (preferred shares)
+            (df['symbol'].str.len() >= 2)  # Minimum length
         )
         
-        df_lenient = df[lenient_mask]
-        log_info(f"Lenient filtering: {len(df_lenient)} symbols")
+        df_filtered = df[filters]
         
-        return df_lenient
+        # If too restrictive, apply lenient filtering
+        if len(df_filtered) < 50:
+            log_info("Applying lenient filtering for better coverage")
+            lenient_filters = (
+                (df['symbol'].str.len() <= 6) &
+                (df['symbol'].str.match(r'^[A-Z][A-Z0-9]*$'))
+            )
+            df_filtered = df[lenient_filters]
+        
+        log_info(f"Symbol filtering: {initial_count} -> {len(df_filtered)}")
+        return df_filtered
     
     def get_real_time_prices(self, symbols: List[str]) -> Optional[pd.DataFrame]:
         """Get real-time prices with batch optimization."""
         if not symbols:
             return None
         
-        # Clean and deduplicate symbols
-        unique_symbols = list(dict.fromkeys(
-            sym.strip().upper() for sym in symbols if sym.strip()
+        # Clean and deduplicate
+        clean_symbols = list(dict.fromkeys(
+            symbol.strip().upper() for symbol in symbols if symbol.strip()
         ))
         
-        if not unique_symbols:
+        if not clean_symbols:
             return None
         
-        # Process in batches
-        symbol_batch = unique_symbols[:100]
-        symbol_str = ",".join(symbol_batch)
+        # Process in optimized batches
+        symbol_batch = clean_symbols[:150]  # Increased batch size
+        symbol_string = ",".join(symbol_batch)
         
-        data = self._make_request(f"stock/full/real-time-price/{symbol_str}")
-        
-        if not data:
-            return None
-        
-        return self._process_price_data(data)
+        data = self._make_request(f"stock/full/real-time-price/{symbol_string}")
+        return self._process_price_data(data) if data else None
     
     def _process_price_data(self, data: Union[Dict, List]) -> Optional[pd.DataFrame]:
-        """Process price data with error handling."""
+        """Process price data with type conversion."""
         try:
             df = pd.DataFrame(data)
             if df.empty or 'symbol' not in df.columns:
                 return None
             
-            # Convert numeric columns
-            numeric_columns = ['lastSalePrice', 'bidPrice', 'askPrice', 'volume']
-            for col in numeric_columns:
+            # Optimize numeric conversion
+            numeric_cols = ['lastSalePrice', 'bidPrice', 'askPrice', 'volume']
+            for col in numeric_cols:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
             
@@ -230,57 +216,54 @@ class SimpleFMPLoader:
             return None
     
     def get_comprehensive_news(self) -> Optional[pd.DataFrame]:
-        """Get news from multiple FMP endpoints for comprehensive coverage."""
+        """Get enhanced news from multiple FMP endpoints."""
         try:
             all_articles = []
             
-            # 1. Primary RSS feed (current method)
-            log_debug("Fetching from RSS sentiment feed...")
-            rss_articles = self._get_rss_news()
+            # Enhanced RSS feed with better parameters
+            rss_articles = self._get_enhanced_rss_news()
             if rss_articles:
                 all_articles.extend(rss_articles)
                 log_debug(f"RSS feed: {len(rss_articles)} articles")
             
-            # 2. General stock news (new endpoint)
-            log_debug("Fetching from general stock news...")
-            general_articles = self._get_general_stock_news()
+            # General stock news with sector filtering
+            general_articles = self._get_filtered_general_news()
             if general_articles:
                 all_articles.extend(general_articles)
                 log_debug(f"General news: {len(general_articles)} articles")
             
-            # 3. Social sentiment (if available)
-            log_debug("Fetching social sentiment data...")
-            social_articles = self._get_social_sentiment_news()
-            if social_articles:
-                all_articles.extend(social_articles)
-                log_debug(f"Social sentiment: {len(social_articles)} articles")
+            # Earnings and FDA news (high-impact categories)
+            earnings_articles = self._get_earnings_news()
+            if earnings_articles:
+                all_articles.extend(earnings_articles)
+                log_debug(f"Earnings news: {len(earnings_articles)} articles")
             
             if not all_articles:
-                log_warning("No articles retrieved from any news endpoint")
+                log_warning("No articles from any news endpoint")
                 return None
             
-            # Remove duplicates and process
+            # Enhanced deduplication and processing
             df = pd.DataFrame(all_articles)
-            df = self._deduplicate_news_articles(df)
+            df = self._enhanced_deduplicate_news(df)
             
-            log_info(f"Total comprehensive news articles: {len(df)}")
+            log_info(f"Total comprehensive news: {len(df)} articles")
             return self._process_news_data(df)
             
         except Exception as e:
-            log_error(f"Error in comprehensive news fetching: {e}")
-            # Fallback to original method
-            return self.get_news_rss()
+            log_error(f"Error fetching comprehensive news: {e}")
+            return self.get_news_rss()  # Fallback
     
-    def _get_rss_news(self) -> List[Dict[str, Any]]:
-        """Get news from RSS sentiment feed."""
+    def _get_enhanced_rss_news(self) -> List[Dict[str, Any]]:
+        """Get RSS news with enhanced parameters."""
         try:
-            all_articles = []
+            articles = []
             
-            # Fetch multiple pages
             for page in range(CONFIG.news_page_limit):
                 params = {
                     "page": page,
-                    "limit": CONFIG.news_per_page_limit
+                    "limit": CONFIG.news_per_page_limit,
+                    # Enhanced filtering for relevant news
+                    "hasNews": "true"
                 }
                 
                 data = self._make_request("../v4/stock-news-sentiments-rss-feed", params)
@@ -288,29 +271,30 @@ class SimpleFMPLoader:
                 if not data or not isinstance(data, list):
                     break
                 
-                all_articles.extend(data)
+                articles.extend(data)
                 
+                # Stop if we got fewer than requested (end of data)
                 if len(data) < CONFIG.news_per_page_limit:
                     break
                 
                 time.sleep(0.2)  # Rate limiting
             
-            return all_articles
+            return articles
             
         except Exception as e:
             log_error(f"Error fetching RSS news: {e}")
             return []
     
-    def _get_general_stock_news(self) -> List[Dict[str, Any]]:
-        """Get news from general stock news endpoint."""
+    def _get_filtered_general_news(self) -> List[Dict[str, Any]]:
+        """Get general news with sector and keyword filtering."""
         try:
-            all_articles = []
+            articles = []
             
-            # Fetch multiple pages
-            for page in range(min(3, CONFIG.news_page_limit)):  # Limit to 3 pages for this endpoint
+            # Focus on high-impact news categories
+            for page in range(min(3, CONFIG.news_page_limit)):
                 params = {
                     "page": page,
-                    "limit": min(50, CONFIG.news_per_page_limit)  # Smaller limit for this endpoint
+                    "limit": min(50, CONFIG.news_per_page_limit)
                 }
                 
                 data = self._make_request("stock_news", params)
@@ -318,176 +302,180 @@ class SimpleFMPLoader:
                 if not data or not isinstance(data, list):
                     break
                 
-                # Transform data to match expected format
-                transformed_articles = []
+                # Transform and filter for relevance
                 for article in data:
-                    if isinstance(article, dict):
-                        # Map fields to expected format
-                        transformed = {
-                            'symbol': article.get('symbol', ''),
-                            'title': article.get('title', ''),
-                            'text': article.get('text', ''),
-                            'url': article.get('url', ''),
-                            'publishedDate': article.get('publishedDate', ''),
-                            'site': article.get('site', ''),
-                            'source': 'general_news'
-                        }
-                        transformed_articles.append(transformed)
-                
-                all_articles.extend(transformed_articles)
+                    if self._is_relevant_news(article):
+                        transformed = self._transform_news_article(article, 'general_news')
+                        articles.append(transformed)
                 
                 if len(data) < params['limit']:
                     break
                 
-                time.sleep(0.3)  # Slightly longer delay for this endpoint
+                time.sleep(0.3)
             
-            return all_articles
+            return articles
             
         except Exception as e:
-            log_debug(f"General stock news not available or error: {e}")
+            log_debug(f"General news not available: {e}")
             return []
     
-    def _get_social_sentiment_news(self) -> List[Dict[str, Any]]:
-        """Get social sentiment data."""
+    def _get_earnings_news(self) -> List[Dict[str, Any]]:
+        """Get earnings-specific news."""
         try:
-            # Fetch for popular symbols
-            popular_symbols = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA', 'META']
-            all_articles = []
+            # Get recent earnings calendar for relevant symbols
+            data = self._make_request("earning_calendar", {"limit": 100})
             
-            for symbol in popular_symbols[:5]:  # Limit to 5 symbols to avoid rate limits
-                try:
-                    data = self._make_request(f"../v4/social-sentiments", {'symbol': symbol})
-                    
-                    if data and isinstance(data, list):
-                        # Transform social sentiment to news-like format
-                        for item in data[:5]:  # Limit items per symbol
-                            if isinstance(item, dict):
-                                transformed = {
-                                    'symbol': symbol,
-                                    'title': f"Social Sentiment Update: {symbol}",
-                                    'text': f"Social sentiment analysis shows {item.get('sentiment', 'neutral')} sentiment for {symbol}",
-                                    'url': '',
-                                    'publishedDate': item.get('date', ''),
-                                    'site': 'social_sentiment',
-                                    'source': 'social_sentiment',
-                                    'sentiment': item.get('sentiment', 'neutral')
-                                }
-                                all_articles.append(transformed)
-                    
-                    time.sleep(0.5)  # Longer delay for social sentiment
-                    
-                except Exception as e:
-                    log_debug(f"Error fetching social sentiment for {symbol}: {e}")
-                    continue
+            if not data:
+                return []
             
-            return all_articles
+            articles = []
+            for earning in data[:20]:  # Limit processing
+                if 'symbol' in earning:
+                    article = {
+                        'symbol': earning['symbol'],
+                        'title': f"Earnings Report: {earning['symbol']}",
+                        'text': f"Earnings scheduled for {earning.get('date', 'TBD')}",
+                        'url': '',
+                        'publishedDate': earning.get('date', ''),
+                        'site': 'earnings_calendar',
+                        'source': 'earnings'
+                    }
+                    articles.append(article)
+            
+            return articles
             
         except Exception as e:
-            log_debug(f"Social sentiment not available or error: {e}")
+            log_debug(f"Earnings news not available: {e}")
             return []
     
-    def _deduplicate_news_articles(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Remove duplicate articles from multiple sources."""
+    def _is_relevant_news(self, article: Dict) -> bool:
+        """Filter for relevant news based on content."""
+        if not isinstance(article, dict):
+            return False
+        
+        title = str(article.get('title', '')).lower()
+        text = str(article.get('text', '')).lower()
+        content = f"{title} {text}"
+        
+        # High-value keywords
+        relevant_keywords = [
+            'earnings', 'revenue', 'profit', 'guidance', 'acquisition', 'merger',
+            'fda', 'approval', 'partnership', 'contract', 'breakthrough',
+            'upgrade', 'downgrade', 'target', 'analyst', 'dividend',
+            'buyback', 'spinoff', 'ipo', 'secondary offering'
+        ]
+        
+        return any(keyword in content for keyword in relevant_keywords)
+    
+    def _transform_news_article(self, article: Dict, source: str) -> Dict[str, Any]:
+        """Transform article to standard format."""
+        return {
+            'symbol': article.get('symbol', ''),
+            'title': article.get('title', ''),
+            'text': article.get('text', ''),
+            'url': article.get('url', ''),
+            'publishedDate': article.get('publishedDate', ''),
+            'site': article.get('site', ''),
+            'source': source
+        }
+    
+    def _enhanced_deduplicate_news(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Enhanced deduplication with content similarity."""
         if df.empty:
             return df
         
         try:
-            # Remove exact duplicates by title and symbol
+            # Remove exact duplicates
             df = df.drop_duplicates(subset=['symbol', 'title'], keep='first')
             
-            # Remove very similar titles
-            if len(df) <= 1000:  # Only for manageable sizes
-                df = self._remove_similar_titles(df)
+            # Enhanced similarity removal for manageable datasets
+            if len(df) <= 1000:
+                df = self._remove_similar_content(df)
             
             return df
             
         except Exception as e:
-            log_error(f"Error deduplicating news articles: {e}")
+            log_error(f"Error in deduplication: {e}")
             return df
     
-    def _remove_similar_titles(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Remove articles with very similar titles."""
+    def _remove_similar_content(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Remove articles with similar content."""
         if 'title' not in df.columns:
             return df
         
         try:
-            # Simple similarity check
-            seen_titles = set()
-            keep_indices = []
+            unique_indices = []
+            seen_content = set()
             
             for idx, row in df.iterrows():
                 title = str(row['title']).lower().strip()
-                title_words = set(title.split())
+                symbol = str(row.get('symbol', '')).upper()
                 
-                # Check for high similarity with seen titles
+                # Create content fingerprint
+                title_words = set(word for word in title.split() if len(word) > 3)
+                content_key = (symbol, frozenset(title_words))
+                
+                # Check similarity with existing content
                 is_similar = False
-                for seen_title in seen_titles:
-                    seen_words = set(seen_title.split())
-                    if title_words and seen_words:
-                        intersection = len(title_words & seen_words)
-                        union = len(title_words | seen_words)
-                        if union > 0 and intersection / union > 0.8:  # 80% similarity
-                            is_similar = True
-                            break
+                for existing_symbol, existing_words in seen_content:
+                    if (existing_symbol == symbol and 
+                        title_words and existing_words and
+                        len(title_words & existing_words) / len(title_words | existing_words) > 0.7):
+                        is_similar = True
+                        break
                 
                 if not is_similar:
-                    keep_indices.append(idx)
-                    seen_titles.add(title)
+                    unique_indices.append(idx)
+                    seen_content.add(content_key)
                     
-                    # Limit memory usage
-                    if len(seen_titles) > 500:
-                        seen_titles = set(list(seen_titles)[-250:])
+                    # Prevent memory growth
+                    if len(seen_content) > 500:
+                        seen_content = set(list(seen_content)[-250:])
             
-            return df.loc[keep_indices]
+            return df.loc[unique_indices]
             
         except Exception as e:
-            log_error(f"Error removing similar titles: {e}")
+            log_error(f"Error removing similar content: {e}")
             return df
     
     def get_news_rss(self) -> Optional[pd.DataFrame]:
-        """Get news using comprehensive method (backwards compatibility)."""
+        """Backward compatibility method."""
         return self.get_comprehensive_news()
     
     def _process_news_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Process news data with optimized handling."""
+        """Process news data with optimized transformations."""
         if df.empty:
             return df
         
-        # Handle datetime
+        # Optimize datetime conversion
         if 'publishedDate' in df.columns:
-            df['publishedDate'] = pd.to_datetime(
-                df['publishedDate'], 
-                errors='coerce',
-                utc=True
-            )
+            df['publishedDate'] = pd.to_datetime(df['publishedDate'], errors='coerce', utc=True)
         
-        # Create content field
+        # Create combined content field
         if 'title' in df.columns and 'text' in df.columns:
             df['content'] = df['title'].astype(str) + " " + df['text'].astype(str)
         
-        # Ensure source field exists
+        # Ensure source field
         if 'source' not in df.columns:
             df['source'] = 'rss_feed'
         
-        # Filter essential data with more permissive requirements
-        essential_columns = ['symbol', 'title']
-        for col in essential_columns:
-            if col in df.columns:
-                df = df[df[col].notna() & (df[col].str.strip() != '')]
+        # Filter essential data
+        essential_filters = (
+            df['symbol'].notna() & 
+            (df['symbol'].str.strip() != '') &
+            df['title'].notna() & 
+            (df['title'].str.strip() != '')
+        )
         
-        # Remove completely empty text
-        if 'text' in df.columns:
-            df = df[df['text'].notna() & (df['text'].str.strip() != '')]
-        
-        return df
+        return df[essential_filters]
     
     @lru_cache(maxsize=100)
     def get_historical_data_cached(self, symbol: str, days: int) -> Optional[pd.DataFrame]:
-        """Get historical data with caching for repeated requests."""
+        """Cached historical data retrieval."""
         return self.get_historical_data(symbol, days)
     
     def get_historical_data(self, symbol: str, days: int = 30) -> Optional[pd.DataFrame]:
-        """Get historical data without caching."""
+        """Get historical price data."""
         from datetime import datetime, timedelta
         
         end_date = datetime.now().strftime('%Y-%m-%d')
@@ -498,13 +486,10 @@ class SimpleFMPLoader:
             'to': end_date
         })
         
-        if not data:
-            return None
-        
-        return self._process_historical_data(data, symbol)
+        return self._process_historical_data(data, symbol) if data else None
     
     def _process_historical_data(self, data: Union[Dict, List], symbol: str) -> Optional[pd.DataFrame]:
-        """Process historical data with error handling."""
+        """Process historical data with validation."""
         try:
             # Handle different response formats
             if isinstance(data, dict) and 'historical' in data:
@@ -512,26 +497,25 @@ class SimpleFMPLoader:
             elif isinstance(data, list):
                 historical_data = data
             else:
-                log_error(f"Unexpected data format for {symbol}: {type(data)}")
+                log_error(f"Unexpected historical data format for {symbol}")
                 return None
             
             if not historical_data:
-                log_debug(f"Empty historical data for {symbol}")
                 return None
             
             df = pd.DataFrame(historical_data)
             
             if 'date' not in df.columns:
-                log_error(f"Missing 'date' column in historical data for {symbol}")
+                log_error(f"Missing date column for {symbol}")
                 return None
             
-            # Process data
+            # Process and validate data
             df['date'] = pd.to_datetime(df['date'])
             df = df.sort_values('date').reset_index(drop=True)
             
             # Convert numeric columns
-            numeric_columns = ['open', 'high', 'low', 'close', 'volume']
-            for col in numeric_columns:
+            numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+            for col in numeric_cols:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
             
@@ -542,6 +526,6 @@ class SimpleFMPLoader:
             return None
     
     def __del__(self):
-        """Cleanup session on deletion."""
+        """Clean up session resources."""
         if hasattr(self, 'session'):
             self.session.close()

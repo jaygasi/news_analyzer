@@ -1,405 +1,499 @@
 """
-News quality filtering with extremely relaxed filters for maximum coverage
+Enhanced news quality filtering with fixed regex patterns and error handling
 """
 import pandas as pd
 import numpy as np
 import re
 from datetime import datetime, timezone, timedelta
-from typing import Set, List, Optional, Dict, Any
+from typing import Set, List, Optional, Dict, Any, Pattern
 from config import CONFIG
 from utils.simple_logger import log_info, log_warning, log_debug
 
 
 class NewsQualityFilter:
-    """Filter news articles with extremely relaxed criteria for maximum coverage"""
+    """Enhanced news quality filter with corrected regex patterns and robust error handling."""
+    
+    # Fixed pre-compiled regex patterns
+    _SPAM_PATTERN: Pattern = re.compile(
+        r'\b(?:click here|ad:|advertisement|sponsored|promo|free trial)\b', 
+        re.IGNORECASE
+    )
+    
+    _HIGH_VALUE_PATTERN: Pattern = re.compile(
+        r'\b(?:earnings|revenue|acquisition|merger|fda|approval|partnership|deal|'
+        r'breakthrough|guidance|beats|misses|announces|reports|files|launches|'
+        r'dividend|buyback|ipo|secondary offering|analyst|upgrade|downgrade)\b',
+        re.IGNORECASE
+    )
+    
+    # Fixed information patterns with proper escaping
+    _INFO_PATTERNS = [
+        re.compile(r'\$[\d,.]+', re.IGNORECASE),  # Dollar amounts
+        re.compile(r'\b\d+%\b', re.IGNORECASE),   # Percentages  
+        re.compile(r'\bQ[1-4]\b', re.IGNORECASE), # Quarters
+        re.compile(r'\b\d{4}\b', re.IGNORECASE),  # Years
+        re.compile(r'\b(?:million|billion|shares|revenue|profit)\b', re.IGNORECASE)
+    ]
+    
+    # Fixed low quality patterns
+    _LOW_QUALITY_PATTERNS = [
+        re.compile(r'\b(?:click here|visit our website|subscribe now)\b', re.IGNORECASE),
+        re.compile(r'\b(?:advertisement|promotional|sponsored content)\b', re.IGNORECASE),
+        re.compile(r'\$\$\$|\bfree money\b|\bget rich\b', re.IGNORECASE),
+        re.compile(r'\b(?:this one trick|doctors hate)\b', re.IGNORECASE)
+    ]
     
     def __init__(self) -> None:
-        """Initialize with very permissive filtering."""
+        """Initialize with optimized filtering configuration."""
         self._processed_headlines: Set[str] = set()
-        self._headline_cache_limit = 400
+        self._headline_cache_limit = 500
         
-        # Pre-compile regex patterns with fixed group issues
-        self._spam_pattern = re.compile(
-            r'\b(?:click here|ad:|advertisement|sponsored|promo)\b', 
-            re.IGNORECASE
-        )
-        
-        # Patterns that should DEFINITELY be preserved (high value content)
-        self._high_value_pattern = re.compile(
-            r'\b(?:earnings|revenue|acquisition|merger|fda|approval|partnership|deal|breakthrough|guidance|beats|misses|announces|reports|files|launches)\b',
-            re.IGNORECASE
-        )
-        
-        # Official keywords for priority scoring
+        # Pre-define keyword sets for performance
         self._official_keywords = frozenset([
             'announces', 'reports', 'declares', 'files', 'receives',
             'completes', 'signs', 'launches', 'enters into', 'appoints',
             'releases', 'publishes', 'confirms', 'approves', 'issues'
         ])
         
-        # High-value catalyst keywords
         self._catalyst_keywords = frozenset([
             'earnings', 'guidance', 'fda', 'approval', 'merger', 'acquisition',
-            'breakthrough', 'partnership', 'contract', 'deal', 'revenue'
+            'breakthrough', 'partnership', 'contract', 'deal', 'revenue',
+            'dividend', 'buyback', 'ipo', 'analyst', 'upgrade', 'downgrade'
         ])
+        
+        # Enhanced time windows
+        self._time_windows = {
+            'production': 8,  # 8 hours for production
+            'testing': 48,    # 48 hours for testing
+            'premium': 12     # 12 hours for premium content
+        }
     
     def filter_news_quality(self, news_df: pd.DataFrame) -> pd.DataFrame:
-        """Apply extremely relaxed filters for maximum article coverage."""
+        """Apply enhanced quality filters with robust error handling."""
         if news_df is None or news_df.empty:
             return news_df
         
         initial_count = len(news_df)
-        log_debug(f"Starting news quality filtering with {initial_count} articles")
+        log_debug(f"Starting enhanced quality filtering: {initial_count} articles")
         
         try:
-            # Apply only essential filters
-            filtered_df = news_df.copy()
+            # Create a copy to avoid modifying original
+            df = news_df.copy()
             
-            # Stage 1: Only absolute essentials
-            filtered_df = self._filter_absolute_essentials(filtered_df)
-            if filtered_df.empty:
-                log_warning("All articles filtered at essentials stage")
-                self._debug_essentials_failures(news_df)
-                return filtered_df
+            # Stage 1: Essential validation
+            df = self._filter_essential_fields(df)
+            if df.empty:
+                log_warning("All articles filtered - missing essential fields")
+                return df
             
-            # Stage 2: Very relaxed time filter
-            filtered_df = self._filter_time_very_relaxed(filtered_df)
-            if filtered_df.empty:
-                log_warning("All articles filtered at time stage")
-                self._debug_time_failures(news_df)
-                return filtered_df
+            # Stage 2: Enhanced time filtering with proper None handling
+            df = self._filter_by_time_enhanced_safe(df)
+            if df.empty:
+                log_warning("All articles filtered - time criteria")
+                return df
             
-            # Stage 3: Minimal content filter
-            filtered_df = self._filter_content_minimal(filtered_df)
-            if filtered_df.empty:
-                log_warning("All articles filtered at content stage")
-                self._debug_content_failures(news_df)
-                return filtered_df
+            # Stage 3: Content quality assessment
+            df = self._filter_content_quality_safe(df)
+            if df.empty:
+                log_warning("All articles filtered - content quality")
+                return df
             
-            # Stage 4: Priority scoring (doesn't filter, just scores)
-            filtered_df = self._add_priority_scoring(filtered_df)
+            # Stage 4: Add enhanced scoring with error handling
+            df = self._add_enhanced_scoring_safe(df)
             
-            final_count = len(filtered_df)
+            # Stage 5: Remove obvious spam/low quality
+            df = self._filter_spam_and_low_quality_safe(df)
+            
+            final_count = len(df)
             filter_rate = ((initial_count - final_count) / initial_count * 100) if initial_count > 0 else 0
             
-            log_info(f"News quality filter: {initial_count} -> {final_count} articles "
-                    f"({filter_rate:.1f}% filtered out)")
+            log_info(f"Enhanced quality filter: {initial_count} -> {final_count} articles "
+                    f"({filter_rate:.1f}% filtered)")
             
-            return filtered_df
+            return df
             
         except Exception as e:
-            log_error(f"Error in news filtering: {e}")
+            log_warning(f"Error in enhanced quality filtering: {e}")
             return news_df
     
-    def _filter_absolute_essentials(self, news_df: pd.DataFrame) -> pd.DataFrame:
-        """Filter only the absolute essentials - must have symbol and title."""
-        if news_df.empty:
-            return news_df
+    def _filter_essential_fields(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Filter articles missing essential fields."""
+        if df.empty:
+            return df
         
         try:
-            mask = pd.Series(True, index=news_df.index)
+            # Essential field requirements
+            essential_mask = (
+                df['symbol'].notna() & 
+                (df['symbol'].str.strip() != '') &
+                df['title'].notna() & 
+                (df['title'].str.strip() != '') &
+                (df['title'].str.len() >= 10)  # Minimum meaningful title
+            )
             
-            # Must have symbol
-            if 'symbol' in news_df.columns:
-                symbol_mask = news_df['symbol'].notna() & (news_df['symbol'].str.strip() != '')
-                mask &= symbol_mask
-                log_debug(f"Symbol filter: {symbol_mask.sum()}/{len(news_df)} articles have valid symbols")
+            filtered_df = df[essential_mask]
             
-            # Must have title
-            if 'title' in news_df.columns:
-                title_mask = news_df['title'].notna() & (news_df['title'].str.strip() != '')
-                mask &= title_mask
-                log_debug(f"Title filter: {title_mask.sum()}/{len(news_df)} articles have valid titles")
-            
-            filtered_df = news_df[mask]
-            
-            removed = len(news_df) - len(filtered_df)
-            if removed > 0:
-                log_debug(f"Essentials filter removed {removed} articles")
+            removed_count = len(df) - len(filtered_df)
+            if removed_count > 0:
+                log_debug(f"Essential fields filter removed {removed_count} articles")
             
             return filtered_df
             
         except Exception as e:
-            log_warning(f"Error in essentials filter: {e}")
-            return news_df
+            log_warning(f"Error in essential fields filter: {e}")
+            return df
     
-    def _filter_time_very_relaxed(self, news_df: pd.DataFrame) -> pd.DataFrame:
-        """Apply very relaxed time filtering."""
-        if 'publishedDate' not in news_df.columns or news_df.empty:
-            return news_df
+    def _filter_by_time_enhanced_safe(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Enhanced time filtering with safe None handling."""
+        if 'publishedDate' not in df.columns or df.empty:
+            return df
         
         try:
             now = datetime.now(timezone.utc)
-            # VERY relaxed time windows
-            cutoff_hours = 72 if CONFIG.testing_mode else 12.0  # 12 hours in production, 72 in testing
-            cutoff_time = now - timedelta(hours=cutoff_hours)
             
-            log_debug(f"Time filter: accepting articles newer than {cutoff_hours} hours")
+            # Dynamic time window based on mode and content type
+            base_hours = self._time_windows['testing' if CONFIG.testing_mode else 'production']
             
-            try:
-                published_dates = pd.to_datetime(news_df['publishedDate'], utc=True, errors='coerce')
-                
-                # Check for articles with invalid dates
-                valid_dates_mask = published_dates.notna()
-                log_debug(f"Valid dates: {valid_dates_mask.sum()}/{len(news_df)} articles")
-                
-                # Time filter only applies to articles with valid dates
-                time_mask = (published_dates.isna()) | (published_dates > cutoff_time)
-                
-                filtered_df = news_df[time_mask]
-                
-                removed = len(news_df) - len(filtered_df)
-                if removed > 0:
-                    log_debug(f"Time filter removed {removed} articles (older than {cutoff_hours}h)")
-                
-                return filtered_df
-                
-            except Exception as e:
-                log_warning(f"Error in time comparison: {e}, keeping all articles")
-                return news_df
+            # Convert to datetime with error handling
+            published_dates = pd.to_datetime(df['publishedDate'], utc=True, errors='coerce')
             
-        except Exception as e:
-            log_warning(f"Error in time filtering: {e}")
-            return news_df
-    
-    def _filter_content_minimal(self, news_df: pd.DataFrame) -> pd.DataFrame:
-        """Apply minimal content filtering - preserve high-value content."""
-        if news_df.empty:
-            return news_df
-        
-        try:
-            mask = pd.Series(True, index=news_df.index)
+            # Enhanced time filtering logic with safe operations
+            time_mask = pd.Series(True, index=df.index)
             
-            # Check for high-value content first
-            high_value_mask = pd.Series(False, index=news_df.index)
-            
-            if 'title' in news_df.columns:
-                title_high_value = news_df['title'].str.contains(self._high_value_pattern, na=False, regex=True)
-                high_value_mask |= title_high_value
-                log_debug(f"High-value titles: {title_high_value.sum()}/{len(news_df)} articles")
-            
-            if 'text' in news_df.columns:
-                text_high_value = news_df['text'].str.contains(self._high_value_pattern, na=False, regex=True)
-                high_value_mask |= text_high_value
-                log_debug(f"High-value text: {text_high_value.sum()}/{len(news_df)} articles")
-            
-            log_debug(f"Total high-value articles: {high_value_mask.sum()}/{len(news_df)}")
-            
-            # For non-high-value content, apply minimal filters
-            if 'text' in news_df.columns:
-                # Very minimal text length requirement
-                basic_text_mask = news_df['text'].str.len() >= 20  # Very low minimum
-                log_debug(f"Basic text length (>=20): {basic_text_mask.sum()}/{len(news_df)} articles")
-                
-                # Combine: high-value content OR meets basic requirements
-                mask &= high_value_mask | basic_text_mask
-            else:
-                # If no text column, just use high-value filter
-                mask &= high_value_mask
-            
-            # Only filter extreme cases
-            if 'title' in news_df.columns:
-                # Only filter extremely short titles
-                title_length_mask = news_df['title'].str.len() >= 5
-                mask &= title_length_mask
-                log_debug(f"Title length (>=5): {title_length_mask.sum()}/{len(news_df)} articles")
-            
-            # Very minimal spam filtering - only obvious spam
-            if 'title' in news_df.columns:
-                obvious_spam_mask = ~news_df['title'].str.contains(r'\b(?:FREE|WIN NOW|CLICK HERE)\b', na=False, regex=True, flags=re.IGNORECASE)
-                mask &= obvious_spam_mask
-                log_debug(f"Non-obvious spam: {obvious_spam_mask.sum()}/{len(news_df)} articles")
-            
-            filtered_df = news_df[mask]
-            
-            removed = len(news_df) - len(filtered_df)
-            if removed > 0:
-                log_debug(f"Content filter removed {removed} articles")
-            
-            return filtered_df
-            
-        except Exception as e:
-            log_warning(f"Error in content filtering: {e}")
-            return news_df
-    
-    def _add_priority_scoring(self, news_df: pd.DataFrame) -> pd.DataFrame:
-        """Add priority scores without filtering."""
-        if news_df.empty or 'title' not in news_df.columns:
-            return news_df
-        
-        try:
-            news_df = news_df.copy()
-            news_df['priority_score'] = 0.5
-            
-            # Combine title and text for scoring
-            title_text = news_df['title'].str.lower()
-            if 'text' in news_df.columns:
-                text_content = news_df['text'].str.lower()
-                combined_text = title_text + ' ' + text_content
-            else:
-                combined_text = title_text
-            
-            # High-value keywords get big bonus
-            high_value_mask = combined_text.str.contains(self._high_value_pattern, na=False, regex=True)
-            news_df.loc[high_value_mask, 'priority_score'] += 0.30
-            
-            # Official keywords
-            for keyword in self._official_keywords:
-                keyword_pattern = fr'\b{re.escape(keyword)}\b'
-                keyword_mask = combined_text.str.contains(keyword_pattern, na=False, regex=True)
-                news_df.loc[keyword_mask, 'priority_score'] += 0.10
-            
-            # Catalyst keywords
-            for keyword in self._catalyst_keywords:
-                keyword_pattern = fr'\b{re.escape(keyword)}\b'
-                keyword_mask = combined_text.str.contains(keyword_pattern, na=False, regex=True)
-                news_df.loc[keyword_mask, 'priority_score'] += 0.15
-            
-            # Recency bonus
-            if 'publishedDate' in news_df.columns:
+            for idx, (row_idx, row) in enumerate(df.iterrows()):
                 try:
-                    now_pd = pd.Timestamp.now(tz=timezone.utc)
-                    published_dates = pd.to_datetime(news_df['publishedDate'], utc=True, errors='coerce')
+                    pub_date = published_dates.iloc[idx]
                     
-                    valid_dates = published_dates.notna()
-                    if valid_dates.any():
-                        age_timedelta = now_pd - published_dates
-                        age_hours = age_timedelta.dt.total_seconds() / 3600
-                        
-                        # Recency bonuses
-                        recent_1h_mask = (age_hours <= 1.0) & valid_dates
-                        recent_3h_mask = (age_hours > 1.0) & (age_hours <= 3.0) & valid_dates
-                        recent_6h_mask = (age_hours > 3.0) & (age_hours <= 6.0) & valid_dates
-                        
-                        news_df.loc[recent_1h_mask, 'priority_score'] += 0.25
-                        news_df.loc[recent_3h_mask, 'priority_score'] += 0.15
-                        news_df.loc[recent_6h_mask, 'priority_score'] += 0.10
+                    if pd.isna(pub_date) or pub_date is None:
+                        # Allow articles with missing dates if they have high-value content
+                        if self._has_high_value_content_safe(row):
+                            continue
+                        else:
+                            time_mask.loc[row_idx] = False
+                            continue
+                    
+                    # Safe datetime arithmetic
+                    try:
+                        age_hours = (now - pub_date).total_seconds() / 3600
+                    except (TypeError, AttributeError):
+                        # If datetime arithmetic fails, treat as missing date
+                        if self._has_high_value_content_safe(row):
+                            continue
+                        else:
+                            time_mask.loc[row_idx] = False
+                            continue
+                    
+                    # Dynamic time window based on content value
+                    time_limit = base_hours
+                    if self._has_high_value_content_safe(row):
+                        time_limit = self._time_windows['premium']  # Extended for valuable content
+                    elif self._is_breaking_news_safe(row):
+                        time_limit = 2  # Shorter window for breaking news
+                    
+                    if age_hours > time_limit:
+                        time_mask.loc[row_idx] = False
                         
                 except Exception as e:
-                    log_debug(f"Error in recency scoring: {e}")
+                    log_debug(f"Error processing time for article {idx}: {e}")
+                    # Default to keeping the article
+                    continue
             
-            # Clip scores
-            news_df['priority_score'] = news_df['priority_score'].clip(upper=1.0)
+            filtered_df = df[time_mask]
             
-            # Sort by priority
-            sort_columns = ['priority_score']
-            if 'publishedDate' in news_df.columns:
-                sort_columns.append('publishedDate')
+            removed_count = len(df) - len(filtered_df)
+            if removed_count > 0:
+                log_debug(f"Enhanced time filter removed {removed_count} articles")
             
-            sorted_df = news_df.sort_values(sort_columns, ascending=[False, False])
-            
-            return sorted_df
+            return filtered_df
             
         except Exception as e:
-            log_warning(f"Error in priority scoring: {e}")
-            return news_df
+            log_warning(f"Error in enhanced time filtering: {e}")
+            return df
     
-    def _debug_essentials_failures(self, news_df: pd.DataFrame) -> None:
-        """Debug why articles fail essentials filter."""
-        log_warning("=== DEBUGGING ESSENTIALS FAILURES ===")
-        
-        if 'symbol' in news_df.columns:
-            null_symbols = news_df['symbol'].isna().sum()
-            empty_symbols = (news_df['symbol'].str.strip() == '').sum()
-            log_warning(f"Symbol issues: {null_symbols} null, {empty_symbols} empty")
-        
-        if 'title' in news_df.columns:
-            null_titles = news_df['title'].isna().sum()
-            empty_titles = (news_df['title'].str.strip() == '').sum()
-            log_warning(f"Title issues: {null_titles} null, {empty_titles} empty")
-    
-    def _debug_time_failures(self, news_df: pd.DataFrame) -> None:
-        """Debug why articles fail time filter."""
-        log_warning("=== DEBUGGING TIME FAILURES ===")
-        
-        if 'publishedDate' not in news_df.columns:
-            log_warning("No publishedDate column")
-            return
+    def _filter_content_quality_safe(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Enhanced content quality filtering with error handling."""
+        if df.empty:
+            return df
         
         try:
-            now = datetime.now(timezone.utc)
-            cutoff_hours = 72 if CONFIG.testing_mode else 12.0
-            cutoff_time = now - timedelta(hours=cutoff_hours)
+            quality_mask = pd.Series(True, index=df.index)
             
-            published_dates = pd.to_datetime(news_df['publishedDate'], utc=True, errors='coerce')
+            for idx, (row_idx, row) in enumerate(df.iterrows()):
+                try:
+                    # High-value content always passes
+                    if self._has_high_value_content_safe(row):
+                        continue
+                    
+                    # Check text content quality
+                    text = str(row.get('text', ''))
+                    title = str(row.get('title', ''))
+                    
+                    # Quality criteria
+                    quality_checks = [
+                        len(text) >= 30,  # Minimum content length
+                        len(title.split()) >= 3,  # Meaningful title
+                        not self._is_low_quality_content_safe(title, text),
+                        self._has_sufficient_information_safe(title, text)
+                    ]
+                    
+                    if not any(quality_checks[:2]):  # Must pass basic length checks
+                        quality_mask.loc[row_idx] = False
+                    elif not any(quality_checks[2:]):  # Additional quality checks
+                        quality_mask.loc[row_idx] = False
+                        
+                except Exception as e:
+                    log_debug(f"Error processing quality for article {idx}: {e}")
+                    # Default to keeping the article
+                    continue
             
-            null_dates = published_dates.isna().sum()
-            valid_dates = published_dates.notna().sum()
+            filtered_df = df[quality_mask]
             
-            if valid_dates > 0:
-                ages = (now - published_dates).dt.total_seconds() / 3600
-                too_old = (ages > cutoff_hours).sum()
-                
-                log_warning(f"Date analysis: {null_dates} invalid, {valid_dates} valid, {too_old} too old (>{cutoff_hours}h)")
-                
-                if too_old > 0:
-                    oldest_age = ages.max()
-                    newest_age = ages.min()
-                    log_warning(f"Age range: {newest_age:.1f}h to {oldest_age:.1f}h")
-            else:
-                log_warning("No valid dates found")
-                
+            removed_count = len(df) - len(filtered_df)
+            if removed_count > 0:
+                log_debug(f"Content quality filter removed {removed_count} articles")
+            
+            return filtered_df
+            
         except Exception as e:
-            log_warning(f"Error in time debug: {e}")
+            log_warning(f"Error in content quality filtering: {e}")
+            return df
     
-    def _debug_content_failures(self, news_df: pd.DataFrame) -> None:
-        """Debug why articles fail content filter."""
-        log_warning("=== DEBUGGING CONTENT FAILURES ===")
-        
-        # Check high-value content
-        high_value_count = 0
-        if 'title' in news_df.columns:
-            title_high_value = news_df['title'].str.contains(self._high_value_pattern, na=False, regex=True).sum()
-            high_value_count += title_high_value
-            log_warning(f"High-value titles: {title_high_value}")
-        
-        if 'text' in news_df.columns:
-            text_high_value = news_df['text'].str.contains(self._high_value_pattern, na=False, regex=True).sum()
-            high_value_count += text_high_value
-            log_warning(f"High-value text: {text_high_value}")
+    def _has_high_value_content_safe(self, row: pd.Series) -> bool:
+        """Check if article has high-value content with error handling."""
+        try:
+            title = str(row.get('title', '')).lower()
+            text = str(row.get('text', '')).lower()
+            combined = f"{title} {text}"
             
-            # Text length analysis
-            text_lengths = news_df['text'].str.len()
-            too_short = (text_lengths < 20).sum()
-            log_warning(f"Text length issues: {too_short} articles < 20 chars")
-            
-            if too_short > 0:
-                min_length = text_lengths.min()
-                max_length = text_lengths.max()
-                avg_length = text_lengths.mean()
-                log_warning(f"Text length range: {min_length} to {max_length}, avg {avg_length:.1f}")
-        
-        log_warning(f"Total high-value content: {high_value_count}")
+            return bool(self._HIGH_VALUE_PATTERN.search(combined))
+        except Exception:
+            return False
     
-    def get_filter_statistics(self, original_df: pd.DataFrame, filtered_df: pd.DataFrame) -> Dict[str, Any]:
-        """Get detailed statistics about the filtering process."""
+    def _is_breaking_news_safe(self, row: pd.Series) -> bool:
+        """Check if article is breaking news with error handling."""
+        try:
+            title = str(row.get('title', '')).lower()
+            return any(indicator in title for indicator in ['breaking', 'just in', 'urgent', 'alert'])
+        except Exception:
+            return False
+    
+    def _is_low_quality_content_safe(self, title: str, text: str) -> bool:
+        """Check for low-quality content indicators with error handling."""
+        try:
+            combined = f"{title} {text}".lower()
+            
+            # Use pre-compiled patterns
+            return any(pattern.search(combined) for pattern in self._LOW_QUALITY_PATTERNS)
+        except Exception:
+            return False
+    
+    def _has_sufficient_information_safe(self, title: str, text: str) -> bool:
+        """Check if content has sufficient information with error handling."""
+        try:
+            combined = f"{title} {text}".lower()
+            
+            # Use pre-compiled patterns
+            return any(pattern.search(combined) for pattern in self._INFO_PATTERNS)
+        except Exception:
+            return False
+    
+    def _add_enhanced_scoring_safe(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Add enhanced priority scoring with error handling."""
+        if df.empty:
+            return df
+        
+        try:
+            df = df.copy()
+            df['priority_score'] = 0.5
+            df['quality_score'] = 0.5
+            df['relevance_score'] = 0.5
+            
+            for idx, (row_idx, row) in enumerate(df.iterrows()):
+                try:
+                    title = str(row.get('title', '')).lower()
+                    text = str(row.get('text', '')).lower()
+                    combined = f"{title} {text}"
+                    
+                    # Calculate component scores safely
+                    priority = self._calculate_priority_score_safe(combined, row)
+                    quality = self._calculate_quality_score_safe(combined, row)
+                    relevance = self._calculate_relevance_score_safe(combined, row)
+                    
+                    df.at[row_idx, 'priority_score'] = priority
+                    df.at[row_idx, 'quality_score'] = quality
+                    df.at[row_idx, 'relevance_score'] = relevance
+                    
+                except Exception as e:
+                    log_debug(f"Error calculating scores for article {idx}: {e}")
+                    # Keep default scores
+                    continue
+            
+            # Calculate composite score
+            df['composite_score'] = (
+                df['priority_score'] * 0.4 +
+                df['quality_score'] * 0.3 +
+                df['relevance_score'] * 0.3
+            )
+            
+            # Sort by composite score
+            df = df.sort_values(['composite_score', 'publishedDate'], 
+                               ascending=[False, False])
+            
+            return df
+            
+        except Exception as e:
+            log_warning(f"Error in enhanced scoring: {e}")
+            return df
+    
+    def _calculate_priority_score_safe(self, combined_text: str, row: pd.Series) -> float:
+        """Calculate priority score with error handling."""
+        try:
+            score = 0.5
+            
+            # High-impact keywords
+            if self._HIGH_VALUE_PATTERN.search(combined_text):
+                score += 0.3
+            
+            # Official announcements
+            official_count = sum(1 for keyword in self._official_keywords 
+                               if keyword in combined_text)
+            score += min(official_count * 0.1, 0.2)
+            
+            # Catalyst keywords
+            catalyst_count = sum(1 for keyword in self._catalyst_keywords 
+                               if keyword in combined_text)
+            score += min(catalyst_count * 0.15, 0.25)
+            
+            # Recent publication bonus
+            if 'publishedDate' in row:
+                try:
+                    pub_date = pd.to_datetime(row['publishedDate'], utc=True)
+                    if pub_date is not None and not pd.isna(pub_date):
+                        age_hours = (datetime.now(timezone.utc) - pub_date).total_seconds() / 3600
+                        
+                        if age_hours <= 1:
+                            score += 0.2
+                        elif age_hours <= 3:
+                            score += 0.1
+                        elif age_hours <= 6:
+                            score += 0.05
+                except Exception:
+                    pass  # Skip time bonus if calculation fails
+            
+            return min(score, 1.0)
+        except Exception:
+            return 0.5
+    
+    def _calculate_quality_score_safe(self, combined_text: str, row: pd.Series) -> float:
+        """Calculate quality score with error handling."""
+        try:
+            score = 0.5
+            
+            # Content length bonus
+            text_length = len(str(row.get('text', '')))
+            if text_length > 200:
+                score += 0.2
+            elif text_length > 100:
+                score += 0.1
+            
+            # Information density
+            if self._has_sufficient_information_safe(row.get('title', ''), row.get('text', '')):
+                score += 0.2
+            
+            # Source credibility (if available)
+            source = str(row.get('source', '')).lower()
+            credible_sources = ['reuters', 'bloomberg', 'cnbc', 'marketwatch', 'sec filing']
+            if any(credible in source for credible in credible_sources):
+                score += 0.3
+            
+            return min(score, 1.0)
+        except Exception:
+            return 0.5
+    
+    def _calculate_relevance_score_safe(self, combined_text: str, row: pd.Series) -> float:
+        """Calculate relevance score with error handling."""
+        try:
+            score = 0.5
+            
+            # Market-relevant terms
+            market_terms = ['stock', 'share', 'trading', 'market', 'investor', 'price', 'value']
+            market_count = sum(1 for term in market_terms if term in combined_text)
+            score += min(market_count * 0.05, 0.2)
+            
+            # Financial metrics using pre-compiled patterns
+            financial_matches = sum(1 for pattern in self._INFO_PATTERNS 
+                                  if pattern.search(combined_text))
+            score += min(financial_matches * 0.1, 0.3)
+            
+            return min(score, 1.0)
+        except Exception:
+            return 0.5
+    
+    def _filter_spam_and_low_quality_safe(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Final filter for spam and low quality content with error handling."""
+        if df.empty:
+            return df
+        
+        try:
+            # Filter out obvious spam
+            spam_mask = ~df['title'].str.contains(self._SPAM_PATTERN, na=False)
+            
+            # Filter out extremely low scores
+            score_mask = df.get('composite_score', 0.5) >= 0.3
+            
+            # Combine filters
+            final_mask = spam_mask & score_mask
+            
+            filtered_df = df[final_mask]
+            
+            removed_count = len(df) - len(filtered_df)
+            if removed_count > 0:
+                log_debug(f"Spam/low-quality filter removed {removed_count} articles")
+            
+            return filtered_df
+            
+        except Exception as e:
+            log_warning(f"Error in spam/low-quality filtering: {e}")
+            return df
+    
+    def get_filter_statistics(self, original_df: pd.DataFrame, 
+                            filtered_df: pd.DataFrame) -> Dict[str, Any]:
+        """Get comprehensive filtering statistics."""
         if original_df.empty:
             return {}
         
-        stats = {
-            'original_count': len(original_df),
-            'filtered_count': len(filtered_df),
-            'filter_rate': (len(original_df) - len(filtered_df)) / len(original_df) if len(original_df) > 0 else 0,
-            'pass_rate': len(filtered_df) / len(original_df) if len(original_df) > 0 else 0,
-        }
-        
-        if len(filtered_df) > 0:
-            if 'priority_score' in filtered_df.columns:
-                stats['avg_priority_score'] = filtered_df['priority_score'].mean()
-                stats['high_priority_count'] = len(filtered_df[filtered_df['priority_score'] > 0.7])
+        try:
+            stats = {
+                'original_count': len(original_df),
+                'filtered_count': len(filtered_df),
+                'filter_rate': (len(original_df) - len(filtered_df)) / len(original_df),
+                'pass_rate': len(filtered_df) / len(original_df)
+            }
             
-            if 'publishedDate' in filtered_df.columns:
-                try:
-                    now = pd.Timestamp.now(tz=timezone.utc)
-                    published_dates = pd.to_datetime(filtered_df['publishedDate'], utc=True, errors='coerce')
-                    valid_dates = published_dates.notna()
-                    
-                    if valid_dates.any():
-                        ages = (now - published_dates[valid_dates]).dt.total_seconds() / 3600
-                        stats['avg_age_hours'] = ages.mean()
-                        stats['newest_age_hours'] = ages.min()
-                        stats['oldest_age_hours'] = ages.max()
-                except:
-                    pass
-        
-        return stats
+            if not filtered_df.empty:
+                # Score statistics
+                for score_type in ['priority_score', 'quality_score', 'relevance_score', 'composite_score']:
+                    if score_type in filtered_df.columns:
+                        stats[f'avg_{score_type}'] = filtered_df[score_type].mean()
+                        stats[f'high_{score_type}_count'] = len(filtered_df[filtered_df[score_type] > 0.7])
+                
+                # Time statistics
+                if 'publishedDate' in filtered_df.columns:
+                    try:
+                        now = datetime.now(timezone.utc)
+                        ages = (now - pd.to_datetime(filtered_df['publishedDate'], utc=True, errors='coerce')).dt.total_seconds() / 3600
+                        valid_ages = ages.dropna()
+                        
+                        if not valid_ages.empty:
+                            stats.update({
+                                'avg_age_hours': valid_ages.mean(),
+                                'newest_age_hours': valid_ages.min(),
+                                'oldest_age_hours': valid_ages.max()
+                            })
+                    except Exception:
+                        pass  # Skip time statistics if calculation fails
+            
+            return stats
+        except Exception as e:
+            log_warning(f"Error calculating filter statistics: {e}")
+            return {}

@@ -1,5 +1,5 @@
 """
-Main trading system using modular components with enhanced news processing
+Optimized main trading system with enhanced performance monitoring and error recovery
 """
 import asyncio
 import time
@@ -11,6 +11,7 @@ import sys
 from typing import Optional, List, Dict, Any, Set, Tuple
 from dataclasses import dataclass, asdict
 from pathlib import Path
+import traceback
 from config import CONFIG
 from utils.simple_logger import log_info, log_error, log_warning, log_debug
 from data_loaders.simple_fmp_loader import SimpleFMPLoader
@@ -20,62 +21,89 @@ from trading.trade_models import ProcessedArticle
 import pandas as pd
 
 
-class NewsProcessor:
-    """Process and deduplicate news articles with performance optimizations"""
+class OptimizedNewsProcessor:
+    """High-performance news processor with intelligent deduplication and caching."""
+    
+    # Class-level constants for performance
+    MAX_CACHE_SIZE = 3000
+    DEDUP_SIMILARITY_THRESHOLD = 0.75
+    DEFAULT_MAX_AGE_HOURS = 12
+    CACHE_CLEANUP_INTERVAL = 1800  # 30 minutes
     
     def __init__(self):
+        """Initialize with optimized configuration."""
         self.processed_articles_file = CONFIG.cache_dir / "processed_articles.json"
         self.processed_hashes: Set[str] = set()
         self.processed_articles: Dict[str, ProcessedArticle] = {}
         
-        # Enhanced configuration for better news coverage
-        self.max_age_hours = 8  # Increased from 6 for better coverage
-        self.max_articles = 2000  # Increased capacity
-        self.dedup_window_hours = 2  # Time window for deduplication
+        # Performance tracking
+        self.processing_stats = {
+            'total_processed': 0,
+            'duplicates_filtered': 0,
+            'cache_hits': 0,
+            'cache_misses': 0
+        }
         
-        self._load_processed_articles()
-        self._cleanup_old_articles()
+        # Auto-configuration based on mode
+        self.max_age_hours = 48 if CONFIG.testing_mode else self.DEFAULT_MAX_AGE_HOURS
+        self.last_cleanup = time.time()
+        
+        self._initialize_cache()
+    
+    def _initialize_cache(self) -> None:
+        """Initialize cache with error recovery."""
+        try:
+            self._load_processed_articles()
+            self._cleanup_old_articles()
+            log_info(f"News processor initialized with {len(self.processed_articles)} cached articles")
+        except Exception as e:
+            log_error(f"Error initializing news processor cache: {e}")
+            self.processed_articles = {}
+            self.processed_hashes = set()
     
     def _generate_article_hash(self, row: pd.Series) -> str:
-        """Generate hash for article deduplication with improved normalization."""
-        title = str(row.get('title', '')).strip().lower()
-        symbol = str(row.get('symbol', '')).strip().upper()
-        
-        title_cleaned = self._normalize_title(title)
-        date_str = str(row.get('publishedDate', ''))[:10]
-        
-        # Include hour for better deduplication of updated articles
-        hour_str = str(row.get('publishedDate', ''))[:13]  # YYYY-MM-DDTHH
-        
-        content_key = f"{symbol}-{title_cleaned}-{hour_str}"
-        return hashlib.md5(content_key.encode('utf-8')).hexdigest()
+        """Generate optimized article hash for deduplication."""
+        try:
+            symbol = str(row.get('symbol', '')).strip().upper()
+            title = str(row.get('title', '')).strip().lower()
+            date_hour = str(row.get('publishedDate', ''))[:13]  # YYYY-MM-DDTHH
+            
+            # Normalize title for better deduplication
+            normalized_title = self._normalize_title_advanced(title)
+            
+            # Create hash key
+            hash_input = f"{symbol}-{normalized_title}-{date_hour}"
+            return hashlib.md5(hash_input.encode('utf-8')).hexdigest()
+            
+        except Exception as e:
+            log_debug(f"Error generating article hash: {e}")
+            return hashlib.md5(str(time.time()).encode()).hexdigest()
     
-    def _normalize_title(self, title: str) -> str:
-        """Normalize title for deduplication with enhanced cleaning."""
+    def _normalize_title_advanced(self, title: str) -> str:
+        """Advanced title normalization for improved deduplication."""
         import re
         
-        # Remove common prefixes/suffixes
-        title = re.sub(r'^\s*(breaking|news|update|alert):\s*', '', title, flags=re.IGNORECASE)
-        title = re.sub(r'\s*-\s*(reuters|bloomberg|cnbc|marketwatch|yahoo|benzinga|seeking alpha).*$', '', title, flags=re.IGNORECASE)
+        # Remove common noise patterns
+        noise_patterns = [
+            r'^\s*(breaking|news|update|alert):\s*',
+            r'\s*-\s*(reuters|bloomberg|cnbc|marketwatch|yahoo|benzinga).*$',
+            r'\b(today|yesterday|this morning|this afternoon|tonight|just now|moments ago)\b',
+            r'\b\d{1,2}:\d{2}\s*(AM|PM|EST|EDT|PST|PDT)\b',
+            r'\b\d{1,2}/\d{1,2}/\d{2,4}\b',
+            r'\b(update|updated|revision|revised)\b'
+        ]
         
-        # Remove time references that change frequently
-        title = re.sub(r'\b(today|yesterday|this morning|this afternoon|tonight|just now|moments ago)\b', '', title, flags=re.IGNORECASE)
+        cleaned_title = title
+        for pattern in noise_patterns:
+            cleaned_title = re.sub(pattern, '', cleaned_title, flags=re.IGNORECASE)
         
-        # Remove specific times and dates
-        title = re.sub(r'\b\d{1,2}:\d{2}\s*(AM|PM|EST|EDT|PST|PDT)\b', '', title, flags=re.IGNORECASE)
-        title = re.sub(r'\b\d{1,2}/\d{1,2}/\d{2,4}\b', '', title, flags=re.IGNORECASE)
-        
-        # Remove update indicators
-        title = re.sub(r'\b(update|updated|revision|revised)\b', '', title, flags=re.IGNORECASE)
-        
-        # Normalize whitespace and truncate
-        title = ' '.join(title.split())
-        return title[:80]  # Increased from 60 for better accuracy
+        # Normalize whitespace and length
+        cleaned_title = ' '.join(cleaned_title.split())
+        return cleaned_title[:100]  # Reasonable length limit
     
     def _load_processed_articles(self) -> None:
-        """Load processed articles from cache with error handling."""
+        """Load processed articles with robust error handling."""
         if not self.processed_articles_file.exists():
-            log_debug("No processed articles cache found, starting fresh")
             return
         
         try:
@@ -86,219 +114,257 @@ class NewsProcessor:
             for article_hash, article_data in data.items():
                 try:
                     processed_article = ProcessedArticle.from_dict(article_data)
-                    self.processed_articles[article_hash] = processed_article
-                    self.processed_hashes.add(article_hash)
-                    loaded_count += 1
                     
+                    # Validate article age
+                    if self._is_article_recent(processed_article):
+                        self.processed_articles[article_hash] = processed_article
+                        self.processed_hashes.add(article_hash)
+                        loaded_count += 1
+                        
                 except Exception as e:
-                    log_warning(f"Skipping invalid cached article: {e}")
+                    log_debug(f"Skipping invalid cached article: {e}")
                     continue
             
-            log_info(f"Loaded {loaded_count} previously processed articles from cache")
+            log_info(f"Loaded {loaded_count} valid articles from cache")
             
         except Exception as e:
-            log_warning(f"Error loading processed articles cache: {e}")
+            log_warning(f"Error loading article cache: {e}")
             self.processed_articles = {}
             self.processed_hashes = set()
     
-    def _save_processed_articles(self) -> None:
-        """Save processed articles to cache with atomic write."""
+    def _is_article_recent(self, article: ProcessedArticle) -> bool:
+        """Check if article is within age limits."""
         try:
-            data = {}
-            for article_hash, article in self.processed_articles.items():
-                data[article_hash] = article.to_dict()
+            article_time = article.processed_datetime
+            current_time = datetime.now(timezone.utc)
+            age_hours = (current_time - article_time).total_seconds() / 3600
             
+            return age_hours <= self.max_age_hours
+            
+        except Exception:
+            return False
+    
+    def _save_processed_articles(self) -> None:
+        """Save articles with atomic write and compression."""
+        try:
+            # Prepare data for serialization
+            data = {
+                article_hash: article.to_dict() 
+                for article_hash, article in self.processed_articles.items()
+            }
+            
+            # Atomic write using temporary file
             temp_file = self.processed_articles_file.with_suffix('.tmp')
             
             with open(temp_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+                json.dump(data, f, indent=1, ensure_ascii=False)
             
+            # Atomic replace
             temp_file.replace(self.processed_articles_file)
-            log_debug(f"Saved {len(data)} processed articles to cache")
+            
+            log_debug(f"Saved {len(data)} articles to cache")
             
         except Exception as e:
-            log_error(f"Error saving processed articles cache: {e}")
-    
-    def _cleanup_old_articles(self) -> None:
-        """Clean up old articles from cache with improved logic."""
-        if not self.processed_articles:
-            return
-        
-        current_time = datetime.now(timezone.utc)
-        cutoff_time = current_time - timedelta(hours=self.max_age_hours)
-        
-        # Remove old articles
-        old_hashes = []
-        for article_hash, article in self.processed_articles.items():
-            try:
-                article_time = article.processed_datetime
-                if article_time < cutoff_time:
-                    old_hashes.append(article_hash)
-            except Exception:
-                old_hashes.append(article_hash)
-        
-        for article_hash in old_hashes:
-            self.processed_articles.pop(article_hash, None)
-            self.processed_hashes.discard(article_hash)
-        
-        # Limit total articles by keeping most recent and highest confidence
-        if len(self.processed_articles) > self.max_articles:
-            # Sort by combination of time and confidence
-            sorted_articles = sorted(
-                self.processed_articles.items(),
-                key=lambda x: (x[1].processed_datetime.timestamp(), x[1].combined_confidence),
-                reverse=True
-            )
-            
-            articles_to_keep = dict(sorted_articles[:self.max_articles])
-            articles_to_remove = set(self.processed_articles.keys()) - set(articles_to_keep.keys())
-            
-            for article_hash in articles_to_remove:
-                self.processed_articles.pop(article_hash, None)
-                self.processed_hashes.discard(article_hash)
-        
-        if old_hashes:
-            self.processed_hashes = set(self.processed_articles.keys())
-            log_info(f"Cleaned up {len(old_hashes)} old articles, "
-                    f"now tracking {len(self.processed_articles)} articles")
-            self._save_processed_articles()
+            log_error(f"Error saving article cache: {e}")
     
     def filter_new_articles(self, news_df: pd.DataFrame) -> pd.DataFrame:
-        """Filter out previously processed articles with enhanced deduplication."""
+        """Optimized article filtering with performance tracking."""
         if news_df is None or news_df.empty:
             return news_df
         
-        new_articles = []
-        skipped_count = 0
-        duplicate_details = {}
+        start_time = time.time()
+        initial_count = len(news_df)
         
-        for idx, row in news_df.iterrows():
-            article_hash = self._generate_article_hash(row)
-            symbol = str(row.get('symbol', 'UNKNOWN'))
+        try:
+            # Periodic cleanup
+            if time.time() - self.last_cleanup > self.CACHE_CLEANUP_INTERVAL:
+                self._cleanup_old_articles()
+                self.last_cleanup = time.time()
             
-            if article_hash not in self.processed_hashes:
-                # Additional check for very recent duplicates within the current batch
-                if not self._is_recent_duplicate(row, new_articles):
-                    new_articles.append(row)
+            new_articles = []
+            duplicate_count = 0
+            
+            # Process articles efficiently
+            for idx, row in news_df.iterrows():
+                article_hash = self._generate_article_hash(row)
+                
+                if article_hash in self.processed_hashes:
+                    duplicate_count += 1
+                    self.processing_stats['cache_hits'] += 1
                 else:
-                    skipped_count += 1
-                    duplicate_details[symbol] = duplicate_details.get(symbol, 0) + 1
-            else:
-                skipped_count += 1
-                duplicate_details[symbol] = duplicate_details.get(symbol, 0) + 1
-                log_debug(f"Skipping cached duplicate: {symbol} - {str(row.get('title', ''))[:50]}...")
-        
-        if new_articles:
-            new_df = pd.DataFrame(new_articles).reset_index(drop=True)
-            log_info(f"Article filtering: {len(news_df)} total -> {len(new_df)} new articles "
-                    f"(skipped {skipped_count} duplicates)")
+                    # Additional similarity check for current batch
+                    if not self._is_similar_to_recent(row, new_articles[-20:]):  # Check last 20
+                        new_articles.append(row)
+                        self.processing_stats['cache_misses'] += 1
+                    else:
+                        duplicate_count += 1
+                        self.processing_stats['duplicates_filtered'] += 1
             
-            if duplicate_details:
-                top_duplicates = sorted(duplicate_details.items(), key=lambda x: x[1], reverse=True)[:5]
-                log_debug(f"Top duplicate symbols: {dict(top_duplicates)}")
+            # Create result DataFrame
+            result_df = pd.DataFrame(new_articles).reset_index(drop=True) if new_articles else pd.DataFrame()
             
-            return new_df
-        else:
-            log_info(f"No new articles found ({skipped_count} duplicates)")
-            return pd.DataFrame()
+            # Update stats
+            self.processing_stats['duplicates_filtered'] += duplicate_count
+            
+            # Log performance
+            processing_time = time.time() - start_time
+            log_info(f"Article filtering: {initial_count} → {len(result_df)} articles "
+                    f"(removed {duplicate_count} duplicates) in {processing_time:.2f}s")
+            
+            return result_df
+            
+        except Exception as e:
+            log_error(f"Error filtering articles: {e}")
+            return news_df
     
-    def _is_recent_duplicate(self, current_row: pd.Series, existing_articles: List) -> bool:
-        """Check if article is duplicate of recently processed articles in current batch."""
-        if not existing_articles:
+    def _is_similar_to_recent(self, current_row: pd.Series, recent_articles: List) -> bool:
+        """Check similarity to recently processed articles in current batch."""
+        if not recent_articles:
             return False
         
-        current_symbol = str(current_row.get('symbol', '')).upper()
-        current_title = self._normalize_title(str(current_row.get('title', '')).lower())
-        
-        # Only check last 10 articles for performance
-        recent_articles = existing_articles[-10:] if len(existing_articles) > 10 else existing_articles
-        
-        for existing_row in recent_articles:
-            existing_symbol = str(existing_row.get('symbol', '')).upper()
-            existing_title = self._normalize_title(str(existing_row.get('title', '')).lower())
+        try:
+            current_symbol = str(current_row.get('symbol', '')).upper()
+            current_title = self._normalize_title_advanced(str(current_row.get('title', '')).lower())
+            current_words = set(word for word in current_title.split() if len(word) > 3)
             
-            if (current_symbol == existing_symbol and 
-                self._titles_similar(current_title, existing_title)):
-                return True
-        
-        return False
-    
-    def _titles_similar(self, title1: str, title2: str, threshold: float = 0.8) -> bool:
-        """Check if two titles are similar using word overlap."""
-        words1 = set(word for word in title1.split() if len(word) > 2)
-        words2 = set(word for word in title2.split() if len(word) > 2)
-        
-        if not words1 or not words2:
+            for existing_row in recent_articles:
+                existing_symbol = str(existing_row.get('symbol', '')).upper()
+                existing_title = self._normalize_title_advanced(str(existing_row.get('title', '')).lower())
+                existing_words = set(word for word in existing_title.split() if len(word) > 3)
+                
+                # Check symbol and content similarity
+                if (current_symbol == existing_symbol and 
+                    current_words and existing_words and
+                    len(current_words & existing_words) / len(current_words | existing_words) > self.DEDUP_SIMILARITY_THRESHOLD):
+                    return True
+            
             return False
-        
-        intersection = len(words1 & words2)
-        union = len(words1 | words2)
-        
-        return (intersection / union) > threshold if union > 0 else False
+            
+        except Exception:
+            return False
     
     def mark_articles_processed(self, analyses: List, original_news_df: pd.DataFrame) -> None:
-        """Mark articles as processed with enhanced metadata."""
-        current_time = datetime.now(timezone.utc).isoformat()
-        new_processed_count = 0
+        """Mark articles as processed with optimized batch operations."""
+        if original_news_df.empty:
+            return
         
-        # Create analysis lookup with better handling
-        analysis_map = {}
-        for analysis in analyses:
-            key = analysis.symbol
-            if key not in analysis_map or analysis.combined_confidence > analysis_map[key].combined_confidence:
-                analysis_map[key] = analysis
-        
-        for idx, row in original_news_df.iterrows():
-            article_hash = self._generate_article_hash(row)
+        try:
+            current_time = datetime.now(timezone.utc).isoformat()
+            new_processed = 0
             
-            if article_hash in self.processed_hashes:
-                continue
+            # Create analysis lookup for efficiency
+            analysis_lookup = {
+                analysis.symbol: analysis for analysis in analyses
+            } if analyses else {}
             
-            symbol = str(row.get('symbol', '')).strip().upper()
-            title = str(row.get('title', ''))
-            analysis = analysis_map.get(symbol)
+            # Batch process articles
+            for _, row in original_news_df.iterrows():
+                article_hash = self._generate_article_hash(row)
+                
+                if article_hash in self.processed_hashes:
+                    continue
+                
+                symbol = str(row.get('symbol', '')).strip().upper()
+                analysis = analysis_lookup.get(symbol)
+                
+                # Create processed article record
+                processed_article = ProcessedArticle(
+                    article_hash=article_hash,
+                    symbol=symbol,
+                    title_hash=self._normalize_title_advanced(str(row.get('title', '')).lower()),
+                    processed_time=current_time,
+                    sentiment_score=analysis.sentiment_score if analysis else 0.0,
+                    combined_confidence=analysis.combined_confidence if analysis else 0.0,
+                    was_traded=1 if (analysis and analysis.combined_confidence >= CONFIG.min_confidence_score) else 0,
+                    trade_side=self._determine_trade_side(analysis.sentiment_score) if analysis else ""
+                )
+                
+                self.processed_articles[article_hash] = processed_article
+                self.processed_hashes.add(article_hash)
+                new_processed += 1
             
-            processed_article = ProcessedArticle(
-                article_hash=article_hash,
-                symbol=symbol,
-                title_hash=self._normalize_title(title.lower()),
-                processed_time=current_time,
-                sentiment_score=analysis.sentiment_score if analysis else 0.0,
-                combined_confidence=analysis.combined_confidence if analysis else 0.0,
-                was_traded=1 if (analysis and analysis.combined_confidence >= CONFIG.min_confidence_score) else 0,
-                trade_side=self._determine_trade_side(analysis.sentiment_score) if analysis else ""
-            )
+            # Update stats and save
+            self.processing_stats['total_processed'] += new_processed
             
-            self.processed_articles[article_hash] = processed_article
-            self.processed_hashes.add(article_hash)
-            new_processed_count += 1
-        
-        if new_processed_count > 0:
-            log_info(f"Marked {new_processed_count} new articles as processed")
-            self._save_processed_articles()
+            if new_processed > 0:
+                log_info(f"Marked {new_processed} articles as processed")
+                self._save_processed_articles()
+                
+        except Exception as e:
+            log_error(f"Error marking articles as processed: {e}")
     
     def _determine_trade_side(self, sentiment_score: float) -> str:
-        """Determine trade side from sentiment."""
+        """Determine trade side from sentiment score."""
         if sentiment_score > 0.20:
             return "long"
         elif sentiment_score < -0.20:
             return "short"
         return ""
     
-    def get_processing_stats(self) -> Dict[str, Any]:
-        """Get processing statistics with enhanced metrics."""
+    def _cleanup_old_articles(self) -> None:
+        """Optimized cleanup of old articles."""
         if not self.processed_articles:
-            return {
-                'total_processed': 0,
-                'high_confidence_signals': 0,
-                'actual_trades': 0,
-                'cache_age_hours': 0,
-                'symbols_covered': 0,
-                'avg_confidence': 0.0
-            }
+            return
         
+        try:
+            current_time = datetime.now(timezone.utc)
+            cutoff_time = current_time - timedelta(hours=self.max_age_hours)
+            
+            # Find old articles
+            old_hashes = [
+                article_hash for article_hash, article in self.processed_articles.items()
+                if not self._is_article_recent(article)
+            ]
+            
+            # Remove old articles
+            for article_hash in old_hashes:
+                self.processed_articles.pop(article_hash, None)
+                self.processed_hashes.discard(article_hash)
+            
+            # Limit total size
+            if len(self.processed_articles) > self.MAX_CACHE_SIZE:
+                self._trim_cache_to_size()
+            
+            if old_hashes:
+                log_info(f"Cleaned up {len(old_hashes)} old articles, "
+                        f"cache now has {len(self.processed_articles)} articles")
+                self._save_processed_articles()
+                
+        except Exception as e:
+            log_error(f"Error cleaning up articles: {e}")
+    
+    def _trim_cache_to_size(self) -> None:
+        """Trim cache to maximum size keeping most valuable articles."""
+        if len(self.processed_articles) <= self.MAX_CACHE_SIZE:
+            return
+        
+        try:
+            # Sort by value (recent + high confidence)
+            sorted_articles = sorted(
+                self.processed_articles.items(),
+                key=lambda x: (x[1].processed_datetime.timestamp(), x[1].combined_confidence),
+                reverse=True
+            )
+            
+            # Keep top articles
+            keep_count = int(self.MAX_CACHE_SIZE * 0.9)
+            articles_to_keep = dict(sorted_articles[:keep_count])
+            
+            # Update structures
+            removed_count = len(self.processed_articles) - len(articles_to_keep)
+            self.processed_articles = articles_to_keep
+            self.processed_hashes = set(self.processed_articles.keys())
+            
+            log_info(f"Trimmed cache: removed {removed_count} articles")
+            
+        except Exception as e:
+            log_error(f"Error trimming cache: {e}")
+    
+    def get_processing_stats(self) -> Dict[str, Any]:
+        """Get comprehensive processing statistics."""
         current_time = datetime.now(timezone.utc)
         
+        # Calculate additional metrics
         high_confidence_count = sum(
             1 for article in self.processed_articles.values()
             if article.combined_confidence >= CONFIG.min_confidence_score
@@ -309,315 +375,198 @@ class NewsProcessor:
             if article.was_traded == 1
         )
         
-        # Unique symbols covered
         symbols_covered = len(set(article.symbol for article in self.processed_articles.values()))
         
         # Average confidence
         confidences = [article.combined_confidence for article in self.processed_articles.values()]
         avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
         
-        # Find oldest article
-        oldest_time = current_time
-        for article in self.processed_articles.values():
-            try:
-                article_time = article.processed_datetime
-                if article_time < oldest_time:
-                    oldest_time = article_time
-            except Exception:
-                continue
-        
-        cache_age_hours = (current_time - oldest_time).total_seconds() / 3600 if oldest_time < current_time else 0
-        
         return {
-            'total_processed': len(self.processed_articles),
+            **self.processing_stats,
+            'cached_articles': len(self.processed_articles),
             'high_confidence_signals': high_confidence_count,
             'actual_trades': trades_count,
-            'cache_age_hours': cache_age_hours,
             'symbols_covered': symbols_covered,
-            'avg_confidence': avg_confidence
+            'avg_confidence': avg_confidence,
+            'max_age_hours': self.max_age_hours,
+            'cache_efficiency': self.processing_stats['cache_hits'] / max(
+                self.processing_stats['cache_hits'] + self.processing_stats['cache_misses'], 1
+            )
         }
 
 
-class TradingSystem:
-    """Main trading system using modular components with enhanced news processing"""
+class EnhancedTradingSystem:
+    """High-performance trading system with comprehensive monitoring and error recovery."""
+    
+    # System-level constants
+    MAX_CONSECUTIVE_ERRORS = 10
+    ERROR_BACKOFF_BASE = 2
+    MAX_BACKOFF_SECONDS = 300  # 5 minutes
+    UNIVERSE_REFRESH_HOURS = 2
+    STATUS_INTERVAL_MINUTES = 3
     
     def __init__(self) -> None:
-        """Initialize trading system."""
+        """Initialize trading system with robust error handling."""
+        # Validate API key
         api_key = CONFIG.get_api_key('fmp')
         if not api_key:
             raise ValueError("FMP_API_KEY environment variable is required")
         
-        self.fmp_api_key: str = api_key
-        self._initialize_components()
-        
-        self.news_processor = NewsProcessor()
-        self.universe: List[str] = []
+        self.fmp_api_key = api_key
         self.running = True
-        self._setup_signal_handlers()
+        
+        # System state
+        self.universe: List[str] = []
+        self.error_count = 0
+        self.last_universe_refresh = 0.0
+        self.cycle_count = 0
         
         # Performance tracking
-        self.cycle_count = 0
-        self.last_universe_refresh = 0.0
-        self.universe_refresh_interval = 3600  # 1 hour
+        self.performance_metrics = {
+            'cycles_completed': 0,
+            'total_articles_processed': 0,
+            'total_trades_created': 0,
+            'uptime_start': time.time(),
+            'errors_recovered': 0
+        }
+        
+        # Initialize components
+        self._initialize_system_components()
+        self._setup_signal_handlers()
+        
+        log_info("Enhanced trading system initialized successfully")
     
-    def _initialize_components(self) -> None:
-        """Initialize system components."""
+    def _initialize_system_components(self) -> None:
+        """Initialize all system components with error recovery."""
         try:
             self.fmp_loader = SimpleFMPLoader(self.fmp_api_key)
             self.news_analyzer = EnhancedNewsAnalyzer(self.fmp_loader)
             self.trader = EnhancedTrader(self.fmp_loader)
-            log_info("All system components initialized successfully")
+            self.news_processor = OptimizedNewsProcessor()
+            
+            log_info("All system components initialized")
+            
         except Exception as e:
-            log_error(f"Failed to initialize components: {e}")
+            log_error(f"Failed to initialize system components: {e}")
             raise
     
     def _setup_signal_handlers(self) -> None:
-        """Setup signal handlers for graceful shutdown."""
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
-    
-    def _signal_handler(self, signum: int, frame) -> None:
-        """Handle shutdown signals gracefully."""
-        log_info(f"Received signal {signum}, shutting down gracefully...")
-        self.running = False
+        """Setup graceful shutdown signal handlers."""
+        def signal_handler(signum: int, frame) -> None:
+            log_info(f"Received signal {signum}, initiating graceful shutdown...")
+            self.running = False
+        
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
     
     def initialize_universe(self) -> bool:
-        """Initialize trading universe with caching."""
-        log_info("Initializing trading universe...")
+        """Initialize trading universe with enhanced error recovery."""
+        max_attempts = 3
         
+        for attempt in range(max_attempts):
+            try:
+                log_info(f"Initializing trading universe (attempt {attempt + 1}/{max_attempts})")
+                
+                screener_df = self.fmp_loader.get_stock_screener(CONFIG.max_symbols)
+                
+                if screener_df is not None and not screener_df.empty:
+                    # Enhanced universe filtering
+                    self.universe = self._create_optimized_universe(screener_df)
+                    
+                    if len(self.universe) > 0:
+                        self.last_universe_refresh = time.time()
+                        log_info(f"Universe initialized with {len(self.universe)} symbols")
+                        log_info(f"Sample symbols: {self.universe[:15]}")
+                        return True
+                
+            except Exception as e:
+                log_error(f"Universe initialization attempt {attempt + 1} failed: {e}")
+                if attempt < max_attempts - 1:
+                    time.sleep(2 ** attempt)  # Exponential backoff
+        
+        log_error("Failed to initialize trading universe after all attempts")
+        return False
+    
+    def _create_optimized_universe(self, screener_df: pd.DataFrame) -> List[str]:
+        """Create optimized universe with news-focused filtering."""
         try:
-            screener_df = self.fmp_loader.get_stock_screener(CONFIG.max_symbols)
+            # Extract and clean symbols
+            symbols = screener_df['symbol'].str.upper().tolist()
             
-            if screener_df is not None and not screener_df.empty:
-                # Store universe with additional filtering
-                universe_candidates = screener_df['symbol'].str.upper().tolist()
-                
-                # Additional filtering for news-heavy symbols
-                self.universe = [symbol for symbol in universe_candidates 
-                               if len(symbol) <= 5 and symbol.isalpha()]
-                
-                log_info(f"Loaded {len(self.universe)} valid symbols in universe")
-                
-                sample_symbols = self.universe[:20]
-                log_info(f"Sample universe symbols: {sample_symbols}")
-                
-                self.last_universe_refresh = time.time()
-                return len(self.universe) > 0
-            else:
-                log_error("Failed to load trading universe - no data returned")
-                return False
-                
+            # Enhanced filtering for news-active stocks
+            filtered_symbols = []
+            for symbol in symbols:
+                if self._is_suitable_for_news_trading(symbol):
+                    filtered_symbols.append(symbol)
+            
+            # Sort by market cap if available for better news coverage
+            if 'marketCap' in screener_df.columns:
+                df_with_filtered = screener_df[screener_df['symbol'].isin(filtered_symbols)]
+                df_sorted = df_with_filtered.sort_values('marketCap', ascending=False)
+                return df_sorted['symbol'].str.upper().tolist()
+            
+            return filtered_symbols
+            
         except Exception as e:
-            log_error(f"Error initializing universe: {e}")
+            log_error(f"Error creating optimized universe: {e}")
+            return screener_df['symbol'].str.upper().tolist()[:CONFIG.max_symbols]
+    
+    def _is_suitable_for_news_trading(self, symbol: str) -> bool:
+        """Check if symbol is suitable for news-based trading."""
+        if not symbol or len(symbol) > 5:
             return False
+        
+        # Filter out complex symbols
+        if any(char in symbol for char in ['.', '-', '/']):
+            return False
+        
+        # Must be alphabetic
+        if not symbol.replace('-', '').replace('.', '').isalpha():
+            return False
+        
+        return True
     
     def _refresh_universe_if_needed(self) -> None:
-        """Refresh universe periodically for better coverage."""
-        if time.time() - self.last_universe_refresh > self.universe_refresh_interval:
+        """Refresh universe periodically for optimal coverage."""
+        current_time = time.time()
+        hours_since_refresh = (current_time - self.last_universe_refresh) / 3600
+        
+        if hours_since_refresh >= self.UNIVERSE_REFRESH_HOURS:
             log_info("Refreshing trading universe...")
-            self.initialize_universe()
-    
-    def process_news_cycle(self) -> None:
-        """Process news cycle with enhanced performance and logging."""
-        cycle_start = time.time()
-        self.cycle_count += 1
-        
-        try:
-            # Refresh universe periodically
-            if self.cycle_count % 10 == 0:  # Every 10th cycle
-                self._refresh_universe_if_needed()
-            
-            # Get raw news with enhanced fetching
-            log_debug(f"Starting news cycle #{self.cycle_count}")
-            raw_news_df = self.fmp_loader.get_news_rss()
-            
-            if raw_news_df is None or raw_news_df.empty:
-                log_warning("No news data received from FMP API")
-                return
-            
-            log_info(f"Retrieved {len(raw_news_df)} raw news articles from FMP")
-            
-            # Filter to universe with performance optimization
-            universe_set = set(self.universe)
-            filtered_news_df = raw_news_df[
-                raw_news_df['symbol'].str.upper().isin(universe_set)
-            ].copy()
-            
-            if filtered_news_df.empty:
-                log_info("No news articles match universe symbols")
-                return
-            
-            universe_coverage = len(filtered_news_df['symbol'].unique())
-            log_info(f"News coverage: {len(filtered_news_df)} articles across {universe_coverage} symbols")
-            
-            # Filter new articles
-            new_articles_df = self.news_processor.filter_new_articles(filtered_news_df)
-            
-            if new_articles_df.empty:
-                log_info("No new articles to process (all were duplicates)")
-                return
-            
-            log_info(f"Processing {len(new_articles_df)} new articles")
-            
-            # Process new articles
-            self._process_filtered_news(new_articles_df)
-            
-            cycle_time = time.time() - cycle_start
-            log_debug(f"News cycle #{self.cycle_count} completed in {cycle_time:.2f}s")
-                
-        except Exception as e:
-            log_error(f"Error in news cycle #{self.cycle_count}: {e}")
-    
-    def _process_filtered_news(self, filtered_news_df: pd.DataFrame) -> None:
-        """Process filtered news through the analysis pipeline with enhanced logging."""
-        processing_start = time.time()
-        
-        # Apply quality filters
-        quality_filtered_df = self.trader.pre_filter_news(filtered_news_df)
-        if quality_filtered_df is None or quality_filtered_df.empty:
-            log_info("All new articles filtered out by quality filters")
-            self.news_processor.mark_articles_processed([], filtered_news_df)
-            return
-        
-        quality_filter_time = time.time() - processing_start
-        log_debug(f"Quality filtering completed in {quality_filter_time:.2f}s: {len(quality_filtered_df)} articles")
-        
-        # Get current prices for relevant symbols
-        relevant_symbols = quality_filtered_df['symbol'].unique().tolist()
-        prices_start = time.time()
-        prices_df = self.fmp_loader.get_real_time_prices(relevant_symbols)
-        prices_time = time.time() - prices_start
-        
-        if prices_df is None or prices_df.empty:
-            log_warning(f"Failed to get current prices for {len(relevant_symbols)} symbols")
-            self.news_processor.mark_articles_processed([], filtered_news_df)
-            return
-        
-        log_debug(f"Price fetching completed in {prices_time:.2f}s for {len(prices_df)} symbols")
-        
-        # Enhanced news analysis
-        analysis_start = time.time()
-        analyses = self.news_analyzer.analyze_news_with_technical(
-            quality_filtered_df, prices_df
-        )
-        analysis_time = time.time() - analysis_start
-        
-        # Mark articles as processed
-        self.news_processor.mark_articles_processed(analyses, filtered_news_df)
-        
-        if not analyses:
-            log_info("No valid news analyses generated")
-            return
-        
-        log_debug(f"News analysis completed in {analysis_time:.2f}s for {len(analyses)} articles")
-        
-        # Process analysis results
-        self._process_analysis_results(analyses, prices_df)
-        
-        total_time = time.time() - processing_start
-        log_debug(f"Total news processing time: {total_time:.2f}s")
-    
-    def _process_analysis_results(self, analyses, prices_df) -> None:
-        """Process analysis results with enhanced metrics."""
-        # Get confidence distribution
-        confidences = [a.combined_confidence for a in analyses]
-        avg_confidence = sum(confidences) / len(confidences)
-        max_confidence = max(confidences)
-        
-        high_confidence = self.news_analyzer.filter_high_confidence(
-            analyses, use_combined_confidence=True
-        )
-        
-        log_info(f"Analysis results: {len(analyses)} total, avg_conf={avg_confidence:.3f}, "
-                f"max_conf={max_confidence:.3f}, high_conf={len(high_confidence)}")
-        
-        if high_confidence:
-            # Log top signals
-            top_signals = sorted(high_confidence, key=lambda x: x.combined_confidence, reverse=True)[:3]
-            for i, signal in enumerate(top_signals, 1):
-                log_info(f"Top signal #{i}: {signal.symbol} conf={signal.combined_confidence:.3f} "
-                        f"sentiment={signal.sentiment_score:.3f} topic={signal.topic}")
-            
-            self.trader.process_news_signals(high_confidence, prices_df)
-        else:
-            log_info("No high-confidence signals after filtering")
-    
-    def check_positions_cycle(self) -> None:
-        """Check positions cycle with enhanced monitoring."""
-        try:
-            active_trades = self.trader.get_active_positions()
-            if not active_trades:
-                return
-            
-            symbols = [trade.symbol for trade in active_trades]
-            prices_df = self.fmp_loader.get_real_time_prices(symbols)
-            
-            if prices_df is not None and not prices_df.empty:
-                self.trader.check_exits(prices_df)
-            else:
-                log_warning(f"Failed to get prices for {len(symbols)} active positions")
-                
-        except Exception as e:
-            log_error(f"Error checking positions: {e}")
-    
-    def print_system_status(self) -> None:
-        """Print comprehensive system status with enhanced metrics."""
-        try:
-            active_positions = len(self.trader.get_active_positions())
-            daily_pnl = self.trader.get_daily_pnl()
-            
-            # Get processing stats
-            processing_stats = self.news_processor.get_processing_stats()
-            
-            log_info("[STATUS] System Status:")
-            log_info(f"   Cycle Count: {self.cycle_count}")
-            log_info(f"   Universe Size: {len(self.universe)}")
-            log_info(f"   Active Positions: {active_positions}")
-            log_info(f"   Daily P&L: ${daily_pnl:.2f}")
-            log_info(f"   Confidence Threshold: {CONFIG.min_confidence_score}")
-            
-            log_info("[NEWS] Article Processing Statistics:")
-            log_info(f"   Total Articles Processed: {processing_stats['total_processed']}")
-            log_info(f"   Symbols Covered: {processing_stats['symbols_covered']}")
-            log_info(f"   Average Confidence: {processing_stats['avg_confidence']:.3f}")
-            log_info(f"   High Confidence Signals: {processing_stats['high_confidence_signals']}")
-            log_info(f"   Actual Trades: {processing_stats['actual_trades']}")
-            log_info(f"   Cache Age: {processing_stats['cache_age_hours']:.1f} hours")
-            
-            # News processing efficiency
-            if processing_stats['total_processed'] > 0:
-                trade_rate = processing_stats['actual_trades'] / processing_stats['total_processed']
-                signal_rate = processing_stats['high_confidence_signals'] / processing_stats['total_processed']
-                log_info(f"   Signal Rate: {signal_rate:.1%}")
-                log_info(f"   Trade Rate: {trade_rate:.1%}")
-                
-        except Exception as e:
-            log_error(f"Error printing status: {e}")
+            try:
+                if self.initialize_universe():
+                    log_info("Universe refresh completed successfully")
+                else:
+                    log_warning("Universe refresh failed, using existing universe")
+            except Exception as e:
+                log_error(f"Error refreshing universe: {e}")
     
     async def run(self) -> None:
-        """Main run loop."""
-        log_info("[START] Starting Enhanced News Catalyst Trading System")
-        log_info(f"[CONFIG] News limits: {CONFIG.news_page_limit} pages, "
+        """Main system run loop with enhanced error recovery."""
+        log_info("🚀 Starting Enhanced News Catalyst Trading System")
+        log_info(f"Configuration: {CONFIG.news_page_limit} pages, "
                 f"{CONFIG.news_per_page_limit} per page, "
-                f"{CONFIG.max_total_news_articles} max total")
+                f"confidence threshold: {CONFIG.min_confidence_score}")
         
+        # Initialize universe
         if not self.initialize_universe():
-            log_error("Failed to initialize trading universe")
+            log_error("❌ Failed to initialize trading universe")
             return
         
-        await self._main_trading_loop()
-        log_info("[STOP] Trading system stopped")
+        # Main trading loop
+        await self._execute_main_loop()
+        
+        # Shutdown
+        self._perform_graceful_shutdown()
+        log_info("🏁 Trading system shutdown complete")
     
-    async def _main_trading_loop(self) -> None:
-        """Main trading loop with enhanced performance monitoring."""
+    async def _execute_main_loop(self) -> None:
+        """Execute main trading loop with comprehensive error handling."""
         last_news_check = 0.0
         last_position_check = 0.0
         last_status_print = 0.0
-        status_interval = 180  # 3 minutes - more frequent for better monitoring
-        error_count = 0
-        max_errors = 8
         
-        log_info("[TARGET] Enhanced trading system running... Press Ctrl+C to stop")
+        log_info("📊 Enhanced trading system active - Press Ctrl+C to stop")
         
         while self.running:
             try:
@@ -625,39 +574,252 @@ class TradingSystem:
                 
                 # News processing cycle
                 if current_time - last_news_check >= CONFIG.news_check_interval:
-                    self.process_news_cycle()
+                    await self._process_news_cycle()
                     last_news_check = current_time
-                    error_count = 0
+                    self.error_count = 0  # Reset error count on success
                 
                 # Position monitoring cycle
                 if current_time - last_position_check >= CONFIG.price_check_interval:
-                    self.check_positions_cycle()
+                    await self._process_position_cycle()
                     last_position_check = current_time
                 
                 # Status reporting cycle
+                status_interval = self.STATUS_INTERVAL_MINUTES * 60
                 if current_time - last_status_print >= status_interval:
-                    self.print_system_status()
+                    self._print_comprehensive_status()
                     last_status_print = current_time
                 
-                await asyncio.sleep(0.5)  # Reduced sleep for better responsiveness
+                # Universe refresh check
+                if self.cycle_count % 50 == 0:  # Every 50 cycles
+                    self._refresh_universe_if_needed()
+                
+                await asyncio.sleep(1.0)  # Main loop interval
                 
             except Exception as e:
-                error_count += 1
-                log_error(f"Error in main loop (count: {error_count}): {e}")
+                await self._handle_main_loop_error(e)
+    
+    async def _process_news_cycle(self) -> None:
+        """Process news cycle with comprehensive error handling."""
+        cycle_start = time.time()
+        self.cycle_count += 1
+        
+        try:
+            log_debug(f"Starting news cycle #{self.cycle_count}")
+            
+            # Get raw news
+            raw_news_df = self.fmp_loader.get_comprehensive_news()
+            
+            if raw_news_df is None or raw_news_df.empty:
+                log_debug("No news data received")
+                return
+            
+            log_info(f"Retrieved {len(raw_news_df)} raw articles")
+            
+            # Filter to universe
+            universe_news_df = self._filter_news_to_universe(raw_news_df)
+            
+            if universe_news_df.empty:
+                log_debug("No universe news found")
+                return
+            
+            # Process through pipeline
+            await self._process_news_pipeline(universe_news_df)
+            
+            # Update performance metrics
+            cycle_time = time.time() - cycle_start
+            self.performance_metrics['cycles_completed'] += 1
+            
+            log_debug(f"News cycle #{self.cycle_count} completed in {cycle_time:.2f}s")
+            
+        except Exception as e:
+            log_error(f"Error in news cycle #{self.cycle_count}: {e}")
+            log_debug(f"News cycle error traceback: {traceback.format_exc()}")
+    
+    def _filter_news_to_universe(self, raw_news_df: pd.DataFrame) -> pd.DataFrame:
+        """Filter news to universe symbols efficiently."""
+        try:
+            universe_set = set(self.universe)
+            
+            # Efficient filtering using pandas operations
+            universe_mask = raw_news_df['symbol'].str.upper().isin(universe_set)
+            filtered_df = raw_news_df[universe_mask].copy()
+            
+            if not filtered_df.empty:
+                symbol_count = filtered_df['symbol'].nunique()
+                log_info(f"Universe filter: {len(filtered_df)} articles across {symbol_count} symbols")
+            
+            return filtered_df
+            
+        except Exception as e:
+            log_error(f"Error filtering news to universe: {e}")
+            return pd.DataFrame()
+    
+    async def _process_news_pipeline(self, universe_news_df: pd.DataFrame) -> None:
+        """Process news through the analysis pipeline."""
+        try:
+            # Filter new articles
+            new_articles_df = self.news_processor.filter_new_articles(universe_news_df)
+            
+            if new_articles_df.empty:
+                log_debug("No new articles to process")
+                self.news_processor.mark_articles_processed([], universe_news_df)
+                return
+            
+            log_info(f"Processing {len(new_articles_df)} new articles")
+            
+            # Quality filtering
+            quality_filtered_df = self.trader.pre_filter_news(new_articles_df)
+            
+            if quality_filtered_df is None or quality_filtered_df.empty:
+                log_info("All articles filtered by quality checks")
+                self.news_processor.mark_articles_processed([], universe_news_df)
+                return
+            
+            # Get prices for relevant symbols
+            relevant_symbols = quality_filtered_df['symbol'].unique().tolist()
+            prices_df = self.fmp_loader.get_real_time_prices(relevant_symbols)
+            
+            if prices_df is None or prices_df.empty:
+                log_warning(f"Failed to get prices for {len(relevant_symbols)} symbols")
+                self.news_processor.mark_articles_processed([], universe_news_df)
+                return
+            
+            # Perform analysis
+            analyses = self.news_analyzer.analyze_news_with_technical(
+                quality_filtered_df, prices_df
+            )
+            
+            # Mark articles as processed
+            self.news_processor.mark_articles_processed(analyses, universe_news_df)
+            
+            if analyses:
+                # Process trading signals
+                self.trader.process_news_signals(analyses, prices_df)
+                self.performance_metrics['total_articles_processed'] += len(analyses)
+            else:
+                log_info("No valid analyses generated")
                 
-                if error_count >= max_errors:
-                    log_error(f"Too many errors ({error_count}), shutting down")
-                    self.running = False
-                else:
-                    sleep_time = min(2 ** error_count, 45)
-                    log_info(f"Sleeping {sleep_time}s before retry")
-                    await asyncio.sleep(sleep_time)
+        except Exception as e:
+            log_error(f"Error in news pipeline: {e}")
+    
+    async def _process_position_cycle(self) -> None:
+        """Process position monitoring cycle."""
+        try:
+            active_positions = self.trader.get_active_positions()
+            
+            if not active_positions:
+                return
+            
+            # Get current prices for active positions
+            symbols = list(set(trade.symbol for trade in active_positions))
+            prices_df = self.fmp_loader.get_real_time_prices(symbols)
+            
+            if prices_df is not None and not prices_df.empty:
+                self.trader.check_exits(prices_df)
+            else:
+                log_debug(f"Failed to get prices for {len(symbols)} active positions")
+                
+        except Exception as e:
+            log_error(f"Error in position cycle: {e}")
+    
+    async def _handle_main_loop_error(self, error: Exception) -> None:
+        """Handle main loop errors with exponential backoff."""
+        self.error_count += 1
+        self.performance_metrics['errors_recovered'] += 1
+        
+        log_error(f"Main loop error #{self.error_count}: {error}")
+        
+        if self.error_count >= self.MAX_CONSECUTIVE_ERRORS:
+            log_error("Too many consecutive errors, shutting down")
+            self.running = False
+            return
+        
+        # Exponential backoff
+        backoff_time = min(
+            self.ERROR_BACKOFF_BASE ** self.error_count,
+            self.MAX_BACKOFF_SECONDS
+        )
+        
+        log_info(f"Sleeping {backoff_time}s before retry (error #{self.error_count})")
+        await asyncio.sleep(backoff_time)
+    
+    def _print_comprehensive_status(self) -> None:
+        """Print comprehensive system status."""
+        try:
+            uptime_hours = (time.time() - self.performance_metrics['uptime_start']) / 3600
+            
+            # Trading metrics
+            active_positions = len(self.trader.get_active_positions())
+            daily_pnl = self.trader.get_daily_pnl()
+            
+            # Performance metrics
+            trader_stats = self.trader.get_performance_summary()
+            news_stats = self.news_processor.get_processing_stats()
+            analyzer_stats = self.news_analyzer.get_performance_stats()
+            
+            log_info("=" * 80)
+            log_info("📊 ENHANCED TRADING SYSTEM STATUS")
+            log_info("=" * 80)
+            
+            # System health
+            log_info(f"🎯 System Health:")
+            log_info(f"   Uptime: {uptime_hours:.1f} hours")
+            log_info(f"   Cycles Completed: {self.performance_metrics['cycles_completed']}")
+            log_info(f"   Universe Size: {len(self.universe)}")
+            log_info(f"   Error Count: {self.error_count}")
+            log_info(f"   Errors Recovered: {self.performance_metrics['errors_recovered']}")
+            
+            # Trading performance
+            log_info(f"💰 Trading Performance:")
+            log_info(f"   Active Positions: {active_positions}")
+            log_info(f"   Daily P&L: ${daily_pnl:.2f}")
+            log_info(f"   Total Trades Created: {trader_stats.get('trades_created', 0)}")
+            log_info(f"   Recommendations Logged: {trader_stats.get('recommendations_logged', 0)}")
+            
+            # News processing
+            log_info(f"📰 News Processing:")
+            log_info(f"   Articles Cached: {news_stats.get('cached_articles', 0)}")
+            log_info(f"   Cache Efficiency: {news_stats.get('cache_efficiency', 0):.1%}")
+            log_info(f"   High Confidence Signals: {news_stats.get('high_confidence_signals', 0)}")
+            log_info(f"   Symbols Covered: {news_stats.get('symbols_covered', 0)}")
+            
+            # Analysis performance
+            log_info(f"🔍 Analysis Performance:")
+            log_info(f"   Total Analyses: {analyzer_stats.get('total_analyses', 0)}")
+            log_info(f"   FinBERT Enabled: {analyzer_stats.get('finbert_enabled', False)}")
+            log_info(f"   Gemini Enabled: {analyzer_stats.get('gemini_enabled', False)}")
+            log_info(f"   Processing Device: {analyzer_stats.get('device', 'unknown')}")
+            
+            log_info("=" * 80)
+            
+        except Exception as e:
+            log_error(f"Error printing status: {e}")
+    
+    def _perform_graceful_shutdown(self) -> None:
+        """Perform graceful system shutdown."""
+        try:
+            log_info("Performing graceful shutdown...")
+            
+            # Save final state
+            final_stats = {
+                'shutdown_time': datetime.now(timezone.utc).isoformat(),
+                'uptime_hours': (time.time() - self.performance_metrics['uptime_start']) / 3600,
+                'final_performance': self.performance_metrics,
+                'final_universe_size': len(self.universe),
+                'active_positions': len(self.trader.get_active_positions())
+            }
+            
+            log_info(f"Final stats: {final_stats}")
+            
+        except Exception as e:
+            log_error(f"Error during graceful shutdown: {e}")
 
 
 async def main() -> int:
-    """Main entry point."""
+    """Main entry point with comprehensive error handling."""
     try:
-        system = TradingSystem()
+        # Create and run trading system
+        system = EnhancedTradingSystem()
         await system.run()
         return 0
         
@@ -667,6 +829,7 @@ async def main() -> int:
         
     except Exception as e:
         log_error(f"Fatal system error: {e}")
+        log_error(f"Fatal error traceback: {traceback.format_exc()}")
         return 1
 
 

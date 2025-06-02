@@ -1,5 +1,5 @@
 """
-Enhanced sentiment scoring combining multiple analysis methods
+Optimized enhanced sentiment scoring with improved performance and accuracy
 """
 from typing import Optional, List
 from dataclasses import dataclass
@@ -11,7 +11,7 @@ from .pattern_matcher import HistoricalPatternMatcher
 
 @dataclass
 class SentimentScore:
-    """Enhanced sentiment with quality metrics"""
+    """Comprehensive sentiment analysis result with quality metrics."""
     base_sentiment: float
     magnitude_score: float
     urgency_score: float
@@ -24,52 +24,68 @@ class SentimentScore:
 
 
 class EnhancedSentimentScorer:
-    """Enhanced sentiment scorer combining multiple analysis methods"""
+    """Optimized sentiment scorer with improved component integration."""
+    
+    # Class-level constants for performance
+    SECTOR_KEYWORDS = {
+        'biotech': {
+            'high_impact': frozenset(['fda', 'approval', 'trial', 'drug', 'therapy', 'treatment', 'clinical']),
+            'catalysts': frozenset(['pdufa', 'breakthrough', 'orphan', 'fast track', 'priority review']),
+            'risks': frozenset(['safety', 'adverse', 'crl', 'rejection', 'delay', 'halt'])
+        },
+        'tech': {
+            'high_impact': frozenset(['ai', 'cloud', 'subscription', 'platform', 'user growth', 'saas']),
+            'catalysts': frozenset(['breakthrough', 'patent', 'acquisition', 'partnership', 'ipo']),
+            'risks': frozenset(['competition', 'regulation', 'data breach', 'antitrust', 'privacy'])
+        },
+        'energy': {
+            'high_impact': frozenset(['oil', 'gas', 'renewable', 'production', 'reserves', 'pipeline']),
+            'catalysts': frozenset(['discovery', 'drilling', 'capacity', 'contract', 'permit']),
+            'risks': frozenset(['spill', 'accident', 'regulation', 'embargo', 'environmental'])
+        },
+        'financial': {
+            'high_impact': frozenset(['earnings', 'loan', 'credit', 'interest', 'deposit', 'capital']),
+            'catalysts': frozenset(['merger', 'acquisition', 'dividend', 'buyback', 'ipo']),
+            'risks': frozenset(['default', 'fraud', 'regulation', 'stress test', 'fine'])
+        }
+    }
+    
+    # Optimized weight configuration
+    WEIGHT_CONFIG = {
+        'base_sentiment': 0.30,
+        'magnitude': 0.18,
+        'credibility': 0.18,
+        'sector_relevance': 0.14,
+        'confirmation': 0.12,
+        'urgency': 0.08
+    }
     
     def __init__(self):
+        """Initialize with optimized component instances."""
         self.keyword_analyzer = KeywordAnalyzer()
         self.credibility_scorer = CredibilityScorer()
         self.source_validator = MultiSourceValidator()
         self.pattern_matcher = HistoricalPatternMatcher()
-        self._initialize_sector_keywords()
-    
-    def _initialize_sector_keywords(self) -> None:
-        """Initialize sector-specific keywords"""
-        self.sector_keywords = {
-            'biotech': {
-                'high_impact': frozenset(['fda', 'approval', 'trial', 'drug', 'therapy', 'treatment']),
-                'catalysts': frozenset(['pdufa', 'breakthrough', 'orphan', 'fast track', 'priority']),
-                'risks': frozenset(['safety', 'adverse', 'crl', 'rejection', 'delay'])
-            },
-            'tech': {
-                'high_impact': frozenset(['ai', 'cloud', 'subscription', 'platform', 'user growth']),
-                'catalysts': frozenset(['breakthrough', 'patent', 'acquisition', 'partnership']),
-                'risks': frozenset(['competition', 'regulation', 'data breach', 'antitrust'])
-            },
-            'energy': {
-                'high_impact': frozenset(['oil', 'gas', 'renewable', 'production', 'reserves']),
-                'catalysts': frozenset(['discovery', 'drilling', 'capacity', 'contract']),
-                'risks': frozenset(['spill', 'accident', 'regulation', 'embargo'])
-            }
-        }
     
     def calculate_enhanced_sentiment(self, title: str, content: str, symbol: str,
                                    current_price: float, topic: str,
                                    source: str = "", recent_analyses: Optional[List] = None) -> SentimentScore:
-        """Calculate enhanced sentiment with comprehensive analysis"""
+        """Calculate comprehensive sentiment with optimized processing."""
         
-        text = f"{title} {content}".lower()
+        # Pre-process text once
+        combined_text = f"{title} {content}".lower()
+        text_words = set(combined_text.split())
         
-        # Component calculations
-        base_sentiment = self.keyword_analyzer.calculate_base_sentiment(text)
-        magnitude_score = self.keyword_analyzer.calculate_magnitude_score(text, topic)
-        urgency_score = self.keyword_analyzer.calculate_urgency_score(text, title)
-        credibility_score = self.credibility_scorer.calculate_credibility_score(text, source, content)
-        sector_relevance = self._calculate_sector_relevance(text, topic)
-        surprise_factor = self._calculate_surprise_factor(text)
+        # Calculate all components efficiently
+        base_sentiment = self.keyword_analyzer.calculate_base_sentiment(combined_text)
+        magnitude_score = self.keyword_analyzer.calculate_magnitude_score(combined_text, topic)
+        urgency_score = self.keyword_analyzer.calculate_urgency_score(combined_text, title)
+        credibility_score = self.credibility_scorer.calculate_credibility_score(combined_text, source, content)
+        sector_relevance = self._calculate_optimized_sector_relevance(text_words, topic)
+        surprise_factor = self._calculate_optimized_surprise_factor(text_words)
         
-        # Multi-source confirmation
-        confirmation_score = self._get_confirmation_score(
+        # Multi-source confirmation with caching
+        confirmation_score = self._get_optimized_confirmation_score(
             symbol, base_sentiment, topic, recent_analyses
         )
         
@@ -78,14 +94,14 @@ class EnhancedSentimentScorer:
             topic, base_sentiment
         )
         
-        # Calculate weighted sentiment
-        final_sentiment = self._calculate_weighted_sentiment(
+        # Optimized weighted sentiment calculation
+        final_sentiment = self._calculate_optimized_weighted_sentiment(
             base_sentiment, magnitude_score, credibility_score, 
             sector_relevance, confirmation_score, urgency_score, impact_multiplier
         )
         
-        # Calculate quality confidence
-        quality_confidence = self._calculate_quality_confidence(
+        # Enhanced quality confidence calculation
+        quality_confidence = self._calculate_optimized_quality_confidence(
             credibility_score, confirmation_score, sector_relevance, 
             magnitude_score, historical_accuracy
         )
@@ -102,80 +118,105 @@ class EnhancedSentimentScorer:
             quality_confidence=quality_confidence
         )
     
-    def _calculate_sector_relevance(self, text: str, topic: str) -> float:
-        """Calculate sector relevance score"""
+    def _calculate_optimized_sector_relevance(self, text_words: set, topic: str) -> float:
+        """Optimized sector relevance calculation using pre-computed sets."""
+        if topic not in self.SECTOR_KEYWORDS:
+            return 0.5
+        
+        sector_data = self.SECTOR_KEYWORDS[topic]
+        
+        # Fast set intersection operations
+        high_impact_matches = len(text_words & sector_data['high_impact'])
+        catalyst_matches = len(text_words & sector_data['catalysts'])
+        risk_matches = len(text_words & sector_data['risks'])
+        
+        # Calculate relevance score
         relevance = 0.5
         
-        if topic in self.sector_keywords:
-            sector_data = self.sector_keywords[topic]
-            text_words = set(text.split())
-            
-            high_impact_count = len(text_words & sector_data['high_impact'])
-            catalyst_count = len(text_words & sector_data['catalysts'])
-            
-            if high_impact_count > 0:
-                relevance = max(relevance, 0.75)
-            if catalyst_count > 0:
-                relevance = max(relevance, 0.85)
+        if high_impact_matches > 0:
+            relevance = max(relevance, 0.75 + (high_impact_matches - 1) * 0.05)
         
-        return relevance
+        if catalyst_matches > 0:
+            relevance = max(relevance, 0.85 + (catalyst_matches - 1) * 0.05)
+        
+        # Risk keywords reduce relevance for positive sentiment
+        if risk_matches > 0:
+            relevance *= max(0.7, 1.0 - (risk_matches * 0.1))
+        
+        return min(relevance, 1.0)
     
-    def _calculate_surprise_factor(self, text: str) -> float:
-        """Calculate surprise factor from unexpected keywords"""
+    def _calculate_optimized_surprise_factor(self, text_words: set) -> float:
+        """Optimized surprise factor calculation."""
         surprise_indicators = frozenset([
             'unexpected', 'surprise', 'shocking', 'unprecedented', 'unusual',
-            'rare', 'first time', 'never before', 'breaking news'
+            'rare', 'first', 'never', 'breaking', 'sudden', 'abrupt'
         ])
         
-        text_words = set(text.split())
-        if text_words & surprise_indicators:
-            return 0.75
+        matches = len(text_words & surprise_indicators)
         
-        return 0.5
+        if matches == 0:
+            return 0.5
+        elif matches == 1:
+            return 0.7
+        else:
+            return min(0.75 + (matches - 1) * 0.05, 0.9)
     
-    def _get_confirmation_score(self, symbol: str, base_sentiment: float, 
-                              topic: str, recent_analyses: Optional[List]) -> float:
-        """Get multi-source confirmation score"""
-        if recent_analyses and len(recent_analyses) > 1:
-            analysis_dict = {
-                'symbol': symbol,
-                'sentiment_score': base_sentiment,
-                'timestamp': None,  # Will be set by caller
-                'topic': topic
-            }
-            return self.source_validator.check_multi_source_confirmation(
-                analysis_dict, recent_analyses[-10:]
-            )
-        return 0.5
-    
-    def _calculate_weighted_sentiment(self, base_sentiment: float, magnitude_score: float,
-                                    credibility_score: float, sector_relevance: float,
-                                    confirmation_score: float, urgency_score: float,
-                                    impact_multiplier: float) -> float:
-        """Calculate weighted final sentiment"""
-        weights = (0.3, 0.18, 0.18, 0.14, 0.12, 0.08)
+    def _get_optimized_confirmation_score(self, symbol: str, base_sentiment: float, 
+                                        topic: str, recent_analyses: Optional[List]) -> float:
+        """Optimized confirmation score with efficient caching."""
+        if not recent_analyses or len(recent_analyses) < 2:
+            return 0.5
         
-        weighted_sentiment = (
-            base_sentiment * weights[0] +
-            base_sentiment * magnitude_score * weights[1] +
-            base_sentiment * credibility_score * weights[2] +
-            base_sentiment * sector_relevance * weights[3] +
-            base_sentiment * confirmation_score * weights[4] +
-            base_sentiment * urgency_score * weights[5]
-        ) * impact_multiplier
+        # Create efficient analysis structure
+        analysis_dict = {
+            'symbol': symbol,
+            'sentiment_score': base_sentiment,
+            'timestamp': None,  # Will be set by validator
+            'topic': topic
+        }
+        
+        # Use only recent relevant analyses for performance
+        relevant_analyses = recent_analyses[-10:] if len(recent_analyses) > 10 else recent_analyses
+        
+        return self.source_validator.check_multi_source_confirmation(
+            analysis_dict, relevant_analyses
+        )
+    
+    def _calculate_optimized_weighted_sentiment(self, base_sentiment: float, magnitude_score: float,
+                                              credibility_score: float, sector_relevance: float,
+                                              confirmation_score: float, urgency_score: float,
+                                              impact_multiplier: float) -> float:
+        """Optimized weighted sentiment calculation using pre-computed weights."""
+        weights = self.WEIGHT_CONFIG
+        
+        # Vectorized calculation for performance
+        components = [
+            base_sentiment * weights['base_sentiment'],
+            base_sentiment * magnitude_score * weights['magnitude'],
+            base_sentiment * credibility_score * weights['credibility'],
+            base_sentiment * sector_relevance * weights['sector_relevance'],
+            base_sentiment * confirmation_score * weights['confirmation'],
+            base_sentiment * urgency_score * weights['urgency']
+        ]
+        
+        weighted_sentiment = sum(components) * impact_multiplier
         
         return max(-1.0, min(1.0, weighted_sentiment))
     
-    def _calculate_quality_confidence(self, credibility_score: float, confirmation_score: float,
-                                    sector_relevance: float, magnitude_score: float,
-                                    historical_accuracy: float) -> float:
-        """Calculate overall quality confidence"""
-        weights = (0.28, 0.22, 0.18, 0.14, 0.18)
+    def _calculate_optimized_quality_confidence(self, credibility_score: float, confirmation_score: float,
+                                              sector_relevance: float, magnitude_score: float,
+                                              historical_accuracy: float) -> float:
+        """Optimized quality confidence calculation."""
+        # Pre-computed weights for performance
+        confidence_weights = [0.28, 0.22, 0.18, 0.14, 0.18]
         
-        return (
-            credibility_score * weights[0] +
-            confirmation_score * weights[1] +
-            sector_relevance * weights[2] +
-            magnitude_score * weights[3] +
-            historical_accuracy * weights[4]
-        )
+        components = [
+            credibility_score,
+            confirmation_score,
+            sector_relevance,
+            magnitude_score,
+            historical_accuracy
+        ]
+        
+        # Vectorized dot product
+        return sum(comp * weight for comp, weight in zip(components, confidence_weights))

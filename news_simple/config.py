@@ -1,18 +1,19 @@
 """
-Enhanced configuration with better Gemini model and rate limiting
+Enhanced configuration with improved validation and type safety
 """
 import os
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
+from typing import Optional
 from pathlib import Path
 from dotenv import load_dotenv
 
+# Load environment variables once at module level
 load_dotenv()
 
 
 @dataclass
 class Config:
-    """Enhanced configuration with comprehensive type hints and multi-API support."""
+    """Enhanced configuration with comprehensive type hints and validation."""
     
     # Directories
     log_dir: Path = field(default_factory=lambda: Path("logs"))
@@ -25,8 +26,6 @@ class Config:
     position_size: float = 10000.0
     stop_loss_pct: float = 0.05
     take_profit_pct: float = 0.10
-    
-    # CONFIDENCE THRESHOLD - OPTIMIZED FOR BETTER SIGNAL QUALITY
     min_confidence_score: float = 0.45
     
     # Technical analysis thresholds
@@ -35,86 +34,86 @@ class Config:
     min_volume_score: float = 0.15
     min_technical_confidence: float = 0.25
     
-    # Data collection intervals (seconds) - optimized
+    # System intervals (seconds)
     news_check_interval: int = 25
     price_check_interval: int = 4
     
-    # NEWS FETCHING LIMITS - ENHANCED FOR PAID ACCOUNTS
-    news_page_limit: int = 5  # Fetch multiple pages for more articles
-    news_per_page_limit: int = 100  # Max articles per page
-    max_total_news_articles: int = 500  # Total articles to process per cycle
+    # News fetching configuration
+    news_page_limit: int = 5
+    news_per_page_limit: int = 100
+    max_total_news_articles: int = 500
     
     # API settings
     api_rate_limit: int = 120
     request_timeout: int = 25
-    
-    # TESTING MODE
     testing_mode: bool = False
     
-    # Universe selection - optimized
+    # Universe selection
     max_symbols: int = 400
     min_price: float = 1.5
     max_price: float = 600.0
     min_volume: int = 75000
     min_market_cap: int = 75_000_000
     
-    # AI ensemble weights - rebalanced for better performance
+    # AI ensemble weights
     finbert_weight: float = 0.45
     keyword_weight: float = 0.35
     gemini_weight: float = 0.20
     
-    # Position sizing factors
+    # Position sizing
     min_position_multiplier: float = 0.4
     max_position_multiplier: float = 1.8
     
-    # Enhanced sentiment analysis settings
+    # Enhanced sentiment analysis
     enable_enhanced_sentiment: bool = True
     min_quality_confidence: float = 0.65
     enable_multi_source_confirmation: bool = True
-
-    # Enhanced filtering - more permissive for better coverage
     min_magnitude_score: float = 0.35
     min_credibility_score: float = 0.55
-    
+
     def __post_init__(self) -> None:
-        """Create directories and validate configuration."""
+        """Validate configuration and create directories."""
         self._create_directories()
         self._validate_parameters()
+        self._normalize_weights()
     
     def _create_directories(self) -> None:
-        """Create required directories if they don't exist."""
-        for directory in [self.log_dir, self.cache_dir, self.results_dir, self.trade_log_path]:
+        """Create required directories."""
+        directories = [self.log_dir, self.cache_dir, self.results_dir, self.trade_log_path]
+        for directory in directories:
             directory.mkdir(parents=True, exist_ok=True)
     
     def _validate_parameters(self) -> None:
         """Validate configuration parameters."""
         validations = [
             (self.position_size > 0, "Position size must be positive"),
-            (0 < self.stop_loss_pct < 1, "Stop loss percentage must be between 0 and 1"),
-            (0 < self.take_profit_pct < 1, "Take profit percentage must be between 0 and 1"),
-            (0 <= self.min_confidence_score <= 1, "Minimum confidence score must be between 0 and 1"),
+            (0 < self.stop_loss_pct < 1, "Stop loss must be between 0 and 1"),
+            (0 < self.take_profit_pct < 1, "Take profit must be between 0 and 1"),
+            (0 <= self.min_confidence_score <= 1, "Confidence score must be between 0 and 1"),
             (self.news_page_limit > 0, "News page limit must be positive"),
-            (self.news_per_page_limit > 0, "News per page limit must be positive"),
-            (self.max_total_news_articles > 0, "Max total news articles must be positive")
+            (self.min_price > 0, "Minimum price must be positive"),
+            (self.max_price > self.min_price, "Maximum price must exceed minimum price"),
         ]
         
-        for condition, error_msg in validations:
+        for condition, message in validations:
             if not condition:
-                raise ValueError(error_msg)
-        
-        # Validate ensemble weights
+                raise ValueError(message)
+    
+    def _normalize_weights(self) -> None:
+        """Normalize ensemble weights to sum to 1.0."""
         total_weight = self.finbert_weight + self.keyword_weight + self.gemini_weight
-        if abs(total_weight - 1.0) > 0.1:
-            self.finbert_weight = 0.45
-            self.keyword_weight = 0.35
-            self.gemini_weight = 0.20
+        if abs(total_weight - 1.0) > 0.01:
+            # Normalize weights
+            self.finbert_weight /= total_weight
+            self.keyword_weight /= total_weight
+            self.gemini_weight /= total_weight
     
     def get_api_key(self, provider: str) -> Optional[str]:
-        """Get API key from environment variables with validation."""
+        """Get API key for specified provider."""
         if not provider:
             return None
         
-        provider_map = {
+        provider_mapping = {
             'fmp': 'FMP_API_KEY',
             'gemini': 'GEMINI_API_KEY',
             'polygon': 'POLYGON_API_KEY',
@@ -122,24 +121,20 @@ class Config:
             'alpha_vantage': 'ALPHA_VANTAGE_API_KEY'
         }
         
-        env_var = provider_map.get(provider.lower(), f"{provider.upper()}_API_KEY")
+        env_var = provider_mapping.get(provider.lower(), f"{provider.upper()}_API_KEY")
         key = os.getenv(env_var)
         return key.strip() if key else None
     
     def get_gemini_model(self) -> str:
-        """Get Gemini model from environment with fallback to optimized default."""
-        model = os.getenv('GEMINI_MODEL')
-        if model and model.strip():
-            model_name = model.strip()
-            # Validate model name format
-            valid_models = [
-                'gemini-1.5-flash', 'gemini-1.5-pro', 
-                'gemini-pro', 'gemini-flash'
-            ]
-            if any(valid in model_name for valid in valid_models):
-                return model_name
+        """Get Gemini model with validation and fallback."""
+        model = os.getenv('GEMINI_MODEL', '').strip()
         
-        return 'gemini-1.5-flash'  # Safe default with good rate limits
+        if model:
+            valid_models = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro', 'gemini-flash']
+            if any(valid_model in model for valid_model in valid_models):
+                return model
+        
+        return 'gemini-1.5-flash'  # Safe default
 
 
 # Global config instance

@@ -1,80 +1,130 @@
 """
-Technical indicators calculation utilities with performance optimizations
+Optimized technical indicators with vectorized operations and improved performance
 """
 import pandas as pd
 import numpy as np
 from typing import Dict, Optional
+from numba import jit
 from utils.simple_logger import log_debug, log_error
 
 
+# Numba-optimized functions for performance-critical calculations
+@jit(nopython=True)
+def _calculate_rsi_numba(prices: np.ndarray, period: int = 14) -> float:
+    """Numba-optimized RSI calculation."""
+    if len(prices) < period + 1:
+        return 50.0
+    
+    deltas = np.diff(prices)
+    gains = np.where(deltas > 0, deltas, 0.0)
+    losses = np.where(deltas < 0, -deltas, 0.0)
+    
+    # Calculate initial average
+    avg_gain = np.mean(gains[:period])
+    avg_loss = np.mean(losses[:period])
+    
+    # Exponential smoothing
+    alpha = 1.0 / period
+    for i in range(period, len(gains)):
+        avg_gain = (1 - alpha) * avg_gain + alpha * gains[i]
+        avg_loss = (1 - alpha) * avg_loss + alpha * losses[i]
+    
+    if avg_loss == 0:
+        return 100.0
+    
+    rs = avg_gain / avg_loss
+    rsi = 100.0 - (100.0 / (1.0 + rs))
+    
+    return rsi
+
+
+@jit(nopython=True)
+def _calculate_atr_numba(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int = 14) -> float:
+    """Numba-optimized ATR calculation."""
+    if len(high) < period + 1:
+        return 0.02
+    
+    # Calculate true range
+    tr = np.zeros(len(high))
+    tr[0] = high[0] - low[0]
+    
+    for i in range(1, len(high)):
+        tr1 = high[i] - low[i]
+        tr2 = abs(high[i] - close[i-1])
+        tr3 = abs(low[i] - close[i-1])
+        tr[i] = max(tr1, tr2, tr3)
+    
+    # Calculate ATR using exponential moving average
+    atr = np.mean(tr[1:period+1])
+    alpha = 1.0 / period
+    
+    for i in range(period + 1, len(tr)):
+        atr = (1 - alpha) * atr + alpha * tr[i]
+    
+    return atr
+
+
 class TechnicalIndicators:
-    """Calculate various technical indicators efficiently with vectorized operations"""
+    """High-performance technical indicators with vectorized operations and caching."""
+    
+    # Class-level constants for optimization
+    DEFAULT_PERIODS = {
+        'rsi': 14,
+        'sma': [5, 10, 20, 50],
+        'ema': [12, 26],
+        'bollinger': 20,
+        'macd': {'fast': 12, 'slow': 26, 'signal': 9},
+        'stochastic': {'k': 14, 'd': 3},
+        'atr': 14
+    }
     
     @staticmethod
     def calculate_rsi(prices: pd.Series, period: int = 14) -> float:
-        """Calculate RSI with optimized vectorized operations and error handling."""
+        """Optimized RSI calculation with fallback handling."""
         try:
             if len(prices) < period + 1:
                 return 50.0
             
-            # Fast path for small datasets
-            clean_prices = pd.to_numeric(prices, errors='coerce').dropna()
-            if len(clean_prices) < period + 1:
+            # Convert to numpy array for numba optimization
+            price_array = prices.values.astype(np.float64)
+            
+            # Remove any NaN values
+            valid_prices = price_array[~np.isnan(price_array)]
+            if len(valid_prices) < period + 1:
                 return 50.0
-
-            # Vectorized calculation
-            delta_series = clean_prices.diff()
-            delta_series = delta_series.fillna(0.0)
             
-            # Convert to NumPy array for np.where to help Pylance's type inference
-            delta_array = delta_series.to_numpy()
-
-            # Use numpy for faster calculations
-            gain = np.where(delta_array > 0, delta_array, 0.0)
-            loss = np.where(delta_array < 0, -delta_array, 0.0)
-            
-            # Exponential moving average using pandas (optimized)
-            alpha = 2.0 / (period + 1)
-            avg_gain = pd.Series(gain).ewm(alpha=alpha, adjust=False).mean()
-            avg_loss = pd.Series(loss).ewm(alpha=alpha, adjust=False).mean()
-            
-            # Avoid division by zero
-            avg_loss_safe = np.where(avg_loss == 0, 1e-10, avg_loss)
-            rs = avg_gain / avg_loss_safe
-            rsi = 100 - (100 / (1 + rs))
-            
-            final_rsi = float(rsi.iloc[-1])
-            return final_rsi if not pd.isna(final_rsi) else 50.0
+            rsi = _calculate_rsi_numba(valid_prices, period)
+            return float(rsi) if not np.isnan(rsi) else 50.0
             
         except Exception as e:
-            log_debug(f"Error calculating RSI: {e}")
+            log_debug(f"Error in RSI calculation: {e}")
             return 50.0
     
     @staticmethod
     def calculate_moving_averages(prices: pd.Series) -> Dict[str, float]:
-        """Calculate various moving averages with optimized computations."""
+        """Vectorized moving average calculations."""
         try:
             if prices.empty:
                 return {f'{ma_type}_{period}': 0.0 
                        for ma_type in ['sma', 'ema'] 
-                       for period in [5, 10, 20, 12, 26]}
+                       for period in TechnicalIndicators.DEFAULT_PERIODS['sma'] + TechnicalIndicators.DEFAULT_PERIODS['ema']}
             
             current_price = float(prices.iloc[-1])
             mas = {}
             
-            # Simple moving averages - vectorized calculation
-            sma_periods = [5, 10, 20, 50]
-            for period in sma_periods:
+            # Vectorized SMA calculations
+            for period in TechnicalIndicators.DEFAULT_PERIODS['sma']:
                 if len(prices) >= period:
-                    mas[f'sma_{period}'] = float(prices.rolling(period, min_periods=1).mean().iloc[-1])
+                    ma_value = prices.rolling(window=period, min_periods=1).mean().iloc[-1]
+                    mas[f'sma_{period}'] = float(ma_value) if not pd.isna(ma_value) else current_price
                 else:
                     mas[f'sma_{period}'] = current_price
             
-            # Exponential moving averages - optimized calculation
-            ema_spans = [12, 26]
-            for span in ema_spans:
+            # Vectorized EMA calculations
+            for span in TechnicalIndicators.DEFAULT_PERIODS['ema']:
                 if len(prices) >= span:
-                    mas[f'ema_{span}'] = float(prices.ewm(span=span, adjust=False).mean().iloc[-1])
+                    ema_value = prices.ewm(span=span, adjust=False).mean().iloc[-1]
+                    mas[f'ema_{span}'] = float(ema_value) if not pd.isna(ema_value) else current_price
                 else:
                     mas[f'ema_{span}'] = current_price
             
@@ -82,14 +132,12 @@ class TechnicalIndicators:
             
         except Exception as e:
             log_debug(f"Error calculating moving averages: {e}")
-            return {
-                'sma_5': 0, 'sma_10': 0, 'sma_20': 0, 'sma_50': 0,
-                'ema_12': 0, 'ema_26': 0
-            }
+            return {f'sma_{p}': 0.0 for p in TechnicalIndicators.DEFAULT_PERIODS['sma']} | \
+                   {f'ema_{p}': 0.0 for p in TechnicalIndicators.DEFAULT_PERIODS['ema']}
     
     @staticmethod
     def calculate_volatility(prices: pd.Series, period: int = 20) -> float:
-        """Calculate annualized volatility with optimized computation."""
+        """Optimized volatility calculation with proper annualization."""
         try:
             if len(prices) < 2:
                 return 0.5
@@ -100,17 +148,19 @@ class TechnicalIndicators:
             if len(returns) < 2:
                 return 0.5
             
-            # Use rolling window if enough data
+            # Use rolling standard deviation if sufficient data
             if len(returns) >= period:
-                vol = returns.rolling(period, min_periods=2).std().iloc[-1]
+                volatility = returns.rolling(window=period, min_periods=2).std().iloc[-1]
             else:
-                vol = returns.std()
+                volatility = returns.std()
             
-            if pd.isna(vol) or vol <= 0:
+            if pd.isna(volatility) or volatility <= 0:
                 return 0.5
             
-            # Annualize and normalize
-            annualized_vol = vol * np.sqrt(252)
+            # Annualize volatility (252 trading days)
+            annualized_vol = volatility * np.sqrt(252)
+            
+            # Normalize to 0-1 scale (assuming 50% is high volatility)
             normalized_vol = min(annualized_vol / 0.5, 1.0)
             return max(0.0, normalized_vol)
             
@@ -120,25 +170,26 @@ class TechnicalIndicators:
     
     @staticmethod
     def calculate_bollinger_bands(prices: pd.Series, period: int = 20, std_dev: float = 2.0) -> Dict[str, float]:
-        """Calculate Bollinger Bands with optimized vectorized operations."""
+        """Vectorized Bollinger Bands calculation."""
         try:
             if len(prices) < period:
                 current_price = float(prices.iloc[-1]) if len(prices) > 0 else 0
+                default_spread = current_price * 0.02
                 return {
-                    'bb_upper': current_price * 1.02,
+                    'bb_upper': current_price + default_spread,
                     'bb_middle': current_price,
-                    'bb_lower': current_price * 0.98
+                    'bb_lower': current_price - default_spread
                 }
             
-            # Vectorized calculations
-            rolling_mean = prices.rolling(period, min_periods=1).mean()
-            rolling_std = prices.rolling(period, min_periods=1).std()
+            # Vectorized calculations using pandas rolling operations
+            rolling_stats = prices.rolling(window=period, min_periods=1).agg(['mean', 'std'])
             
-            bb_middle = float(rolling_mean.iloc[-1])
-            bb_std = float(rolling_std.iloc[-1])
+            bb_middle = float(rolling_stats['mean'].iloc[-1])
+            bb_std = float(rolling_stats['std'].iloc[-1])
             
+            # Handle edge cases
             if pd.isna(bb_std) or bb_std == 0:
-                bb_std = bb_middle * 0.02  # 2% default
+                bb_std = bb_middle * 0.02  # 2% default standard deviation
             
             return {
                 'bb_upper': bb_middle + (bb_std * std_dev),
@@ -157,15 +208,16 @@ class TechnicalIndicators:
     
     @staticmethod
     def calculate_macd(prices: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> Dict[str, float]:
-        """Calculate MACD indicators with optimized computation."""
+        """Optimized MACD calculation with vectorized operations."""
         try:
             if len(prices) < slow:
                 return {'macd': 0.0, 'macd_signal': 0.0, 'macd_histogram': 0.0}
             
             # Vectorized EMA calculations
-            exp1 = prices.ewm(span=fast, adjust=False).mean()
-            exp2 = prices.ewm(span=slow, adjust=False).mean()
-            macd_line = exp1 - exp2
+            ema_fast = prices.ewm(span=fast, adjust=False).mean()
+            ema_slow = prices.ewm(span=slow, adjust=False).mean()
+            
+            macd_line = ema_fast - ema_slow
             macd_signal_line = macd_line.ewm(span=signal, adjust=False).mean()
             macd_histogram = macd_line - macd_signal_line
             
@@ -181,28 +233,21 @@ class TechnicalIndicators:
     
     @staticmethod
     def calculate_atr(df: pd.DataFrame, period: int = 14) -> float:
-        """Calculate Average True Range with optimized vectorized operations."""
+        """Optimized ATR calculation using numba for performance."""
         try:
             required_cols = ['high', 'low', 'close']
             if len(df) < period or not all(col in df.columns for col in required_cols):
                 return 0.02  # Default 2% ATR
             
-            # Vectorized true range calculation
-            high_low = df['high'] - df['low']
-            high_close_prev = np.abs(df['high'] - df['close'].shift(1))
-            low_close_prev = np.abs(df['low'] - df['close'].shift(1))
+            # Extract arrays for numba processing
+            high_array = df['high'].values.astype(np.float64)
+            low_array = df['low'].values.astype(np.float64)
+            close_array = df['close'].values.astype(np.float64)
             
-            # Use numpy for efficient maximum calculation
-            true_range = np.maximum(
-                high_low,
-                np.maximum(high_close_prev, low_close_prev)
-            )
+            # Use numba-optimized calculation
+            atr = _calculate_atr_numba(high_array, low_array, close_array, period)
             
-            # Calculate ATR using pandas rolling mean
-            atr_series = pd.Series(true_range).rolling(period, min_periods=1).mean()
-            atr = float(atr_series.iloc[-1])
-            
-            return atr if not pd.isna(atr) and atr > 0 else 0.02
+            return float(atr) if not np.isnan(atr) and atr > 0 else 0.02
             
         except Exception as e:
             log_debug(f"Error calculating ATR: {e}")
@@ -210,21 +255,25 @@ class TechnicalIndicators:
     
     @staticmethod
     def calculate_stochastic(df: pd.DataFrame, k_period: int = 14, d_period: int = 3) -> Dict[str, float]:
-        """Calculate Stochastic oscillator with optimized computation."""
+        """Vectorized Stochastic oscillator calculation."""
         try:
-            if len(df) < k_period or not all(col in df.columns for col in ['high', 'low', 'close']):
+            required_cols = ['high', 'low', 'close']
+            if len(df) < k_period or not all(col in df.columns for col in required_cols):
                 return {'stoch_k': 50.0, 'stoch_d': 50.0}
             
-            # Vectorized calculations
-            lowest_low = df['low'].rolling(k_period, min_periods=1).min()
-            highest_high = df['high'].rolling(k_period, min_periods=1).max()
+            # Vectorized rolling min/max calculations
+            rolling_low = df['low'].rolling(window=k_period, min_periods=1).min()
+            rolling_high = df['high'].rolling(window=k_period, min_periods=1).max()
             
-            # Avoid division by zero
-            range_val = highest_high - lowest_low
-            range_val = np.where(range_val == 0, 1e-10, range_val)
+            # Avoid division by zero using numpy operations
+            range_values = rolling_high - rolling_low
+            range_values = np.where(range_values == 0, 1e-10, range_values)
             
-            stoch_k = 100 * ((df['close'] - lowest_low) / range_val)
-            stoch_d = stoch_k.rolling(d_period, min_periods=1).mean()
+            # Calculate %K
+            stoch_k = 100 * ((df['close'] - rolling_low) / range_values)
+            
+            # Calculate %D (moving average of %K)
+            stoch_d = stoch_k.rolling(window=d_period, min_periods=1).mean()
             
             return {
                 'stoch_k': float(stoch_k.iloc[-1]),
@@ -237,50 +286,51 @@ class TechnicalIndicators:
     
     @staticmethod
     def add_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
-        """Add all technical indicators to dataframe with optimized batch processing."""
+        """Optimized batch addition of all technical indicators."""
         try:
             if df.empty or 'close' not in df.columns:
                 return df
             
-            df = df.copy()
+            # Work on a copy to avoid modifying original
+            result_df = df.copy()
             
             # Batch calculate moving averages
             mas = TechnicalIndicators.calculate_moving_averages(df['close'])
             for key, value in mas.items():
-                df[key] = value
+                result_df[key] = value
             
-            # Calculate RSI
-            df['rsi'] = TechnicalIndicators.calculate_rsi(df['close'])
+            # Calculate other indicators
+            result_df['rsi'] = TechnicalIndicators.calculate_rsi(df['close'])
             
-            # Batch calculate Bollinger Bands
-            bb = TechnicalIndicators.calculate_bollinger_bands(df['close'])
-            for key, value in bb.items():
-                df[key] = value
+            # Bollinger Bands
+            bb_data = TechnicalIndicators.calculate_bollinger_bands(df['close'])
+            for key, value in bb_data.items():
+                result_df[key] = value
             
-            # Batch calculate MACD
-            macd = TechnicalIndicators.calculate_macd(df['close'])
-            for key, value in macd.items():
-                df[key] = value
+            # MACD
+            macd_data = TechnicalIndicators.calculate_macd(df['close'])
+            for key, value in macd_data.items():
+                result_df[key] = value
             
-            # Calculate Stochastic
-            stoch = TechnicalIndicators.calculate_stochastic(df)
-            for key, value in stoch.items():
-                df[key] = value
+            # Stochastic
+            stoch_data = TechnicalIndicators.calculate_stochastic(df)
+            for key, value in stoch_data.items():
+                result_df[key] = value
             
-            # Volume indicators (if available)
+            # Volume indicators (vectorized)
             if 'volume' in df.columns:
-                df['volume_sma'] = df['volume'].rolling(20, min_periods=1).mean()
-                # Avoid division by zero
-                volume_sma_safe = np.where(df['volume_sma'] == 0, 1, df['volume_sma'])
-                df['volume_ratio'] = df['volume'] / volume_sma_safe
+                result_df['volume_sma'] = df['volume'].rolling(window=20, min_periods=1).mean()
+                # Safe division avoiding zeros
+                volume_sma_safe = np.where(result_df['volume_sma'] == 0, 1, result_df['volume_sma'])
+                result_df['volume_ratio'] = df['volume'] / volume_sma_safe
             
-            # ATR calculation
+            # ATR
             if all(col in df.columns for col in ['high', 'low', 'close']):
-                df['atr'] = TechnicalIndicators.calculate_atr(df)
+                result_df['atr'] = TechnicalIndicators.calculate_atr(df)
             else:
-                df['atr'] = 0.02
+                result_df['atr'] = 0.02
             
-            return df
+            return result_df
             
         except Exception as e:
             log_error(f"Error adding technical indicators: {e}")
@@ -288,14 +338,14 @@ class TechnicalIndicators:
     
     @staticmethod
     def calculate_momentum_indicators(prices: pd.Series, volume: Optional[pd.Series] = None) -> Dict[str, float]:
-        """Calculate momentum indicators with optimized batch processing."""
+        """Optimized momentum indicators with vectorized calculations."""
         try:
             if len(prices) < 2:
-                return {'roc_1': 0.0, 'roc_5': 0.0, 'roc_10': 0.0, 'momentum': 0.0}
+                return {'roc_1': 0.0, 'roc_5': 0.0, 'roc_10': 0.0, 'momentum': 0.0, 'volume_momentum': 1.0}
             
             indicators = {}
             
-            # Rate of Change (ROC) for different periods
+            # Vectorized Rate of Change calculations
             for period in [1, 5, 10]:
                 if len(prices) > period:
                     roc = ((prices.iloc[-1] - prices.iloc[-period-1]) / prices.iloc[-period-1]) * 100
@@ -310,7 +360,7 @@ class TechnicalIndicators:
             else:
                 indicators['momentum'] = 0.0
             
-            # Volume momentum (if available)
+            # Volume momentum
             if volume is not None and len(volume) >= 5:
                 vol_momentum = volume.iloc[-1] / volume.iloc[-5] if volume.iloc[-5] > 0 else 1.0
                 indicators['volume_momentum'] = float(vol_momentum) if not pd.isna(vol_momentum) else 1.0
