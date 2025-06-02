@@ -62,6 +62,15 @@ class Config:
     min_position_multiplier: float = 0.5
     max_position_multiplier: float = 1.5
     
+    # Enhanced sentiment analysis settings
+    enable_enhanced_sentiment: bool = True
+    min_quality_confidence: float = 0.7  # Higher bar for quality
+    enable_multi_source_confirmation: bool = True
+
+    # Enhanced filtering
+    min_magnitude_score: float = 0.4
+    min_credibility_score: float = 0.6
+    
     def __post_init__(self) -> None:
         """Create directories and validate configuration."""
         self._create_directories()

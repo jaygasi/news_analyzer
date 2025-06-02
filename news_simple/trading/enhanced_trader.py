@@ -165,6 +165,17 @@ class EnhancedTrader:
             return news_df
         
         try:
+            # DEBUG: Log what we're starting with
+            log_info(f"Pre-filter input: {len(news_df)} articles")
+            
+            # Log sample of what we're processing
+            for idx, row in news_df.head(3).iterrows():
+                symbol = row.get('symbol', 'UNKNOWN')
+                title = str(row.get('title', ''))[:50] + "..."
+                published = row.get('publishedDate', 'UNKNOWN')
+                text_len = len(str(row.get('text', '')))
+                log_debug(f"Sample article: {symbol} | {title} | {published} | text_len={text_len}")
+            
             filtered_news = self.news_filter.filter_news_quality(news_df)
             
             if filtered_news is not None:
@@ -173,6 +184,11 @@ class EnhancedTrader:
                 
                 if filtered_count < original_count:
                     log_info(f"News pre-filter: {original_count} -> {filtered_count} articles")
+                    
+                    # DEBUG: Show what was filtered out
+                    if filtered_count == 0:
+                        log_warning("ALL ARTICLES FILTERED OUT - Analyzing why:")
+                        self._debug_filter_rejections(news_df)
                 
                 return filtered_news
             else:
@@ -182,6 +198,65 @@ class EnhancedTrader:
         except Exception as e:
             log_error(f"Error in news pre-filtering: {e}")
             return news_df
+    
+    def _debug_filter_rejections(self, news_df: pd.DataFrame) -> None:
+        """Debug why articles are being filtered out"""
+        current_time = datetime.now(timezone.utc)
+        
+        log_warning("=== FILTER REJECTION ANALYSIS ===")
+        
+        for idx, row in news_df.iterrows():
+            symbol = row.get('symbol', 'UNKNOWN')
+            title = str(row.get('title', ''))
+            text = str(row.get('text', ''))
+            published_date = row.get('publishedDate')
+            
+            rejection_reasons = []
+            
+            # Check title length
+            if len(title) < 20:
+                rejection_reasons.append(f"Title too short ({len(title)} chars)")
+            
+            # Check text length  
+            if len(text) < 100:
+                rejection_reasons.append(f"Text too short ({len(text)} chars)")
+            
+            # Check for spam keywords
+            title_lower = title.lower()
+            text_lower = text.lower()
+            spam_keywords = ['click here', 'ad:', 'advertisement', 'sponsored']
+            for keyword in spam_keywords:
+                if keyword in title_lower or keyword in text_lower:
+                    rejection_reasons.append(f"Contains spam: '{keyword}'")
+            
+            # Check staleness
+            if published_date:
+                try:
+                    pub_time = pd.to_datetime(published_date, utc=True)
+                    time_diff = current_time - pub_time
+                    cutoff_hours = 24 if CONFIG.testing_mode else 2
+                    
+                    if time_diff.total_seconds() / 3600 > cutoff_hours:
+                        rejection_reasons.append(f"Too old ({time_diff.total_seconds()/3600:.1f}h > {cutoff_hours}h)")
+                except:
+                    rejection_reasons.append("Invalid published date")
+            
+            # Log the analysis
+            title_short = title[:40] + "..." if len(title) > 40 else title
+            if rejection_reasons:
+                log_warning(f"  {symbol}: {title_short}")
+                for reason in rejection_reasons:
+                    log_warning(f"    ❌ {reason}")
+            else:
+                log_warning(f"  {symbol}: {title_short} ✅ (should pass - check filter logic)")
+        
+        log_warning("=== END FILTER ANALYSIS ===")
+        
+        # Suggest solutions
+        log_info("💡 SUGGESTIONS:")
+        log_info("   1. Enable testing_mode=True in config.py for 24h news window")
+        log_info("   2. Lower min title/text length in market_filters.py")  
+        log_info("   3. Check if news RSS feed has required fields")
     
     def _determine_position_size(self, analysis: EnhancedNewsAnalysis) -> float:
         """Enhanced dynamic position sizing with risk management."""
@@ -1031,10 +1106,25 @@ class EnhancedTrader:
         
         try:
             df = pd.read_csv(self.trade_log_file)
+            
+            # Check if we have any data
+            if df.empty:
+                log_debug("No trades in log file yet")
+                return {}
+            
+            # Check if exit_time column exists
+            if 'exit_time' not in df.columns:
+                log_debug("No exit_time column found - no completed trades yet")
+                return {}
+            
+            # Filter for completed trades
             completed_trades = df[df['exit_time'].notna()].copy()
             
             if completed_trades.empty:
+                log_debug("No completed trades found for performance analysis")
                 return {}
+            
+            log_debug(f"Analyzing performance of {len(completed_trades)} completed trades")
             
             # Ensure numeric columns
             numeric_columns = ['pnl', 'market_stress', 'time_score', 'technical_confidence']

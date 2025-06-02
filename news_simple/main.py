@@ -1,21 +1,274 @@
 """
-Optimized comprehensive news catalyst trading system with enhanced logging
+Optimized comprehensive news catalyst trading system with incremental processing
 """
 import asyncio
 import time
-from datetime import datetime, timezone
+import hashlib
+import json
+from datetime import datetime, timezone, timedelta
 import signal
 import sys
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set, Tuple
+from dataclasses import dataclass, asdict
+from pathlib import Path
 from config import CONFIG
-from utils.simple_logger import log_info, log_error, log_warning
+from utils.simple_logger import log_info, log_error, log_warning, log_debug
 from data_loaders.simple_fmp_loader import SimpleFMPLoader
 from analysis.enhanced_news_analyzer import EnhancedNewsAnalyzer
 from trading.enhanced_trader import EnhancedTrader
+import pandas as pd
+
+
+@dataclass
+class ProcessedArticle:
+    """Record of a processed article"""
+    article_hash: str
+    symbol: str
+    title: str
+    processed_time: datetime
+    sentiment_score: float
+    combined_confidence: float
+    was_traded: bool = False
+
+
+class IncrementalNewsProcessor:
+    """Tracks processed articles to avoid reprocessing"""
+    
+    def __init__(self):
+        self.processed_articles_file = CONFIG.cache_dir / "processed_articles.json"
+        self.processed_hashes: Set[str] = set()
+        self.processed_articles: Dict[str, ProcessedArticle] = {}
+        
+        # Cleanup settings
+        self.max_age_hours = 24  # Keep processed articles for 24 hours
+        self.max_articles = 10000  # Maximum articles to track
+        
+        # Load existing processed articles
+        self._load_processed_articles()
+        
+        # Cleanup old entries on startup
+        self._cleanup_old_articles()
+    
+    def _generate_article_hash(self, row: pd.Series) -> str:
+        """Generate unique hash for an article"""
+        # Use symbol + title + publication date for uniqueness
+        content_key = f"{row.get('symbol', '')}-{row.get('title', '')}-{str(row.get('publishedDate', ''))}"
+        return hashlib.md5(content_key.encode('utf-8')).hexdigest()
+    
+    def _load_processed_articles(self) -> None:
+        """Load processed articles from cache file"""
+        if not self.processed_articles_file.exists():
+            log_debug("No processed articles cache found, starting fresh")
+            return
+        
+        try:
+            with open(self.processed_articles_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # Convert back to ProcessedArticle objects
+            for article_hash, article_data in data.items():
+                # Convert datetime string back to datetime object
+                article_data['processed_time'] = datetime.fromisoformat(
+                    article_data['processed_time'].replace('Z', '+00:00')
+                )
+                
+                processed_article = ProcessedArticle(**article_data)
+                self.processed_articles[article_hash] = processed_article
+                self.processed_hashes.add(article_hash)
+            
+            log_info(f"Loaded {len(self.processed_articles)} previously processed articles from cache")
+            
+        except Exception as e:
+            log_warning(f"Error loading processed articles cache: {e}")
+            self.processed_articles = {}
+            self.processed_hashes = set()
+    
+    def _save_processed_articles(self) -> None:
+        """Save processed articles to cache file"""
+        try:
+            # Convert ProcessedArticle objects to dict for JSON serialization
+            data = {}
+            for article_hash, article in self.processed_articles.items():
+                article_dict = asdict(article)
+                # Convert datetime to ISO string
+                article_dict['processed_time'] = article.processed_time.isoformat()
+                data[article_hash] = article_dict
+            
+            # Ensure directory exists
+            self.processed_articles_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(self.processed_articles_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2)
+                
+            log_debug(f"Saved {len(data)} processed articles to cache")
+            
+        except Exception as e:
+            log_warning(f"Error saving processed articles cache: {e}")
+    
+    def _cleanup_old_articles(self) -> None:
+        """Remove old processed articles to prevent memory/disk bloat"""
+        if not self.processed_articles:
+            return
+        
+        current_time = datetime.now(timezone.utc)
+        cutoff_time = current_time - timedelta(hours=self.max_age_hours)
+        
+        # Remove articles older than cutoff
+        old_hashes = [
+            article_hash for article_hash, article in self.processed_articles.items()
+            if article.processed_time < cutoff_time
+        ]
+        
+        for article_hash in old_hashes:
+            self.processed_articles.pop(article_hash, None)
+            self.processed_hashes.discard(article_hash)
+        
+        # Limit total articles if needed
+        if len(self.processed_articles) > self.max_articles:
+            # Sort by processed time and keep only the most recent
+            sorted_articles = sorted(
+                self.processed_articles.items(),
+                key=lambda x: x[1].processed_time,
+                reverse=True
+            )
+            
+            # Keep only the most recent max_articles
+            articles_to_keep = dict(sorted_articles[:self.max_articles])
+            articles_to_remove = set(self.processed_articles.keys()) - set(articles_to_keep.keys())
+            
+            for article_hash in articles_to_remove:
+                self.processed_articles.pop(article_hash, None)
+                self.processed_hashes.discard(article_hash)
+        
+        if old_hashes:
+            # Update processed_hashes to match processed_articles
+            self.processed_hashes = set(self.processed_articles.keys())
+            
+            log_info(f"Cleaned up {len(old_hashes)} old articles, "
+                    f"now tracking {len(self.processed_articles)} articles")
+            
+            # Save after cleanup
+            self._save_processed_articles()
+    
+    def filter_new_articles(self, news_df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[Any, str]]:
+        """Filter out already processed articles, return only new ones"""
+        if news_df is None or news_df.empty:
+            return news_df, {}
+        
+        new_articles = []
+        new_indices = []  # Track original indices
+        article_hash_map = {}  # Map original index to hash for later tracking
+        skipped_count = 0
+        
+        for idx, row in news_df.iterrows():
+            article_hash = self._generate_article_hash(row)
+            article_hash_map[idx] = article_hash
+            
+            if article_hash not in self.processed_hashes:
+                new_articles.append(row)
+                new_indices.append(idx)
+            else:
+                skipped_count += 1
+                log_debug(f"Skipping already processed: {row.get('symbol', 'UNKNOWN')} - {row.get('title', '')[:50]}...")
+        
+        if new_articles:
+            new_df = pd.DataFrame(new_articles).reset_index(drop=True)
+            log_info(f"Article filtering: {len(news_df)} total -> {len(new_df)} new articles (skipped {skipped_count} already processed)")
+            return new_df, article_hash_map
+        else:
+            log_info(f"No new articles found ({skipped_count} already processed)")
+            return pd.DataFrame(), article_hash_map
+    
+    def mark_articles_processed(self, analyses: List, original_news_df: pd.DataFrame, 
+                              article_hash_map: Dict[Any, str]) -> None:
+        """Mark articles as processed after analysis"""
+        current_time = datetime.now(timezone.utc)
+        new_processed_count = 0
+        
+        # Create a map of symbol+title to analysis for quick lookup
+        analysis_map = {}
+        for analysis in analyses:
+            # Use a simpler key that's more likely to match
+            key = f"{analysis.symbol}"
+            if key not in analysis_map or analysis.combined_confidence > analysis_map[key].combined_confidence:
+                analysis_map[key] = analysis
+        
+        for idx, row in original_news_df.iterrows():
+            if idx not in article_hash_map:
+                continue
+                
+            article_hash = article_hash_map[idx]
+            
+            # Skip if already processed
+            if article_hash in self.processed_hashes:
+                continue
+            
+            # Try to find corresponding analysis
+            symbol = row.get('symbol', '')
+            analysis = analysis_map.get(symbol)
+            
+            processed_article = ProcessedArticle(
+                article_hash=article_hash,
+                symbol=symbol,
+                title=str(row.get('title', ''))[:100],  # Truncate title
+                processed_time=current_time,
+                sentiment_score=analysis.sentiment_score if analysis else 0.0,
+                combined_confidence=analysis.combined_confidence if analysis else 0.0,
+                was_traded=analysis.combined_confidence >= CONFIG.min_confidence_score if analysis else False
+            )
+            
+            self.processed_articles[article_hash] = processed_article
+            self.processed_hashes.add(article_hash)
+            new_processed_count += 1
+        
+        if new_processed_count > 0:
+            log_info(f"Marked {new_processed_count} new articles as processed")
+            self._save_processed_articles()
+    
+    def get_processing_stats(self) -> Dict[str, Any]:
+        """Get statistics about processed articles"""
+        if not self.processed_articles:
+            return {
+                'total_processed': 0,
+                'high_confidence_signals': 0,
+                'actual_trades': 0,
+                'cache_age_hours': 0
+            }
+        
+        current_time = datetime.now(timezone.utc)
+        
+        # Calculate stats
+        high_confidence_count = sum(
+            1 for article in self.processed_articles.values()
+            if article.combined_confidence >= CONFIG.min_confidence_score
+        )
+        
+        trades_count = sum(
+            1 for article in self.processed_articles.values()
+            if article.was_traded
+        )
+        
+        # Find oldest article age
+        oldest_article = min(
+            self.processed_articles.values(),
+            key=lambda x: x.processed_time,
+            default=None
+        )
+        
+        cache_age_hours = 0
+        if oldest_article:
+            cache_age_hours = (current_time - oldest_article.processed_time).total_seconds() / 3600
+        
+        return {
+            'total_processed': len(self.processed_articles),
+            'high_confidence_signals': high_confidence_count,
+            'actual_trades': trades_count,
+            'cache_age_hours': cache_age_hours
+        }
 
 
 class ComprehensiveTradingSystem:
-    """Optimized comprehensive trading system with enhanced error handling."""
+    """Optimized comprehensive trading system with incremental news processing."""
     
     def __init__(self) -> None:
         """Initialize trading system with proper validation."""
@@ -28,6 +281,9 @@ class ComprehensiveTradingSystem:
         
         # Initialize components
         self._initialize_components()
+        
+        # Initialize incremental processor
+        self.incremental_processor = IncrementalNewsProcessor()
         
         # System state
         self.universe: List[str] = []
@@ -181,7 +437,7 @@ class ComprehensiveTradingSystem:
             log_info(f"  ... and {len(stocks) - 50} more")
     
     def process_comprehensive_news_cycle(self) -> None:
-        """Optimized comprehensive news processing with error recovery."""
+        """Optimized comprehensive news processing with incremental processing to avoid reprocessing."""
         try:
             # Get and filter news
             raw_news_df = self.fmp_loader.get_news_rss()
@@ -202,18 +458,29 @@ class ComprehensiveTradingSystem:
             log_info(f"Raw news: {len(raw_news_df)} articles, "
                     f"filtered to universe: {len(filtered_news_df)} articles")
             
-            # Apply quality filters and process
-            self._process_filtered_news(filtered_news_df)
+            # INCREMENTAL PROCESSING: Filter out already processed articles
+            new_articles_df, article_hash_map = self.incremental_processor.filter_new_articles(filtered_news_df)
+            
+            if new_articles_df.empty:
+                log_info("No new articles to process")
+                return
+            
+            log_info(f"[INCREMENTAL] Processing {len(new_articles_df)} new articles (from {len(filtered_news_df)} total)")
+            
+            # Apply quality filters and process NEW articles only
+            self._process_filtered_news(new_articles_df, article_hash_map)
                 
         except Exception as e:
             log_error(f"Error in comprehensive news cycle: {e}")
     
-    def _process_filtered_news(self, filtered_news_df) -> None:
+    def _process_filtered_news(self, filtered_news_df: pd.DataFrame, article_hash_map: Dict[Any, str]) -> None:
         """Process filtered news through the analysis pipeline."""
         # Apply quality filters
         quality_filtered_df = self.trader.pre_filter_news(filtered_news_df)
         if quality_filtered_df is None or quality_filtered_df.empty:
-            log_info("All news filtered out by quality filters")
+            log_info("All new articles filtered out by quality filters")
+            # Still mark them as processed to avoid reprocessing
+            self.incremental_processor.mark_articles_processed([], filtered_news_df, article_hash_map)
             return
         
         log_info(f"Quality filtered news: {len(quality_filtered_df)} articles")
@@ -224,12 +491,17 @@ class ComprehensiveTradingSystem:
         
         if prices_df is None or prices_df.empty:
             log_warning("Failed to get current prices for technical analysis")
+            # Mark as processed even if we can't get prices
+            self.incremental_processor.mark_articles_processed([], filtered_news_df, article_hash_map)
             return
         
-        # Enhanced news analysis
+        # Enhanced news analysis (only on new articles)
         analyses = self.news_analyzer.analyze_news_with_technical(
             quality_filtered_df, prices_df
         )
+        
+        # Mark articles as processed AFTER analysis
+        self.incremental_processor.mark_articles_processed(analyses, filtered_news_df, article_hash_map)
         
         if not analyses:
             log_info("No valid news analyses generated")
@@ -269,7 +541,7 @@ class ComprehensiveTradingSystem:
             log_error(f"Error checking positions: {e}")
     
     def print_comprehensive_status(self) -> None:
-        """Print system status with enhanced metrics."""
+        """Print system status with enhanced metrics including incremental processing."""
         try:
             active_positions = len(self.trader.get_active_positions())
             daily_pnl = self.trader.get_daily_pnl()
@@ -277,10 +549,20 @@ class ComprehensiveTradingSystem:
             # Get filter performance analytics
             filter_perf = self.trader.get_filter_performance()
             
+            # Get incremental processing stats
+            processing_stats = self.incremental_processor.get_processing_stats()
+            
             log_info("[STATUS] System Status:")
             log_info(f"   Active Positions: {active_positions}")
             log_info(f"   Daily P&L: ${daily_pnl:.2f}")
             log_info(f"   Confidence Threshold: {CONFIG.min_confidence_score}")
+            
+            # Incremental processing stats
+            log_info("[INCREMENTAL] Processing Statistics:")
+            log_info(f"   Total Articles Processed: {processing_stats['total_processed']}")
+            log_info(f"   High Confidence Signals: {processing_stats['high_confidence_signals']}")
+            log_info(f"   Actual Trades: {processing_stats['actual_trades']}")
+            log_info(f"   Cache Age: {processing_stats['cache_age_hours']:.1f} hours")
             
             if filter_perf:
                 self._log_performance_analytics(filter_perf)
@@ -331,7 +613,7 @@ class ComprehensiveTradingSystem:
     
     async def run(self) -> None:
         """Main run loop with optimized timing and error recovery."""
-        log_info("[START] Starting COMPREHENSIVE News Catalyst Trading System")
+        log_info("[START] Starting COMPREHENSIVE News Catalyst Trading System with Incremental Processing")
         
         # Log system features
         self._log_system_features()
@@ -363,7 +645,7 @@ class ComprehensiveTradingSystem:
             try:
                 current_time = time.time()
                 
-                # News processing cycle
+                # News processing cycle (now with incremental processing)
                 if current_time - last_news_check >= CONFIG.news_check_interval:
                     self.process_comprehensive_news_cycle()
                     last_news_check = current_time
@@ -405,7 +687,8 @@ class ComprehensiveTradingSystem:
             "[OK] Price Action Filters (Gaps, Volatility, Extremes)",
             "[OK] Portfolio Risk Management (Concentration, Heat)",
             "[OK] Entry Timing Optimization",
-            "[OK] Dynamic Position Sizing"
+            "[OK] Dynamic Position Sizing",
+            "[OK] Incremental News Processing (Avoids Reprocessing)"
         ]
         
         log_info("[INFO] Features Enabled:")
