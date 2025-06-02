@@ -1,9 +1,8 @@
 """
-Optimized news analyzer with Gemini LLM integration, professional technical strategies,
-and enhanced sentiment analysis for quality trade predictions
+Optimized news analyzer with fixed type issues and reduced complexity
 """
 import pandas as pd
-from typing import Dict, Optional, Tuple, List, Set
+from typing import Dict, Optional, Tuple, List, Set, Any
 from dataclasses import dataclass
 import re
 import torch
@@ -19,9 +18,17 @@ from analysis.gemini_news_analyzer import GeminiNewsAnalyzer, GeminiAnalysis
 from analysis.technical_strategies import TechnicalStrategies, StrategySignal
 
 
+# Constants for repeated string literals
+FDA_APPROVAL = 'fda approval'
+FAST_TRACK = 'fast track'
+PRIORITY_REVIEW = 'priority review'
+WORTH_BUYING = 'worth buying'
+TIME_TO_BUY = 'time to buy'
+
+
 @dataclass
 class EnhancedNewsAnalysis:
-    """Enhanced news analysis with comprehensive data including Gemini and strategies."""
+    """Enhanced news analysis with comprehensive data"""
     symbol: str
     title: str
     content: str
@@ -44,18 +51,18 @@ class EnhancedNewsAnalysis:
 class EnhancedSentimentScore:
     """Enhanced sentiment with quality metrics"""
     base_sentiment: float
-    magnitude_score: float      # How big is the expected impact?
-    urgency_score: float        # How time-sensitive is this?
-    credibility_score: float    # How reliable is the source/news?
-    sector_relevance: float     # How relevant to this sector?
-    surprise_factor: float      # How unexpected was this news?
-    confirmation_score: float   # Multi-source confirmation
-    final_sentiment: float      # Weighted final score
-    quality_confidence: float   # Overall quality confidence
+    magnitude_score: float
+    urgency_score: float
+    credibility_score: float
+    sector_relevance: float
+    surprise_factor: float
+    confirmation_score: float
+    final_sentiment: float
+    quality_confidence: float
 
 
 class EnhancedKeywordAnalyzer:
-    """Research-backed enhanced keyword analysis"""
+    """Research-backed enhanced keyword analysis with constants"""
     
     def __init__(self):
         self._initialize_enhanced_keywords()
@@ -65,7 +72,7 @@ class EnhancedKeywordAnalyzer:
         self._initialize_credibility_indicators()
         
     def _initialize_enhanced_keywords(self):
-        """Enhanced keywords based on financial research"""
+        """Enhanced keywords based on financial research with constants"""
         
         # Research shows these have highest predictive power
         self.power_positive_keywords = {
@@ -101,10 +108,10 @@ class EnhancedKeywordAnalyzer:
             'obsolete technology', 'regulatory nightmare', 'investigation launched'
         }
         
-        # Biotech/Pharma specific (high volatility sector)
+        # Biotech/Pharma specific (using constants)
         self.biotech_catalysts = {
             'positive': {
-                'fda approval', 'breakthrough designation', 'fast track', 'priority review',
+                FDA_APPROVAL, 'breakthrough designation', FAST_TRACK, PRIORITY_REVIEW,
                 'orphan drug', 'accelerated approval', 'phase 3 success', 'meets endpoints',
                 'statistically significant', 'pdufa date', 'nda accepted', 'bla accepted',
                 'regulatory approval', 'cms approval', 'reimbursement approved'
@@ -136,7 +143,7 @@ class EnhancedKeywordAnalyzer:
             'slight': 0.7, 'minor': 0.6, 'small': 0.5, 'tiny': 0.3
         }
         
-        # Percentage indicators (extract actual numbers)
+        # Percentage indicators
         self.percentage_patterns = [
             r'(\d+(?:\.\d+)?)\s*%\s*(increase|growth|up|higher)',
             r'(\d+(?:\.\d+)?)\s*%\s*(decrease|decline|down|lower)',
@@ -163,7 +170,7 @@ class EnhancedKeywordAnalyzer:
         self.sector_keywords = {
             'biotech': {
                 'high_impact': ['fda', 'approval', 'trial', 'drug', 'therapy', 'treatment'],
-                'catalysts': ['pdufa', 'breakthrough', 'orphan', 'fast track', 'priority'],
+                'catalysts': ['pdufa', 'breakthrough', 'orphan', FAST_TRACK, 'priority'],
                 'risks': ['safety', 'adverse', 'crl', 'rejection', 'delay']
             },
             'tech': {
@@ -181,10 +188,10 @@ class EnhancedKeywordAnalyzer:
     def _initialize_credibility_indicators(self):
         """News source and content credibility markers"""
         self.credible_sources = {
-            'tier_1': ['reuters', 'bloomberg', 'wsj', 'ft', 'ap news'],      # Weight: 1.0
-            'tier_2': ['cnbc', 'marketwatch', 'yahoo finance', 'seeking alpha'], # Weight: 0.8
-            'tier_3': ['motley fool', 'benzinga', 'zacks'],                 # Weight: 0.6
-            'company_direct': ['press release', 'sec filing', '8-k', '10-k'] # Weight: 1.2
+            'tier_1': ['reuters', 'bloomberg', 'wsj', 'ft', 'ap news'],
+            'tier_2': ['cnbc', 'marketwatch', 'yahoo finance', 'seeking alpha'],
+            'tier_3': ['motley fool', 'benzinga', 'zacks'],
+            'company_direct': ['press release', 'sec filing', '8-k', '10-k']
         }
         
         # Content credibility markers
@@ -204,38 +211,38 @@ class MultiSourceValidator:
         self.confirmation_window = timedelta(hours=6)
         
     def check_multi_source_confirmation(self, current_analysis: dict, 
-                                      recent_analyses: List[dict]) -> float:
-        """Check if multiple sources confirm the same story"""
+                                      recent_analyses: Optional[List[dict]]) -> float:
+        """Check if multiple sources confirm the same story - fixed type issue"""
         if not recent_analyses:
-            return 0.5  # No confirmation data
+            return 0.5
         
         current_symbol = current_analysis['symbol']
         current_sentiment = current_analysis['sentiment_score']
-        current_topic = current_analysis.get('topic', 'general')
+        current_timestamp = current_analysis['timestamp']
         
         # Find related articles
-        related_articles = [
-            art for art in recent_analyses 
+        related_articles = []
+        for art in recent_analyses:
             if (art['symbol'] == current_symbol and 
-                abs((art['timestamp'] - current_analysis['timestamp']).total_seconds()) < self.confirmation_window.total_seconds())
-        ]
+                abs((art['timestamp'] - current_timestamp).total_seconds()) < self.confirmation_window.total_seconds()):
+                related_articles.append(art)
         
         if len(related_articles) < 2:
-            return 0.5  # Not enough for confirmation
+            return 0.5
         
         # Check sentiment alignment
         sentiments = [art['sentiment_score'] for art in related_articles]
         sentiment_agreement = self._calculate_sentiment_agreement(current_sentiment, sentiments)
         
         # Check topic relevance
+        current_topic = current_analysis.get('topic', 'general')
         topic_match = sum(1 for art in related_articles if art.get('topic') == current_topic)
-        topic_score = topic_match / len(related_articles)
+        topic_score = topic_match / len(related_articles) if related_articles else 0
         
         # Combine scores
         confirmation_score = (sentiment_agreement * 0.7 + topic_score * 0.3)
         
-        log_debug(f"Multi-source confirmation for {current_symbol}: {confirmation_score:.2f} "
-                 f"({len(related_articles)} sources, sentiment_agreement={sentiment_agreement:.2f})")
+        log_debug(f"Multi-source confirmation for {current_symbol}: {confirmation_score:.2f}")
         
         return confirmation_score
     
@@ -243,17 +250,26 @@ class MultiSourceValidator:
         """Calculate how well sentiments agree"""
         if not other_sentiments:
             return 0.5
-            
-        # Check if sentiments are in same direction
-        target_direction = 1 if target_sentiment > 0.1 else (-1 if target_sentiment < -0.1 else 0)
+        
+        # Determine target direction
+        target_direction = self._get_sentiment_direction(target_sentiment)
         
         agreements = 0
         for sentiment in other_sentiments:
-            other_direction = 1 if sentiment > 0.1 else (-1 if sentiment < -0.1 else 0)
+            other_direction = self._get_sentiment_direction(sentiment)
             if target_direction == other_direction:
                 agreements += 1
         
         return agreements / len(other_sentiments)
+    
+    def _get_sentiment_direction(self, sentiment: float) -> int:
+        """Get sentiment direction - extracted for clarity"""
+        if sentiment > 0.1:
+            return 1
+        elif sentiment < -0.1:
+            return -1
+        else:
+            return 0
 
 
 class HistoricalPatternMatcher:
@@ -262,29 +278,19 @@ class HistoricalPatternMatcher:
     def __init__(self):
         self.pattern_cache = {}
         
-    def find_historical_impact(self, symbol: str, news_type: str, 
+    def find_historical_impact(self, news_type: str, 
                              sentiment_score: float) -> Tuple[float, float]:
-        """Find how similar news affected this stock historically"""
-        # This would ideally connect to a database of historical news->price movements
-        # For now, return intelligent defaults based on research
+        """Find how similar news affected stocks historically - removed unused symbol param"""
         
         impact_multipliers = {
             'earnings': {
-                'strong_beat': 1.3,    # Strong earnings beats typically move stock 3-8%
-                'beat': 1.1,
-                'miss': 0.7,
-                'strong_miss': 0.5
+                'strong_beat': 1.3, 'beat': 1.1, 'miss': 0.7, 'strong_miss': 0.5
             },
             'biotech': {
-                'fda_approval': 2.0,   # FDA approvals can move biotech 20-50%
-                'trial_success': 1.5,
-                'trial_failure': 0.3,
-                'fda_rejection': 0.2
+                'fda_approval': 2.0, 'trial_success': 1.5, 'trial_failure': 0.3, 'fda_rejection': 0.2
             },
             'analyst': {
-                'upgrade': 1.2,
-                'downgrade': 0.8,
-                'initiate_buy': 1.1
+                'upgrade': 1.2, 'downgrade': 0.8, 'initiate_buy': 1.1
             }
         }
         
@@ -292,12 +298,9 @@ class HistoricalPatternMatcher:
         category = self._categorize_news(news_type, sentiment_score)
         multiplier = impact_multipliers.get(news_type, {}).get(category, 1.0)
         
-        # Historical accuracy based on research (from papers)
+        # Historical accuracy rates
         accuracy_rates = {
-            'earnings': 0.75,    # Earnings sentiment predicts direction 75% of time
-            'biotech': 0.85,     # FDA/trial news very predictive
-            'analyst': 0.65,     # Analyst changes moderately predictive
-            'general': 0.55      # General news barely better than random
+            'earnings': 0.75, 'biotech': 0.85, 'analyst': 0.65, 'general': 0.55
         }
         
         accuracy = accuracy_rates.get(news_type, 0.55)
@@ -307,16 +310,19 @@ class HistoricalPatternMatcher:
     def _categorize_news(self, news_type: str, sentiment: float) -> str:
         """Categorize news based on type and sentiment"""
         if news_type == 'earnings':
-            if sentiment > 0.6:
-                return 'strong_beat'
-            elif sentiment > 0.2:
-                return 'beat'
-            elif sentiment < -0.6:
-                return 'strong_miss'
-            else:
-                return 'miss'
-        # Add more categorizations as needed
+            return self._categorize_earnings_news(sentiment)
         return 'general'
+    
+    def _categorize_earnings_news(self, sentiment: float) -> str:
+        """Categorize earnings news - extracted for clarity"""
+        if sentiment > 0.6:
+            return 'strong_beat'
+        elif sentiment > 0.2:
+            return 'beat'
+        elif sentiment < -0.6:
+            return 'strong_miss'
+        else:
+            return 'miss'
 
 
 class NewsQualityScorer:
@@ -329,65 +335,41 @@ class NewsQualityScorer:
         
     def calculate_enhanced_sentiment(self, title: str, content: str, symbol: str,
                                    current_price: float, topic: str,
-                                   source: str = "", recent_analyses: List = None) -> EnhancedSentimentScore:
+                                   source: str = "", recent_analyses: Optional[List] = None) -> EnhancedSentimentScore:
         """Calculate enhanced sentiment with quality scoring"""
         
         text = f"{title} {content}".lower()
         
-        # Base sentiment (use existing FinBERT/keyword logic)
+        # Base sentiment
         base_sentiment = self._calculate_base_sentiment(text)
         
         # Enhanced scoring components
         magnitude_score = self._calculate_magnitude_score(text, topic)
         urgency_score = self._calculate_urgency_score(text, title)
         credibility_score = self._calculate_credibility_score(text, source, content)
-        sector_relevance = self._calculate_sector_relevance(text, symbol, topic)
-        surprise_factor = self._calculate_surprise_factor(text, topic)
+        sector_relevance = self._calculate_sector_relevance(text, topic)
+        surprise_factor = self._calculate_surprise_factor(text)
         
-        # Multi-source confirmation (if available)
-        confirmation_score = 0.5
-        if recent_analyses:
-            analysis_dict = {
-                'symbol': symbol,
-                'sentiment_score': base_sentiment,
-                'timestamp': datetime.now(),
-                'topic': topic
-            }
-            confirmation_score = self.source_validator.check_multi_source_confirmation(
-                analysis_dict, recent_analyses
-            )
+        # Multi-source confirmation
+        confirmation_score = self._get_confirmation_score(
+            symbol, base_sentiment, topic, recent_analyses
+        )
         
         # Historical pattern matching
         impact_multiplier, historical_accuracy = self.pattern_matcher.find_historical_impact(
-            symbol, topic, base_sentiment
+            topic, base_sentiment
         )
         
         # Calculate weighted final sentiment
-        weights = {
-            'base': 0.3,
-            'magnitude': 0.2,
-            'credibility': 0.2,
-            'sector': 0.15,
-            'confirmation': 0.1,
-            'urgency': 0.05
-        }
-        
-        final_sentiment = (
-            base_sentiment * weights['base'] +
-            base_sentiment * magnitude_score * weights['magnitude'] +
-            base_sentiment * credibility_score * weights['credibility'] +
-            base_sentiment * sector_relevance * weights['sector'] +
-            base_sentiment * confirmation_score * weights['confirmation'] +
-            base_sentiment * urgency_score * weights['urgency']
-        ) * impact_multiplier
+        final_sentiment = self._calculate_weighted_sentiment(
+            base_sentiment, magnitude_score, credibility_score, 
+            sector_relevance, confirmation_score, urgency_score, impact_multiplier
+        )
         
         # Quality confidence calculation
-        quality_confidence = (
-            credibility_score * 0.3 +
-            confirmation_score * 0.25 +
-            sector_relevance * 0.2 +
-            magnitude_score * 0.15 +
-            historical_accuracy * 0.1
+        quality_confidence = self._calculate_quality_confidence(
+            credibility_score, confirmation_score, sector_relevance, 
+            magnitude_score, historical_accuracy
         )
         
         return EnhancedSentimentScore(
@@ -402,42 +384,83 @@ class NewsQualityScorer:
             quality_confidence=quality_confidence
         )
     
+    def _get_confirmation_score(self, symbol: str, base_sentiment: float, 
+                               topic: str, recent_analyses: Optional[List]) -> float:
+        """Get confirmation score from multi-source validation"""
+        if recent_analyses:
+            analysis_dict = {
+                'symbol': symbol,
+                'sentiment_score': base_sentiment,
+                'timestamp': datetime.now(),
+                'topic': topic
+            }
+            return self.source_validator.check_multi_source_confirmation(
+                analysis_dict, recent_analyses
+            )
+        return 0.5
+    
+    def _calculate_weighted_sentiment(self, base_sentiment: float, magnitude_score: float,
+                                    credibility_score: float, sector_relevance: float,
+                                    confirmation_score: float, urgency_score: float,
+                                    impact_multiplier: float) -> float:
+        """Calculate weighted final sentiment - extracted for clarity"""
+        weights = {
+            'base': 0.3, 'magnitude': 0.2, 'credibility': 0.2,
+            'sector': 0.15, 'confirmation': 0.1, 'urgency': 0.05
+        }
+        
+        weighted_sentiment = (
+            base_sentiment * weights['base'] +
+            base_sentiment * magnitude_score * weights['magnitude'] +
+            base_sentiment * credibility_score * weights['credibility'] +
+            base_sentiment * sector_relevance * weights['sector'] +
+            base_sentiment * confirmation_score * weights['confirmation'] +
+            base_sentiment * urgency_score * weights['urgency']
+        ) * impact_multiplier
+        
+        return max(-1.0, min(1.0, weighted_sentiment))
+    
+    def _calculate_quality_confidence(self, credibility_score: float, confirmation_score: float,
+                                    sector_relevance: float, magnitude_score: float,
+                                    historical_accuracy: float) -> float:
+        """Calculate quality confidence - extracted for clarity"""
+        return (
+            credibility_score * 0.3 +
+            confirmation_score * 0.25 +
+            sector_relevance * 0.2 +
+            magnitude_score * 0.15 +
+            historical_accuracy * 0.1
+        )
+    
     def _calculate_base_sentiment(self, text: str) -> float:
         """Calculate base sentiment using enhanced keywords"""
         positive_count = 0
         negative_count = 0
         
         # Check power keywords first (higher weight)
-        for word in self.keyword_analyzer.power_positive_keywords:
-            if word in text:
-                positive_count += 2  # Double weight for power words
-        
-        for word in self.keyword_analyzer.power_negative_keywords:
-            if word in text:
-                negative_count += 2  # Double weight for power words
+        positive_count += self._count_keyword_matches(text, self.keyword_analyzer.power_positive_keywords, 2)
+        negative_count += self._count_keyword_matches(text, self.keyword_analyzer.power_negative_keywords, 2)
         
         # Check biotech catalysts
-        for word in self.keyword_analyzer.biotech_catalysts['positive']:
-            if word in text:
-                positive_count += 1.5  # Biotech catalysts are important
-        
-        for word in self.keyword_analyzer.biotech_catalysts['negative']:
-            if word in text:
-                negative_count += 1.5
+        positive_count += self._count_keyword_matches(text, self.keyword_analyzer.biotech_catalysts['positive'], 1.5)
+        negative_count += self._count_keyword_matches(text, self.keyword_analyzer.biotech_catalysts['negative'], 1.5)
         
         # Check tech catalysts
-        for word in self.keyword_analyzer.tech_catalysts['positive']:
-            if word in text:
-                positive_count += 1.3
-        
-        for word in self.keyword_analyzer.tech_catalysts['negative']:
-            if word in text:
-                negative_count += 1.3
+        positive_count += self._count_keyword_matches(text, self.keyword_analyzer.tech_catalysts['positive'], 1.3)
+        negative_count += self._count_keyword_matches(text, self.keyword_analyzer.tech_catalysts['negative'], 1.3)
         
         if positive_count + negative_count == 0:
             return 0.0
         
         return (positive_count - negative_count) / (positive_count + negative_count)
+    
+    def _count_keyword_matches(self, text: str, keywords: set, weight: float) -> float:
+        """Count keyword matches with weight"""
+        count = 0
+        for word in keywords:
+            if word in text:
+                count += weight
+        return count
     
     def _calculate_magnitude_score(self, text: str, topic: str) -> float:
         """Calculate expected magnitude of impact"""
@@ -449,27 +472,37 @@ class NewsQualityScorer:
                 magnitude = max(magnitude, multiplier)
         
         # Extract percentage changes
+        magnitude = self._check_percentage_patterns(text, magnitude)
+        
+        # Topic-specific magnitude adjustments
+        magnitude = self._apply_topic_magnitude_adjustments(text, topic, magnitude)
+        
+        return min(magnitude, 2.0) / 2.0  # Normalize to 0-1
+    
+    def _check_percentage_patterns(self, text: str, magnitude: float) -> float:
+        """Check for percentage patterns in text"""
         for pattern in self.keyword_analyzer.percentage_patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
             for match in matches:
                 if isinstance(match, tuple) and match[0].replace('.', '').isdigit():
                     pct = float(match[0])
-                    if pct > 10:  # Double-digit percentage changes are significant
+                    if pct > 10:
                         magnitude = max(magnitude, 1.5)
                     elif pct > 5:
                         magnitude = max(magnitude, 1.3)
-        
-        # Topic-specific magnitude adjustments
-        if topic == 'biotech' and any(word in text for word in ['fda approval', 'breakthrough']):
+        return magnitude
+    
+    def _apply_topic_magnitude_adjustments(self, text: str, topic: str, magnitude: float) -> float:
+        """Apply topic-specific magnitude adjustments"""
+        if topic == 'biotech' and any(word in text for word in [FDA_APPROVAL, 'breakthrough']):
             magnitude *= 1.5
         elif topic == 'earnings' and any(word in text for word in ['blowout', 'crush']):
             magnitude *= 1.3
-        
-        return min(magnitude, 2.0) / 2.0  # Normalize to 0-1
+        return magnitude
     
     def _calculate_urgency_score(self, text: str, title: str) -> float:
         """Calculate time sensitivity"""
-        urgency = 0.5  # Default
+        urgency = 0.5
         
         # Check urgency keywords
         for word, score in self.keyword_analyzer.urgency_keywords.items():
@@ -481,7 +514,7 @@ class NewsQualityScorer:
             if phrase in text:
                 urgency = max(urgency, score)
         
-        # Breaking news in title gets bonus
+        # Breaking news bonus
         if 'breaking' in title.lower() or 'just in' in title.lower():
             urgency = min(urgency * 1.2, 1.0)
         
@@ -489,49 +522,64 @@ class NewsQualityScorer:
     
     def _calculate_credibility_score(self, text: str, source: str, content: str) -> float:
         """Calculate source and content credibility"""
-        credibility = 0.5  # Default
+        credibility = 0.5
         
         # Source credibility
+        credibility = self._assess_source_credibility(source, credibility)
+        
+        # Content credibility markers
+        credibility = self._assess_content_credibility(text, credibility)
+        
+        # Content length and detail
+        credibility = self._assess_content_length(content, credibility)
+        
+        return min(credibility, 1.0)
+    
+    def _assess_source_credibility(self, source: str, credibility: float) -> float:
+        """Assess source credibility"""
         source_lower = source.lower()
+        
+        source_weights = {
+            'tier_1': 1.0, 'tier_2': 0.8, 'tier_3': 0.6, 'company_direct': 1.2
+        }
+        
         for tier, sources in self.keyword_analyzer.credible_sources.items():
             for credible_source in sources:
                 if credible_source in source_lower:
-                    if tier == 'tier_1':
-                        credibility = max(credibility, 1.0)
-                    elif tier == 'tier_2':
-                        credibility = max(credibility, 0.8)
-                    elif tier == 'tier_3':
-                        credibility = max(credibility, 0.6)
-                    elif tier == 'company_direct':
-                        credibility = max(credibility, 1.2)
+                    credibility = max(credibility, source_weights[tier])
         
-        # Content credibility markers
+        return credibility
+    
+    def _assess_content_credibility(self, text: str, credibility: float) -> float:
+        """Assess content credibility"""
+        credibility_weights = {'high': 0.9, 'medium': 0.7, 'low': 0.3}
+        
         for level, markers in self.keyword_analyzer.credibility_markers.items():
             for marker in markers:
                 if marker in text:
-                    if level == 'high':
-                        credibility = max(credibility, 0.9)
-                    elif level == 'medium':
-                        credibility = max(credibility, 0.7)
-                    elif level == 'low':
-                        credibility = min(credibility, 0.3)
+                    if level == 'low':
+                        credibility = min(credibility, credibility_weights[level])
+                    else:
+                        credibility = max(credibility, credibility_weights[level])
         
-        # Content length and detail (longer, more detailed articles are often more credible)
+        return credibility
+    
+    def _assess_content_length(self, content: str, credibility: float) -> float:
+        """Assess content length for credibility"""
         if len(content) > 500:
             credibility = min(credibility * 1.1, 1.0)
         elif len(content) < 100:
             credibility *= 0.8
         
-        return min(credibility, 1.0)
+        return credibility
     
-    def _calculate_sector_relevance(self, text: str, symbol: str, topic: str) -> float:
+    def _calculate_sector_relevance(self, text: str, topic: str) -> float:
         """Calculate how relevant the news is to the specific sector"""
-        relevance = 0.5  # Default
+        relevance = 0.5
         
         if topic in self.keyword_analyzer.sector_keywords:
             sector_data = self.keyword_analyzer.sector_keywords[topic]
             
-            # Check high-impact keywords
             high_impact_count = sum(1 for word in sector_data['high_impact'] if word in text)
             catalyst_count = sum(1 for word in sector_data['catalysts'] if word in text)
             
@@ -542,9 +590,9 @@ class NewsQualityScorer:
         
         return relevance
     
-    def _calculate_surprise_factor(self, text: str, topic: str) -> float:
-        """Calculate how unexpected this news is (unexpected news has bigger impact)"""
-        surprise = 0.5  # Default
+    def _calculate_surprise_factor(self, text: str) -> float:
+        """Calculate how unexpected this news is"""
+        surprise = 0.5
         
         surprise_indicators = [
             'unexpected', 'surprise', 'shocking', 'unprecedented', 'unusual',
@@ -559,52 +607,43 @@ class NewsQualityScorer:
 
 
 class EnhancedNewsAnalyzer:
-    """Optimized news analyzer with Gemini LLM integration, professional strategies, and enhanced sentiment analysis."""
+    """Optimized news analyzer with fixed type issues and reduced complexity"""
     
     def __init__(self, fmp_loader) -> None:
-        """Initialize with optimized model loading, Gemini, technical strategies, and enhanced sentiment analysis."""
+        """Initialize with optimized model loading"""
         self.fmp_loader = fmp_loader
         self.technical_analyzer = TechnicalAnalyzer(fmp_loader)
         self.technical_strategies = TechnicalStrategies(fmp_loader)
-        
-        # Initialize Gemini analyzer
         self.gemini_analyzer = GeminiNewsAnalyzer()
-        
-        # Enhanced sentiment analysis components
         self.quality_scorer = NewsQualityScorer()
-        self.recent_analyses_cache = []  # Store recent analyses for confirmation
+        self.recent_analyses_cache = []
         
-        # Device selection with fallback
+        # Device selection
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.finbert_model = None
         self.finbert_tokenizer = None
         self.finbert_labels = ["positive", "negative", "neutral"]
         
-        # Initialize FinBERT with error handling
+        # Initialize FinBERT
         self._load_finbert_safely()
         
-        # Optimized keyword sets
+        # Initialize keywords
         self._initialize_keywords()
-        
-        # Enhance existing keywords with power keywords
         self._enhance_existing_keywords()
     
     def _load_finbert_safely(self) -> None:
-        """Load FinBERT model with comprehensive error handling."""
+        """Load FinBERT model with comprehensive error handling"""
         try:
             log_info("Loading FinBERT model...")
             self.finbert_tokenizer = AutoTokenizer.from_pretrained(
-                "ProsusAI/finbert",
-                cache_dir="./cache"
+                "ProsusAI/finbert", cache_dir="./cache"
             )
             self.finbert_model = AutoModelForSequenceClassification.from_pretrained(
-                "ProsusAI/finbert",
-                cache_dir="./cache"
+                "ProsusAI/finbert", cache_dir="./cache"
             )
             self.finbert_model.to(self.device)
             self.finbert_model.eval()
             
-            # Optimize for inference
             if hasattr(torch, 'jit') and self.device == "cuda":
                 self.finbert_model = torch.jit.optimize_for_inference(self.finbert_model)
             
@@ -617,8 +656,7 @@ class EnhancedNewsAnalyzer:
             self.finbert_tokenizer = None
     
     def _initialize_keywords(self) -> None:
-        """Initialize optimized keyword sets for sentiment analysis."""
-        # Use sets for O(1) lookup performance
+        """Initialize optimized keyword sets with constants"""
         self.positive_keywords = {
             'beats', 'beat', 'exceeds', 'exceed', 'raises', 'upgrade', 'approval', 'approved',
             'growth', 'strong', 'positive', 'success', 'breakthrough', 'innovation',
@@ -626,8 +664,8 @@ class EnhancedNewsAnalyzer:
             'outperform', 'surge', 'rally', 'boost', 'gain', 'rise', 'soar', 'bullish',
             'record', 'milestone', 'achievement', 'partnership', 'collaboration', 'deal',
             'cheap', 'undervalued', 'good buy', 'bargain', 'discount', 'value',
-            'attractive price', 'buying opportunity', 'oversold', 'worth buying',
-            'time to buy', 'attractive valuation', 'compelling value', 'good value',
+            'attractive price', 'buying opportunity', 'oversold', WORTH_BUYING,
+            TIME_TO_BUY, 'attractive valuation', 'compelling value', 'good value',
             'reasonable price', 'fair value', 'target price increase', 'price target raised',
             'buy rating', 'accumulate', 'overweight', 'recommend buy'
         }
@@ -646,11 +684,11 @@ class EnhancedNewsAnalyzer:
         self.biotech_keywords = {
             'fda', 'approval', 'phase', 'trial', 'clinical', 'drug', 'therapy',
             'treatment', 'efficacy', 'safety', 'regulatory', 'orphan drug',
-            'breakthrough therapy', 'fast track', 'priority review', 'biologics',
+            'breakthrough therapy', FAST_TRACK, PRIORITY_REVIEW, 'biologics',
             'pipeline', 'indication', 'endpoint', 'biomarker'
         }
         
-        # Compile regex patterns for better performance
+        # Compile regex patterns
         self._topic_patterns = {
             'earnings': re.compile(r'\b(earnings|revenue|profit|eps|quarterly|guidance|beat|miss)\b', re.IGNORECASE),
             'biotech': re.compile(r'\b(fda|approval|phase|trial|clinical|drug|therapy|efficacy)\b', re.IGNORECASE),
@@ -661,8 +699,7 @@ class EnhancedNewsAnalyzer:
         }
     
     def _enhance_existing_keywords(self) -> None:
-        """Enhance existing keywords with power keywords"""
-        # Add power keywords to existing sets
+        """Enhance existing keywords with power keywords using constants"""
         power_positive = {
             'crushes', 'smashes', 'demolishes', 'blowout', 'blockbuster', 'stellar',
             'phenomenal', 'explosive growth', 'cash flow surge', 'profit explosion',
@@ -677,13 +714,12 @@ class EnhancedNewsAnalyzer:
             'nightmare', 'cratering', 'imploding', 'hemorrhaging'
         }
         
-        # Enhance existing keyword sets
         self.positive_keywords.update(power_positive)
         self.negative_keywords.update(power_negative)
         
-        # Add biotech-specific keywords
+        # Add biotech-specific keywords using constants
         biotech_positive = {
-            'fda approval', 'breakthrough designation', 'fast track', 'priority review',
+            FDA_APPROVAL, 'breakthrough designation', FAST_TRACK, PRIORITY_REVIEW,
             'pdufa date', 'nda accepted', 'meets endpoints', 'statistically significant',
             'regulatory approval', 'cms approval', 'reimbursement approved'
         }
@@ -694,34 +730,27 @@ class EnhancedNewsAnalyzer:
             'regulatory delay', 'black box warning'
         }
         
-        # Add to biotech keywords
         self.biotech_keywords.update(biotech_positive)
         self.biotech_keywords.update(biotech_negative)
         
-        log_info(f"Enhanced keywords: {len(self.positive_keywords)} positive, {len(self.negative_keywords)} negative, {len(self.biotech_keywords)} biotech")
+        log_info(f"Enhanced keywords: {len(self.positive_keywords)} positive, {len(self.negative_keywords)} negative")
     
     def _get_finbert_sentiment(self, text: str) -> Tuple[float, float]:
-        """Optimized FinBERT sentiment analysis with batching support."""
+        """Optimized FinBERT sentiment analysis"""
         if not self.finbert_model or not self.finbert_tokenizer:
             return 0.0, 0.0
         
         try:
-            text = text.strip()[:512]  # Truncate early to save processing
+            text = text.strip()[:512]
             
             if not text:
                 return 0.0, 0.0
             
-            # Tokenize with optimized parameters
             inputs = self.finbert_tokenizer(
-                text,
-                return_tensors="pt",
-                max_length=512,
-                truncation=True,
-                padding=False,
-                add_special_tokens=True
+                text, return_tensors="pt", max_length=512,
+                truncation=True, padding=False, add_special_tokens=True
             ).to(self.device)
             
-            # Inference with optimization
             with torch.no_grad():
                 if hasattr(torch, 'inference_mode'):
                     with torch.inference_mode():
@@ -732,9 +761,7 @@ class EnhancedNewsAnalyzer:
                 predictions = torch.nn.functional.softmax(outputs.logits, dim=-1)
             
             probs = predictions.cpu().numpy()[0]
-            
-            # FinBERT label mapping: [positive, negative, neutral]
-            pos_prob, neg_prob, neu_prob = probs
+            pos_prob, neg_prob, _ = probs  # Replace unused neu_prob with _
             
             sentiment = float(pos_prob - neg_prob)
             confidence = float(max(probs))
@@ -746,7 +773,7 @@ class EnhancedNewsAnalyzer:
             return 0.0, 0.0
     
     def _calculate_keyword_score(self, text: str) -> Tuple[float, float]:
-        """Optimized keyword-based sentiment analysis with set operations and phrase handling."""
+        """Optimized keyword-based sentiment analysis with constants"""
         text_lower = text.lower()
         text_words = set(text_lower.split())
         
@@ -755,10 +782,10 @@ class EnhancedNewsAnalyzer:
         negative_matches = len(text_words & self.negative_keywords)
         biotech_matches = len(text_words & self.biotech_keywords)
         
-        # Enhanced phrase-based keyword matching
+        # Enhanced phrase-based keyword matching using constants
         positive_phrases = [
             'revenue increase', 'profit increase', 'breakthrough therapy', 'good buy',
-            'buying opportunity', 'attractive price', 'worth buying', 'time to buy',
+            'buying opportunity', 'attractive price', WORTH_BUYING, TIME_TO_BUY,
             'attractive valuation', 'compelling value', 'good value', 'reasonable price',
             'target price raised', 'price target increase', 'buy rating'
         ]
@@ -774,9 +801,9 @@ class EnhancedNewsAnalyzer:
         positive_matches += sum(1 for phrase in positive_phrases if phrase in clean_text)
         negative_matches += sum(1 for phrase in negative_phrases if phrase in clean_text)
         
-        # Special handling for valuation questions
+        # Special handling for valuation questions using constants
         valuation_questions = [
-            'is it a good buy', 'should you buy', 'worth buying', 'time to buy',
+            'is it a good buy', 'should you buy', WORTH_BUYING, TIME_TO_BUY,
             'good investment', 'buy the dip', 'cheap stock'
         ]
         
@@ -802,15 +829,10 @@ class EnhancedNewsAnalyzer:
                                     source: str = "") -> Tuple[float, float]:
         """Enhanced sentiment analysis with quality scoring"""
         
-        # Get enhanced sentiment score using the new quality scorer
         enhanced_score = self.quality_scorer.calculate_enhanced_sentiment(
-            title=title,
-            content=content,
-            symbol=symbol,
-            current_price=current_price,
-            topic=topic,
-            source=source,
-            recent_analyses=self.recent_analyses_cache
+            title=title, content=content, symbol=symbol,
+            current_price=current_price, topic=topic,
+            source=source, recent_analyses=self.recent_analyses_cache
         )
         
         # Store for future multi-source confirmation
@@ -829,20 +851,17 @@ class EnhancedNewsAnalyzer:
             if a['timestamp'] > cutoff_time
         ]
         
-        # Log enhanced analysis details for high-quality signals
+        # Log high-quality signals
         if enhanced_score.quality_confidence > 0.7:
             log_info(f"HIGH QUALITY signal for {symbol}: "
                     f"final_sentiment={enhanced_score.final_sentiment:.3f}, "
-                    f"quality={enhanced_score.quality_confidence:.3f}, "
-                    f"credibility={enhanced_score.credibility_score:.2f}, "
-                    f"confirmation={enhanced_score.confirmation_score:.2f}, "
-                    f"magnitude={enhanced_score.magnitude_score:.2f}")
+                    f"quality={enhanced_score.quality_confidence:.3f}")
         
         return enhanced_score.final_sentiment, enhanced_score.quality_confidence
     
     @lru_cache(maxsize=1000)
     def _detect_topic(self, text: str) -> str:
-        """Optimized topic detection with cached regex patterns."""
+        """Optimized topic detection with cached regex patterns"""
         text_lower = text.lower()
         
         for topic, pattern in self._topic_patterns.items():
@@ -854,9 +873,31 @@ class EnhancedNewsAnalyzer:
     def _enhanced_ensemble_score(self, finbert_sentiment: float, finbert_conf: float,
                                 enhanced_sentiment: float, enhanced_conf: float,
                                 gemini_sentiment: float, gemini_conf: float) -> Tuple[float, float]:
-        """Enhanced ensemble scoring with quality weighting"""
+        """Enhanced ensemble scoring with quality weighting - reduced complexity"""
         
-        components = []
+        # Calculate weighted sentiment
+        weighted_sentiment, total_weight = self._calculate_weighted_sentiment(
+            finbert_sentiment, finbert_conf, enhanced_sentiment, enhanced_conf,
+            gemini_sentiment, gemini_conf
+        )
+        
+        if total_weight == 0:
+            return 0.0, 0.0
+        
+        ensemble_sentiment = weighted_sentiment / total_weight
+        
+        # Calculate confidence
+        final_confidence = self._calculate_ensemble_confidence(
+            finbert_conf, enhanced_conf, gemini_conf,
+            finbert_sentiment, enhanced_sentiment, gemini_sentiment
+        )
+        
+        return ensemble_sentiment, final_confidence
+    
+    def _calculate_weighted_sentiment(self, finbert_sentiment: float, finbert_conf: float,
+                                    enhanced_sentiment: float, enhanced_conf: float,
+                                    gemini_sentiment: float, gemini_conf: float) -> Tuple[float, float]:
+        """Calculate weighted sentiment - extracted for clarity"""
         weighted_sentiment = 0.0
         total_weight = 0.0
         
@@ -865,79 +906,72 @@ class EnhancedNewsAnalyzer:
             weight = CONFIG.finbert_weight * finbert_conf
             weighted_sentiment += finbert_sentiment * weight
             total_weight += weight
-            components.append(finbert_conf)
         
-        # Enhanced sentiment component (replaces basic keyword)
+        # Enhanced sentiment component
         if enhanced_conf > 0.0:
-            weight = CONFIG.keyword_weight * enhanced_conf * 1.2  # Boost for enhanced quality
+            weight = CONFIG.keyword_weight * enhanced_conf * 1.2
             weighted_sentiment += enhanced_sentiment * weight
             total_weight += weight
-            components.append(enhanced_conf)
         
         # Gemini component
         if gemini_conf > 0.0:
             weight = CONFIG.gemini_weight * gemini_conf
             weighted_sentiment += gemini_sentiment * weight
             total_weight += weight
-            components.append(gemini_conf)
         
-        if total_weight == 0:
-            return 0.0, 0.0
-        
-        ensemble_sentiment = weighted_sentiment / total_weight
+        return weighted_sentiment, total_weight
+    
+    def _calculate_ensemble_confidence(self, finbert_conf: float, enhanced_conf: float,
+                                     gemini_conf: float, finbert_sentiment: float,
+                                     enhanced_sentiment: float, gemini_sentiment: float) -> float:
+        """Calculate ensemble confidence - extracted for clarity"""
+        components = [conf for conf in [finbert_conf, enhanced_conf, gemini_conf] if conf > 0]
         
         if not components:
-            return ensemble_sentiment, 0.0
+            return 0.0
         
-        # Enhanced confidence calculation
         base_confidence = sum(components) / len(components)
+        quality_bonus = 1.0 + (enhanced_conf * 0.3)
         
-        # Quality bonus for enhanced sentiment
-        quality_bonus = 1.0 + (enhanced_conf * 0.3)  # Up to 30% bonus for high quality
+        # Agreement bonus
+        sentiments = [s for s, c in [(finbert_sentiment, finbert_conf), 
+                                   (enhanced_sentiment, enhanced_conf),
+                                   (gemini_sentiment, gemini_conf)] if c > 0]
         
-        # Agreement bonus calculation
-        sentiments = []
-        if finbert_conf > 0:
-            sentiments.append(finbert_sentiment)
-        if enhanced_conf > 0:
-            sentiments.append(enhanced_sentiment)
-        if gemini_conf > 0:
-            sentiments.append(gemini_sentiment)
-        
-        agreement_bonus = 1.0
-        if len(sentiments) >= 2:
-            sentiment_std = pd.Series(sentiments).std()
-            if sentiment_std < 0.3:
-                agreement_bonus = 1.3
-            elif sentiment_std > 0.7:
-                agreement_bonus = 0.8
-        
-        # Gemini quality bonus
+        agreement_bonus = self._calculate_agreement_bonus(sentiments)
         gemini_bonus = 1.2 if gemini_conf > 0.7 else 1.0
         
         final_confidence = min(base_confidence * quality_bonus * agreement_bonus * gemini_bonus, 1.0)
         
-        return ensemble_sentiment, final_confidence
+        return final_confidence
+    
+    def _calculate_agreement_bonus(self, sentiments: List[float]) -> float:
+        """Calculate agreement bonus - extracted for clarity"""
+        if len(sentiments) < 2:
+            return 1.0
+        
+        sentiment_std = pd.Series(sentiments).std()
+        if sentiment_std < 0.3:
+            return 1.3
+        elif sentiment_std > 0.7:
+            return 0.8
+        else:
+            return 1.0
     
     def _combine_news_technical_confidence(self, news_confidence: float, 
                                          technical_analysis: Optional[TechnicalAnalysis],
                                          sentiment_score: float,
                                          strategy_signals: Optional[List[StrategySignal]] = None) -> float:
-        """Combine news, technical, and strategy confidence with alignment checking."""
+        """Combine news, technical, and strategy confidence"""
         if technical_analysis is None:
-            return news_confidence * 0.7  # Penalty for missing technical data
+            return news_confidence * 0.7
         
         tech_confidence = technical_analysis.technical_confidence
-        
-        # Calculate alignment and bonuses
         momentum_alignment = self._calculate_momentum_alignment(sentiment_score, technical_analysis.momentum_score)
         volume_bonus = 1.1 if technical_analysis.volume_score > 0.7 else 1.0
         liquidity_factor = max(technical_analysis.liquidity_score, 0.3)
-        
-        # Strategy confirmation bonus
         strategy_bonus = self._calculate_strategy_bonus(strategy_signals, sentiment_score)
         
-        # Combined calculation
         combined = (
             news_confidence * 0.5 +
             tech_confidence * 0.3 +
@@ -947,16 +981,14 @@ class EnhancedNewsAnalyzer:
         return min(combined, 1.0)
     
     def _calculate_momentum_alignment(self, sentiment_score: float, momentum_score: float) -> float:
-        """Calculate momentum alignment bonus."""
+        """Calculate momentum alignment bonus"""
         if abs(sentiment_score) > 0.3 and abs(momentum_score) > 0.2:
-            if (sentiment_score > 0) == (momentum_score > 0):
-                return 1.25  # Aligned signals
-            else:
-                return 0.7   # Contradictory signals
+            return 1.25 if (sentiment_score > 0) == (momentum_score > 0) else 0.7
         return 1.0
     
-    def _calculate_strategy_bonus(self, strategy_signals: Optional[List[StrategySignal]], sentiment_score: float) -> float:
-        """Calculate strategy alignment bonus."""
+    def _calculate_strategy_bonus(self, strategy_signals: Optional[List[StrategySignal]], 
+                                sentiment_score: float) -> float:
+        """Calculate strategy alignment bonus"""
         if not strategy_signals:
             return 1.0
         
@@ -967,28 +999,22 @@ class EnhancedNewsAnalyzer:
         
         if strategy_direction == sentiment_direction:
             strategy_multiplier = 1.0 + (best_signal.confidence * 0.3)
-            
             if best_signal.strength.value >= 4:
                 strategy_multiplier *= 1.1
-            
             return strategy_multiplier
         else:
             return 0.8
     
     def analyze_news_with_technical(self, news_df: pd.DataFrame, 
                                   current_prices: pd.DataFrame) -> List[EnhancedNewsAnalysis]:
-        """Optimized news analysis with batch processing and technical validation."""
+        """Optimized news analysis with batch processing - reduced complexity"""
         if news_df is None or news_df.empty:
             return []
         
         log_info(f"Analyzing {len(news_df)} news articles with Enhanced Sentiment + Technical Analysis")
         
         # Pre-process current prices for efficient lookup
-        price_lookup = (
-            current_prices.set_index('symbol').to_dict('index') 
-            if current_prices is not None and not current_prices.empty 
-            else {}
-        )
+        price_lookup = self._create_price_lookup(current_prices)
         
         # Process news articles
         results = []
@@ -1008,82 +1034,128 @@ class EnhancedNewsAnalyzer:
         
         return results
     
+    def _create_price_lookup(self, current_prices: pd.DataFrame) -> Dict:
+        """Create price lookup dictionary"""
+        return (
+            current_prices.set_index('symbol').to_dict('index') 
+            if current_prices is not None and not current_prices.empty 
+            else {}
+        )
+    
     def _process_single_article(self, row: pd.Series, price_lookup: Dict) -> Optional[EnhancedNewsAnalysis]:
-        """Process a single news article with comprehensive validation including Enhanced Sentiment, Gemini and strategies."""
+        """Process a single news article - reduced complexity"""
         # Extract and validate essential fields
-        symbol = str(row.get('symbol', '')).strip()
-        title = str(row.get('title', '')).strip()
-        content = str(row.get('content', '')).strip()
+        symbol, title, content = self._extract_article_fields(row)
         
         if not all([symbol, title, content]):
             return None
         
-        # Get price data for technical analysis
+        # Get price data and topic
         price_data = price_lookup.get(symbol)
         current_price = float(price_data.get('lastSalePrice', 0)) if price_data else 0.0
-        
-        # Topic detection
         topic = self._detect_topic(f"{title} {content}")
-        
-        # Get source information (try to extract from row data)
         source = str(row.get('source', '')).strip()
         
-        # Multi-source sentiment analysis
-        full_text = f"{title} {content}"
+        # Perform sentiment analysis
+        sentiment_results = self._perform_sentiment_analysis(title, content, symbol, current_price, topic, source)
         
-        # 1. FinBERT analysis
-        finbert_sentiment, finbert_conf = self._get_finbert_sentiment(full_text)
+        # Technical analysis
+        technical_analysis = self._perform_technical_analysis(symbol, price_data)
         
-        # 2. Enhanced sentiment analysis (replaces basic keyword analysis)
-        enhanced_sentiment, quality_confidence = self._calculate_enhanced_sentiment(
-            title=title,
-            content=content,
-            symbol=symbol,
-            current_price=current_price,
-            topic=topic,
-            source=source
+        # Strategy analysis
+        strategy_signals, best_strategy = self._perform_strategy_analysis(
+            symbol, current_price, technical_analysis, sentiment_results['final_sentiment']
         )
         
-        # 3. Gemini analysis (if enabled)
-        gemini_sentiment, gemini_conf, gemini_reasoning = 0.0, 0.0, ""
-        if self.gemini_analyzer.enabled and current_price > 0:
-            try:
-                gemini_analysis = self.gemini_analyzer.analyze_news(
-                    symbol=symbol,
-                    title=title,
-                    content=content,
-                    current_price=current_price,
-                    topic=topic
-                )
-                if gemini_analysis:
-                    gemini_sentiment = gemini_analysis.sentiment_score
-                    gemini_conf = gemini_analysis.confidence
-                    gemini_reasoning = gemini_analysis.reasoning
-            except Exception as e:
-                log_warning(f"Gemini analysis failed for {symbol}: {e}")
+        # Combined confidence calculation
+        combined_confidence = self._combine_news_technical_confidence(
+            sentiment_results['news_confidence'], technical_analysis, 
+            sentiment_results['final_sentiment'], strategy_signals
+        )
+        
+        return self._create_enhanced_analysis(
+            symbol, title, content, topic, sentiment_results,
+            technical_analysis, strategy_signals, best_strategy, combined_confidence
+        )
+    
+    def _extract_article_fields(self, row: pd.Series) -> Tuple[str, str, str]:
+        """Extract article fields"""
+        symbol = str(row.get('symbol', '')).strip()
+        title = str(row.get('title', '')).strip()
+        content = str(row.get('content', '')).strip()
+        return symbol, title, content
+    
+    def _perform_sentiment_analysis(self, title: str, content: str, symbol: str,
+                                  current_price: float, topic: str, source: str) -> Dict[str, Any]:
+        """Perform multi-source sentiment analysis"""
+        full_text = f"{title} {content}"
+        
+        # FinBERT analysis
+        finbert_sentiment, finbert_conf = self._get_finbert_sentiment(full_text)
+        
+        # Enhanced sentiment analysis
+        enhanced_sentiment, quality_confidence = self._calculate_enhanced_sentiment(
+            title, content, symbol, current_price, topic, source
+        )
+        
+        # Gemini analysis
+        gemini_sentiment, gemini_conf, gemini_reasoning = self._perform_gemini_analysis(
+            symbol, title, content, current_price, topic
+        )
         
         # Enhanced ensemble scoring
         final_sentiment, news_confidence = self._enhanced_ensemble_score(
             finbert_sentiment, finbert_conf,
-            enhanced_sentiment, quality_confidence,  # Use enhanced instead of basic keyword
+            enhanced_sentiment, quality_confidence,
             gemini_sentiment, gemini_conf
         )
         
-        # Technical analysis
-        technical_analysis = None
-        if price_data is not None:
-            technical_analysis = self.technical_analyzer.analyze_symbol(symbol, pd.Series(price_data))
+        return {
+            'final_sentiment': final_sentiment,
+            'news_confidence': news_confidence,
+            'finbert_sentiment': finbert_sentiment,
+            'enhanced_sentiment': enhanced_sentiment,
+            'gemini_sentiment': gemini_sentiment,
+            'gemini_conf': gemini_conf,
+            'gemini_reasoning': gemini_reasoning
+        }
+    
+    def _perform_gemini_analysis(self, symbol: str, title: str, content: str,
+                               current_price: float, topic: str) -> Tuple[float, float, str]:
+        """Perform Gemini analysis"""
+        if self.gemini_analyzer.enabled and current_price > 0:
+            try:
+                gemini_analysis = self.gemini_analyzer.analyze_news(
+                    symbol=symbol, title=title, content=content,
+                    current_price=current_price, topic=topic
+                )
+                if gemini_analysis:
+                    return (gemini_analysis.sentiment_score,
+                           gemini_analysis.confidence,
+                           gemini_analysis.reasoning)
+            except Exception as e:
+                log_warning(f"Gemini analysis failed for {symbol}: {e}")
         
-        # Technical strategy analysis
+        return 0.0, 0.0, ""
+    
+    def _perform_technical_analysis(self, symbol: str, price_data) -> Optional[TechnicalAnalysis]:
+        """Perform technical analysis"""
+        if price_data is not None:
+            return self.technical_analyzer.analyze_symbol(symbol, pd.Series(price_data))
+        return None
+    
+    def _perform_strategy_analysis(self, symbol: str, current_price: float,
+                                 technical_analysis: Optional[TechnicalAnalysis],
+                                 sentiment_score: float) -> Tuple[List[StrategySignal], Optional[StrategySignal]]:
+        """Perform strategy analysis"""
         strategy_signals = []
         best_strategy = None
+        
         if technical_analysis and current_price > 0:
             try:
                 strategy_signals = self.technical_strategies.analyze_with_strategies(
-                    symbol=symbol,
-                    current_price=current_price,
-                    technical_analysis=technical_analysis,
-                    news_sentiment=final_sentiment
+                    symbol=symbol, current_price=current_price,
+                    technical_analysis=technical_analysis, news_sentiment=sentiment_score
                 )
                 
                 if strategy_signals:
@@ -1092,24 +1164,28 @@ class EnhancedNewsAnalyzer:
             except Exception as e:
                 log_warning(f"Strategy analysis failed for {symbol}: {e}")
         
-        # Enhanced combined confidence calculation
-        combined_confidence = self._combine_news_technical_confidence(
-            news_confidence, technical_analysis, final_sentiment, strategy_signals
-        )
-        
+        return strategy_signals, best_strategy
+    
+    def _create_enhanced_analysis(self, symbol: str, title: str, content: str, topic: str,
+                                sentiment_results: Dict[str, Any],
+                                technical_analysis: Optional[TechnicalAnalysis],
+                                strategy_signals: List[StrategySignal],
+                                best_strategy: Optional[StrategySignal],
+                                combined_confidence: float) -> EnhancedNewsAnalysis:
+        """Create enhanced analysis object"""
         return EnhancedNewsAnalysis(
             symbol=symbol,
             title=title,
             content=content,
-            sentiment_score=final_sentiment,
-            confidence=news_confidence,
+            sentiment_score=sentiment_results['final_sentiment'],
+            confidence=sentiment_results['news_confidence'],
             topic=topic,
             timestamp=pd.Timestamp.now(tz=timezone.utc),
-            finbert_score=finbert_sentiment,
-            keyword_score=enhanced_sentiment,  # Store enhanced sentiment as keyword_score
-            gemini_score=gemini_sentiment,
-            gemini_confidence=gemini_conf,
-            gemini_reasoning=gemini_reasoning,
+            finbert_score=sentiment_results['finbert_sentiment'],
+            keyword_score=sentiment_results['enhanced_sentiment'],
+            gemini_score=sentiment_results['gemini_sentiment'],
+            gemini_confidence=sentiment_results['gemini_conf'],
+            gemini_reasoning=sentiment_results['gemini_reasoning'],
             technical_analysis=technical_analysis,
             strategy_signals=strategy_signals or [],
             best_strategy=best_strategy,
@@ -1117,27 +1193,17 @@ class EnhancedNewsAnalyzer:
         )
     
     def _log_high_confidence_result(self, analysis: EnhancedNewsAnalysis) -> None:
-        """Log high confidence analysis results with all component details including strategies."""
-        tech_info = ""
-        if analysis.technical_analysis:
-            tech = analysis.technical_analysis
-            tech_info = (
-                f"tech_conf={tech.technical_confidence:.2f} "
-                f"momentum={tech.momentum_score:.2f} "
-                f"liquidity={tech.liquidity_score:.2f}"
-            )
+        """Log high confidence analysis results - reduced complexity"""
+        # Technical info
+        tech_info = self._format_technical_info(analysis.technical_analysis)
         
+        # Gemini info
         gemini_info = ""
         if analysis.gemini_confidence > 0:
             gemini_info = f"gemini={analysis.gemini_score:.2f}({analysis.gemini_confidence:.2f}) "
         
-        strategy_info = ""
-        if analysis.best_strategy:
-            strategy = analysis.best_strategy
-            strategy_info = (
-                f"strategy={strategy.strategy_name}[{strategy.signal_type.upper()}] "
-                f"strength={strategy.strength.name} conf={strategy.confidence:.2f} "
-            )
+        # Strategy info
+        strategy_info = self._format_strategy_info(analysis.best_strategy)
         
         log_info(
             f"HIGH CONFIDENCE: {analysis.symbol} "
@@ -1156,12 +1222,29 @@ class EnhancedNewsAnalyzer:
         if analysis.best_strategy:
             strategy_summary = self.technical_strategies.format_strategy_summary(analysis.best_strategy)
             log_info(f"  Strategy: {strategy_summary}")
-            if analysis.best_strategy.reasoning:
-                log_info(f"  Strategy Reasoning: {analysis.best_strategy.reasoning[:150]}...")
+    
+    def _format_technical_info(self, technical_analysis: Optional[TechnicalAnalysis]) -> str:
+        """Format technical information"""
+        if technical_analysis:
+            return (
+                f"tech_conf={technical_analysis.technical_confidence:.2f} "
+                f"momentum={technical_analysis.momentum_score:.2f} "
+                f"liquidity={technical_analysis.liquidity_score:.2f}"
+            )
+        return ""
+    
+    def _format_strategy_info(self, best_strategy: Optional[StrategySignal]) -> str:
+        """Format strategy information"""
+        if best_strategy:
+            return (
+                f"strategy={best_strategy.strategy_name}[{best_strategy.signal_type.upper()}] "
+                f"strength={best_strategy.strength.name} conf={best_strategy.confidence:.2f} "
+            )
+        return ""
     
     def filter_high_confidence(self, analyses: List[EnhancedNewsAnalysis], 
                              use_combined_confidence: bool = True) -> List[EnhancedNewsAnalysis]:
-        """Filter for high confidence analyses with detailed debugging."""
+        """Filter for high confidence analyses"""
         if not analyses:
             return []
         
@@ -1174,8 +1257,7 @@ class EnhancedNewsAnalyzer:
         ]
         
         if high_conf:
-            log_info(f"Filtered to {len(high_conf)} high-confidence signals using {confidence_attr} "
-                    f"(threshold: {threshold})")
+            log_info(f"Filtered to {len(high_conf)} high-confidence signals")
         else:
             self._log_detailed_signal_analysis(analyses, confidence_attr, threshold)
         
@@ -1183,7 +1265,7 @@ class EnhancedNewsAnalyzer:
     
     def _log_detailed_signal_analysis(self, analyses: List[EnhancedNewsAnalysis], 
                                     confidence_attr: str, threshold: float) -> None:
-        """Log detailed analysis of why signals were rejected."""
+        """Log detailed analysis of rejected signals - reduced complexity"""
         log_info("=" * 80)
         log_info("DEBUG: DETAILED SIGNAL ANALYSIS")
         log_info("=" * 80)
@@ -1203,23 +1285,17 @@ class EnhancedNewsAnalyzer:
     
     def _log_single_signal_details(self, index: int, total: int, 
                                  analysis: EnhancedNewsAnalysis, threshold: float) -> None:
-        """Log details for a single signal."""
+        """Log details for a single signal"""
         log_info(f"\nSIGNAL {index}/{total}: {analysis.symbol}")
         log_info(f"   Title: {analysis.title[:80]}...")
         log_info(f"   Topic: {analysis.topic}")
         log_info(f"   Sentiment Score: {analysis.sentiment_score:.3f}")
-        log_info(f"   FinBERT: {analysis.finbert_score:.3f}")
-        log_info(f"   Enhanced Sentiment: {analysis.keyword_score:.3f}")
         log_info(f"   News Confidence: {analysis.confidence:.3f}")
         
         if analysis.technical_analysis:
             tech = analysis.technical_analysis
             log_info(f"   Technical Confidence: {tech.technical_confidence:.3f}")
             log_info(f"   Liquidity Score: {tech.liquidity_score:.3f}")
-            log_info(f"   Momentum Score: {tech.momentum_score:.3f}")
-            log_info(f"   Volume Score: {tech.volume_score:.3f}")
-            log_info(f"   RSI: {tech.rsi:.1f}")
-            log_info(f"   Price Trend: {tech.price_trend}")
         else:
             log_info("   Technical Analysis: MISSING")
         
@@ -1230,7 +1306,7 @@ class EnhancedNewsAnalyzer:
             log_info(f"   REJECTION REASONS: {', '.join(reasons) if reasons else 'Below threshold'}")
     
     def _get_rejection_reasons(self, analysis: EnhancedNewsAnalysis) -> List[str]:
-        """Get reasons why a signal was rejected."""
+        """Get reasons why a signal was rejected"""
         reasons = []
         
         if analysis.confidence < 0.5:
@@ -1245,12 +1321,11 @@ class EnhancedNewsAnalyzer:
         return reasons
     
     def _log_improvement_suggestions(self, threshold: float) -> None:
-        """Log suggestions for getting more trades."""
+        """Log suggestions for getting more trades"""
         log_info("=" * 80)
         log_info("SUGGESTIONS TO GET TRADES:")
         log_info(f"1. Lower confidence threshold from {threshold} to 0.5 in config.py")
         log_info("2. Wait for stronger news sentiment (earnings, FDA approvals)")
         log_info("3. Check if market is in favorable regime")
         log_info("4. Ensure sufficient volume and liquidity")
-        log_info("5. Enhanced sentiment may be stricter - check quality scores")
         log_info("=" * 80)
