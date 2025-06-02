@@ -1,8 +1,8 @@
 """
-Enhanced news analyzer using modular sentiment components
+Enhanced news analyzer using modular sentiment components with performance optimizations
 """
 import pandas as pd
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, Optional, Tuple, List, Any
 from dataclasses import dataclass
 import re
 import torch
@@ -39,17 +39,20 @@ class EnhancedNewsAnalysis:
 
 
 class EnhancedNewsAnalyzer:
-    """Enhanced news analyzer with modular components"""
+    """Enhanced news analyzer with modular components and performance optimizations"""
     
     def __init__(self, fmp_loader) -> None:
-        """Initialize with modular components"""
+        """Initialize with modular components and optimized caching."""
         self.fmp_loader = fmp_loader
         self.technical_analyzer = TechnicalAnalyzer(fmp_loader)
         self.technical_strategies = TechnicalStrategies(fmp_loader)
         self.gemini_analyzer = OptimizedGeminiNewsAnalyzer()
         self.sentiment_scorer = EnhancedSentimentScorer()
+        
+        # Enhanced caching
         self.recent_analyses_cache = []
-        self.max_cache_size = 50
+        self.max_cache_size = 100  # Increased cache size
+        self.batch_size = 10  # Process in batches for better performance
         
         # Device and FinBERT setup
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -57,30 +60,48 @@ class EnhancedNewsAnalyzer:
         self.finbert_tokenizer = None
         self.finbert_labels = ["positive", "negative", "neutral"]
         
+        # Performance tracking
+        self.analysis_count = 0
+        self.cache_hits = 0
+        
         self._load_finbert()
         self._initialize_topic_patterns()
     
     def _load_finbert(self) -> None:
-        """Load FinBERT model with optimizations"""
+        """Load FinBERT model with optimizations for performance."""
         try:
             log_info("Loading FinBERT model...")
+            model_name = "ProsusAI/finbert"
+            cache_dir = "./cache"
+            
+            # Load tokenizer with optimizations
             self.finbert_tokenizer = AutoTokenizer.from_pretrained(
-                "ProsusAI/finbert", cache_dir="./cache"
+                model_name, 
+                cache_dir=cache_dir,
+                use_fast=True  # Use fast tokenizer for better performance
             )
+            
+            # Load model with optimizations
             self.finbert_model = AutoModelForSequenceClassification.from_pretrained(
-                "ProsusAI/finbert", cache_dir="./cache"
+                model_name, 
+                cache_dir=cache_dir,
+                torch_dtype=torch.float16 if self.device == "cuda" else torch.float32
             )
+            
             self.finbert_model.to(self.device)
             self.finbert_model.eval()
             
             # Optimize for inference
-            if hasattr(torch, 'jit') and self.device == "cuda":
-                self.finbert_model = torch.jit.optimize_for_inference(self.finbert_model)
-            
             if self.device == "cuda":
-                self.finbert_model = self.finbert_model.half()
+                try:
+                    # Enable CUDA optimizations
+                    torch.backends.cudnn.benchmark = True
+                    if hasattr(torch, 'compile') and torch.__version__ >= "2.0":
+                        self.finbert_model = torch.compile(self.finbert_model, mode="reduce-overhead")
+                except Exception as e:
+                    log_warning(f"Could not apply CUDA optimizations: {e}")
             
-            log_info(f"FinBERT loaded successfully on {self.device}")
+            log_info(f"FinBERT loaded successfully on {self.device} with optimizations")
             
         except Exception as e:
             log_error(f"Failed to load FinBERT: {e}")
@@ -88,32 +109,56 @@ class EnhancedNewsAnalyzer:
             self.finbert_tokenizer = None
     
     def _initialize_topic_patterns(self) -> None:
-        """Initialize topic detection patterns"""
+        """Initialize topic detection patterns with optimized regex compilation."""
         self._topic_patterns = {
-            'earnings': re.compile(r'\b(earnings|revenue|profit|eps|quarterly|guidance|beat|miss)\b', re.IGNORECASE),
-            'biotech': re.compile(r'\b(fda|approval|phase|trial|clinical|drug|therapy|efficacy)\b', re.IGNORECASE),
-            'ma': re.compile(r'\b(merger|acquisition|deal|buyout|takeover|acquire|merge)\b', re.IGNORECASE),
-            'analyst': re.compile(r'\b(upgrade|downgrade|target|analyst|rating|price target)\b', re.IGNORECASE),
-            'corporate_action': re.compile(r'\b(dividend|buyback|split|spinoff|distribution)\b', re.IGNORECASE),
-            'business_development': re.compile(r'\b(contract|partnership|agreement|collaboration|alliance)\b', re.IGNORECASE)
+            'earnings': re.compile(
+                r'\b(earnings|revenue|profit|eps|quarterly|guidance|beat|miss|results)\b', 
+                re.IGNORECASE
+            ),
+            'biotech': re.compile(
+                r'\b(fda|approval|phase|trial|clinical|drug|therapy|efficacy|breakthrough|orphan)\b', 
+                re.IGNORECASE
+            ),
+            'ma': re.compile(
+                r'\b(merger|acquisition|deal|buyout|takeover|acquire|merge|purchase)\b', 
+                re.IGNORECASE
+            ),
+            'analyst': re.compile(
+                r'\b(upgrade|downgrade|target|analyst|rating|price target|initiat)\b', 
+                re.IGNORECASE
+            ),
+            'corporate_action': re.compile(
+                r'\b(dividend|buyback|split|spinoff|distribution|repurchase)\b', 
+                re.IGNORECASE
+            ),
+            'business_development': re.compile(
+                r'\b(contract|partnership|agreement|collaboration|alliance|licensing)\b', 
+                re.IGNORECASE
+            )
         }
     
-    def _get_finbert_sentiment(self, text: str) -> Tuple[float, float]:
-        """Get FinBERT sentiment analysis"""
-        if not self.finbert_model or not self.finbert_tokenizer:
-            return 0.0, 0.0
+    def _get_finbert_sentiment_batch(self, texts: List[str]) -> List[Tuple[float, float]]:
+        """Get FinBERT sentiment analysis for batch of texts (performance optimization)."""
+        if not self.finbert_model or not self.finbert_tokenizer or not texts:
+            return [(0.0, 0.0)] * len(texts)
         
         try:
-            text = text.strip()[:384]
+            # Clean and truncate texts
+            cleaned_texts = [text.strip()[:384] for text in texts if text.strip()]
+            if not cleaned_texts:
+                return [(0.0, 0.0)] * len(texts)
             
-            if not text:
-                return 0.0, 0.0
-            
+            # Batch tokenization
             inputs = self.finbert_tokenizer(
-                text, return_tensors="pt", max_length=384,
-                truncation=True, padding=False, add_special_tokens=True
+                cleaned_texts,
+                return_tensors="pt",
+                max_length=384,
+                truncation=True,
+                padding=True,
+                add_special_tokens=True
             ).to(self.device)
             
+            results = []
             with torch.no_grad():
                 if hasattr(torch, 'inference_mode'):
                     with torch.inference_mode():
@@ -122,84 +167,102 @@ class EnhancedNewsAnalyzer:
                     outputs = self.finbert_model(**inputs)
                 
                 predictions = torch.nn.functional.softmax(outputs.logits, dim=-1)
+                predictions_np = predictions.cpu().float().numpy()
+                
+                for probs in predictions_np:
+                    pos_prob, neg_prob, _ = probs
+                    sentiment = float(pos_prob - neg_prob)
+                    confidence = float(max(probs))
+                    results.append((sentiment, confidence))
             
-            probs = predictions.cpu().float().numpy()[0]
-            pos_prob, neg_prob, _ = probs
+            # Pad results if needed
+            while len(results) < len(texts):
+                results.append((0.0, 0.0))
             
-            sentiment = float(pos_prob - neg_prob)
-            confidence = float(max(probs))
-            
-            return sentiment, confidence
+            return results
             
         except Exception as e:
-            log_error(f"FinBERT analysis error: {e}")
-            return 0.0, 0.0
+            log_error(f"FinBERT batch analysis error: {e}")
+            return [(0.0, 0.0)] * len(texts)
     
-    @lru_cache(maxsize=500)
+    def _get_finbert_sentiment(self, text: str) -> Tuple[float, float]:
+        """Get FinBERT sentiment analysis for single text (fallback method)."""
+        if not self.finbert_model or not self.finbert_tokenizer:
+            return 0.0, 0.0
+        
+        results = self._get_finbert_sentiment_batch([text])
+        return results[0] if results else (0.0, 0.0)
+    
+    @lru_cache(maxsize=1000)
     def _detect_topic(self, text: str) -> str:
-        """Detect article topic using cached patterns"""
+        """Detect article topic using cached patterns with performance optimization."""
         text_lower = text.lower()
         
+        # Score each topic based on number of matches
+        topic_scores = {}
         for topic, pattern in self._topic_patterns.items():
-            if pattern.search(text_lower):
-                return topic
+            matches = len(pattern.findall(text_lower))
+            if matches > 0:
+                topic_scores[topic] = matches
+        
+        # Return topic with highest score, or 'general' if no matches
+        if topic_scores:
+            return max(topic_scores.items(), key=lambda x: x[1])[0]
         
         return 'general'
     
     def _enhanced_ensemble_score(self, finbert_sentiment: float, finbert_conf: float,
                                 enhanced_sentiment: float, enhanced_conf: float,
                                 gemini_sentiment: float, gemini_conf: float) -> Tuple[float, float]:
-        """Calculate ensemble score from multiple sentiment sources"""
+        """Calculate ensemble score from multiple sentiment sources with optimized weights."""
         
-        # Pre-computed weights
+        # Pre-computed weights for performance
         finbert_weight = CONFIG.finbert_weight
         enhanced_weight = CONFIG.keyword_weight * 1.15
         gemini_weight = CONFIG.gemini_weight
         
-        # Calculate weighted sentiment
-        weighted_sentiment = 0.0
-        total_weight = 0.0
+        # Fast path for single source
+        sources = [(finbert_sentiment, finbert_conf, finbert_weight),
+                  (enhanced_sentiment, enhanced_conf, enhanced_weight),
+                  (gemini_sentiment, gemini_conf, gemini_weight)]
         
-        if finbert_conf > 0.0:
-            weight = finbert_weight * finbert_conf
-            weighted_sentiment += finbert_sentiment * weight
-            total_weight += weight
+        valid_sources = [(s, c, w) for s, c, w in sources if c > 0]
         
-        if enhanced_conf > 0.0:
-            weight = enhanced_weight * enhanced_conf
-            weighted_sentiment += enhanced_sentiment * weight
-            total_weight += weight
-        
-        if gemini_conf > 0.0:
-            weight = gemini_weight * gemini_conf
-            weighted_sentiment += gemini_sentiment * weight
-            total_weight += weight
-        
-        if total_weight == 0:
+        if not valid_sources:
             return 0.0, 0.0
         
-        ensemble_sentiment = weighted_sentiment / total_weight
+        if len(valid_sources) == 1:
+            return valid_sources[0][0], valid_sources[0][1]
         
-        # Calculate confidence
-        components = [conf for conf in [finbert_conf, enhanced_conf, gemini_conf] if conf > 0]
-        if not components:
-            return ensemble_sentiment, 0.0
+        # Calculate weighted sentiment
+        weighted_sentiment = sum(s * w * c for s, c, w in valid_sources)
+        total_weight = sum(w * c for s, c, w in valid_sources)
         
-        base_confidence = sum(components) / len(components)
+        ensemble_sentiment = weighted_sentiment / total_weight if total_weight > 0 else 0.0
+        
+        # Calculate confidence with bonuses
+        base_confidence = sum(c for s, c, w in valid_sources) / len(valid_sources)
+        
+        # Quality bonus (enhanced sentiment typically has better quality metrics)
         quality_bonus = 1.0 + (enhanced_conf * 0.25)
         
-        # Agreement bonus
-        sentiments = [s for s, c in [(finbert_sentiment, finbert_conf), 
-                                   (enhanced_sentiment, enhanced_conf),
-                                   (gemini_sentiment, gemini_conf)] if c > 0]
+        # Agreement bonus (when multiple sources agree on direction)
+        sentiments = [s for s, c, w in valid_sources]
+        if len(sentiments) >= 2:
+            positive_count = sum(1 for s in sentiments if s > 0.1)
+            negative_count = sum(1 for s in sentiments if s < -0.1)
+            agreement_ratio = max(positive_count, negative_count) / len(sentiments)
+            agreement_bonus = 1.0 + (agreement_ratio * 0.25)
+        else:
+            agreement_bonus = 1.0
         
-        agreement_bonus = 1.25 if len(sentiments) >= 2 and all(
-            (s > 0) == (sentiments[0] > 0) for s in sentiments
-        ) else 1.0
-        
+        # Gemini bonus for high-confidence Gemini predictions
         gemini_bonus = 1.15 if gemini_conf > 0.65 else 1.0
         
-        final_confidence = min(base_confidence * quality_bonus * agreement_bonus * gemini_bonus, 1.0)
+        final_confidence = min(
+            base_confidence * quality_bonus * agreement_bonus * gemini_bonus, 
+            1.0
+        )
         
         return ensemble_sentiment, final_confidence
     
@@ -207,36 +270,42 @@ class EnhancedNewsAnalyzer:
                                          technical_analysis: Optional[TechnicalAnalysis],
                                          sentiment_score: float,
                                          strategy_signals: Optional[List[StrategySignal]] = None) -> float:
-        """Combine news and technical confidence scores"""
+        """Combine news and technical confidence scores with optimized calculations."""
         if technical_analysis is None:
             return news_confidence * 0.65
         
         tech_confidence = technical_analysis.technical_confidence
         
-        # Momentum alignment
-        momentum_alignment = 1.2 if (
-            abs(sentiment_score) > 0.25 and abs(technical_analysis.momentum_score) > 0.15 and
-            (sentiment_score > 0) == (technical_analysis.momentum_score > 0)
-        ) else (0.75 if abs(sentiment_score) > 0.3 and abs(technical_analysis.momentum_score) > 0.2 and
-                (sentiment_score > 0) != (technical_analysis.momentum_score > 0) else 1.0)
+        # Vectorized momentum alignment calculation
+        sentiment_direction = 1 if sentiment_score > 0 else -1
+        momentum_direction = 1 if technical_analysis.momentum_score > 0 else -1
         
+        # Momentum alignment scoring
+        if abs(sentiment_score) > 0.25 and abs(technical_analysis.momentum_score) > 0.15:
+            momentum_alignment = 1.2 if sentiment_direction == momentum_direction else 0.75
+        elif abs(sentiment_score) > 0.3 and abs(technical_analysis.momentum_score) > 0.2:
+            momentum_alignment = 0.75 if sentiment_direction != momentum_direction else 1.0
+        else:
+            momentum_alignment = 1.0
+        
+        # Volume and liquidity factors
         volume_bonus = 1.08 if technical_analysis.volume_score > 0.65 else 1.0
         liquidity_factor = max(technical_analysis.liquidity_score, 0.25)
         
-        # Strategy bonus
+        # Strategy alignment bonus
         strategy_bonus = 1.0
         if strategy_signals:
             best_signal = max(strategy_signals, key=lambda x: (x.strength.value, x.confidence))
             strategy_direction = 1 if best_signal.signal_type == "long" else -1
-            sentiment_direction = 1 if sentiment_score > 0 else -1
             
             if strategy_direction == sentiment_direction:
-                strategy_bonus = 1.0 + (best_signal.confidence * 0.25)
-                if best_signal.strength.value >= 4:
-                    strategy_bonus *= 1.05
+                base_bonus = 1.0 + (best_signal.confidence * 0.25)
+                strength_bonus = 1.05 if best_signal.strength.value >= 4 else 1.0
+                strategy_bonus = base_bonus * strength_bonus
             else:
                 strategy_bonus = 0.85
         
+        # Optimized weighted combination
         combined = (
             news_confidence * 0.48 +
             tech_confidence * 0.28 +
@@ -247,66 +316,114 @@ class EnhancedNewsAnalyzer:
     
     def analyze_news_with_technical(self, news_df: pd.DataFrame, 
                                   current_prices: pd.DataFrame) -> List[EnhancedNewsAnalysis]:
-        """Analyze news with technical analysis using modular components"""
+        """Analyze news with technical analysis using optimized batch processing."""
         if news_df is None or news_df.empty:
             return []
         
         log_info(f"Analyzing {len(news_df)} news articles with Enhanced Sentiment + Technical Analysis")
         
-        # Create price lookup
-        price_lookup = (
-            current_prices.set_index('symbol').to_dict('index') 
-            if current_prices is not None and not current_prices.empty 
-            else {}
-        )
+        # Create optimized price lookup
+        price_lookup = {}
+        if current_prices is not None and not current_prices.empty:
+            price_lookup = current_prices.set_index('symbol').to_dict('index')
         
-        results = []
-        for _, row in news_df.iterrows():
+        # Process in batches for better performance
+        results: List[EnhancedNewsAnalysis] = []
+        batch_size = min(self.batch_size, len(news_df))
+        
+        for i in range(0, len(news_df), batch_size):
+            batch_df = news_df.iloc[i:i + batch_size]
+            batch_results = self._process_article_batch(batch_df, price_lookup)
+            
+            # Filter out None results and add valid analyses
+            valid_results = [analysis for analysis in batch_results if analysis is not None]
+            results.extend(valid_results)
+            
+            # Log progress for large batches
+            if len(news_df) > 20:
+                log_debug(f"Processed batch {i//batch_size + 1}/{(len(news_df)-1)//batch_size + 1}")
+        
+        # Filter and log high confidence results
+        high_confidence_results = [
+            analysis for analysis in results 
+            if analysis.combined_confidence >= CONFIG.min_confidence_score
+        ]
+        
+        if high_confidence_results:
+            log_info(f"Generated {len(high_confidence_results)} high-confidence analyses")
+            for analysis in high_confidence_results[:3]:  # Log top 3
+                self._log_high_confidence_result(analysis)
+        
+        self.analysis_count += len(results)
+        return results
+    
+    def _process_article_batch(self, batch_df: pd.DataFrame, price_lookup: Dict) -> List[Optional[EnhancedNewsAnalysis]]:
+        """Process a batch of articles with optimized operations."""
+        # Extract data for batch processing
+        batch_data = []
+        valid_indices = []
+        
+        for idx, (_, row) in enumerate(batch_df.iterrows()):
+            symbol = str(row.get('symbol', '')).strip()
+            title = str(row.get('title', '')).strip()
+            content = str(row.get('content', '')).strip()
+            
+            if all([symbol, title, content]):
+                batch_data.append({
+                    'symbol': symbol,
+                    'title': title,
+                    'content': content,
+                    'source': str(row.get('source', '')).strip(),
+                    'full_text': f"{title} {content}"
+                })
+                valid_indices.append(idx)
+        
+        if not batch_data:
+            return [None] * len(batch_df)
+        
+        # Batch FinBERT analysis
+        full_texts = [item['full_text'] for item in batch_data]
+        finbert_results = self._get_finbert_sentiment_batch(full_texts)
+        
+        # Process individual articles with pre-computed FinBERT results
+        # Fix: Properly type the results list to handle Optional[EnhancedNewsAnalysis]
+        results: List[Optional[EnhancedNewsAnalysis]] = [None] * len(batch_df)
+        
+        for i, (batch_idx, data) in enumerate(zip(valid_indices, batch_data)):
             try:
-                analysis = self._process_single_article(row, price_lookup)
-                if analysis:
-                    results.append(analysis)
-                    
-                    if analysis.combined_confidence >= CONFIG.min_confidence_score:
-                        self._log_high_confidence_result(analysis)
-                        
+                finbert_sentiment, finbert_conf = finbert_results[i]
+                analysis = self._process_single_article_with_finbert(
+                    data, price_lookup, finbert_sentiment, finbert_conf
+                )
+                results[batch_idx] = analysis
             except Exception as e:
-                symbol = row.get('symbol', 'UNKNOWN')
-                log_error(f"Error analyzing news for {symbol}: {e}")
-                continue
+                log_error(f"Error processing article for {data['symbol']}: {e}")
+                results[batch_idx] = None
         
         return results
     
-    def _process_single_article(self, row: pd.Series, price_lookup: Dict) -> Optional[EnhancedNewsAnalysis]:
-        """Process single article with modular components"""
-        # Extract essential fields
-        symbol = str(row.get('symbol', '')).strip()
-        title = str(row.get('title', '')).strip()
-        content = str(row.get('content', '')).strip()
-        
-        if not all([symbol, title, content]):
-            return None
+    def _process_single_article_with_finbert(self, data: Dict, price_lookup: Dict,
+                                           finbert_sentiment: float, finbert_conf: float) -> Optional[EnhancedNewsAnalysis]:
+        """Process single article with pre-computed FinBERT results."""
+        symbol = data['symbol']
+        title = data['title']
+        content = data['content']
+        source = data['source']
+        full_text = data['full_text']
         
         # Get price data and topic
         price_data = price_lookup.get(symbol)
         current_price = float(price_data.get('lastSalePrice', 0)) if price_data else 0.0
-        topic = self._detect_topic(f"{title} {content}")
-        source = str(row.get('source', '')).strip()
-        
-        # Sentiment analysis
-        full_text = f"{title} {content}"
-        
-        # FinBERT analysis
-        finbert_sentiment, finbert_conf = self._get_finbert_sentiment(full_text)
+        topic = self._detect_topic(full_text)
         
         # Enhanced sentiment analysis using modular scorer
         enhanced_score = self.sentiment_scorer.calculate_enhanced_sentiment(
             title=title, content=content, symbol=symbol,
             current_price=current_price, topic=topic,
-            source=source, recent_analyses=self.recent_analyses_cache[-10:]
+            source=source, recent_analyses=self.recent_analyses_cache[-20:]
         )
         
-        # Gemini analysis
+        # Gemini analysis (with rate limiting built-in)
         gemini_sentiment, gemini_conf, gemini_reasoning = self._perform_gemini_analysis(
             symbol, title, content, current_price, topic
         )
@@ -331,7 +448,7 @@ class EnhancedNewsAnalyzer:
             news_confidence, technical_analysis, final_sentiment, strategy_signals
         )
         
-        # Update cache
+        # Update cache efficiently
         self._update_cache(symbol, final_sentiment, topic, enhanced_score.quality_confidence)
         
         return EnhancedNewsAnalysis(
@@ -355,7 +472,7 @@ class EnhancedNewsAnalyzer:
     
     def _perform_gemini_analysis(self, symbol: str, title: str, content: str,
                                current_price: float, topic: str) -> Tuple[float, float, str]:
-        """Perform Gemini analysis with rate limiting"""
+        """Perform Gemini analysis with built-in rate limiting and caching."""
         if self.gemini_analyzer.enabled and current_price > 0:
             try:
                 gemini_analysis = self.gemini_analyzer.analyze_news(
@@ -372,15 +489,18 @@ class EnhancedNewsAnalyzer:
         return 0.0, 0.0, ""
     
     def _perform_technical_analysis(self, symbol: str, price_data) -> Optional[TechnicalAnalysis]:
-        """Perform technical analysis"""
+        """Perform technical analysis with caching."""
         if price_data is not None:
-            return self.technical_analyzer.analyze_symbol(symbol, pd.Series(price_data))
+            try:
+                return self.technical_analyzer.analyze_symbol(symbol, pd.Series(price_data))
+            except Exception as e:
+                log_warning(f"Technical analysis failed for {symbol}: {e}")
         return None
     
     def _perform_strategy_analysis(self, symbol: str, current_price: float,
                                  technical_analysis: Optional[TechnicalAnalysis],
                                  sentiment_score: float) -> Tuple[List[StrategySignal], Optional[StrategySignal]]:
-        """Perform strategy analysis"""
+        """Perform strategy analysis with error handling."""
         if technical_analysis and current_price > 0:
             try:
                 strategy_signals = self.technical_strategies.analyze_with_strategies(
@@ -398,8 +518,10 @@ class EnhancedNewsAnalyzer:
         return [], None
     
     def _update_cache(self, symbol: str, sentiment_score: float, topic: str, quality_confidence: float) -> None:
-        """Update the recent analyses cache"""
+        """Update the recent analyses cache with memory management."""
         current_time = datetime.now(timezone.utc)
+        
+        # Add to cache
         self.recent_analyses_cache.append({
             'symbol': symbol,
             'sentiment_score': sentiment_score,
@@ -408,18 +530,22 @@ class EnhancedNewsAnalyzer:
             'quality_confidence': quality_confidence
         })
         
-        # Keep cache size under control
+        # Efficient cache management
         if len(self.recent_analyses_cache) > self.max_cache_size:
-            self.recent_analyses_cache = self.recent_analyses_cache[-self.max_cache_size//2:]
+            # Remove oldest 25% of entries
+            keep_count = int(self.max_cache_size * 0.75)
+            self.recent_analyses_cache = self.recent_analyses_cache[-keep_count:]
+            self.cache_hits += 1
     
     def _log_high_confidence_result(self, analysis: EnhancedNewsAnalysis) -> None:
-        """Log high confidence analysis results"""
+        """Log high confidence analysis results with optimized formatting."""
         # Technical info
         tech_info = ""
         if analysis.technical_analysis:
-            tech_info = (f"tech_conf={analysis.technical_analysis.technical_confidence:.2f} "
-                        f"momentum={analysis.technical_analysis.momentum_score:.2f} "
-                        f"liquidity={analysis.technical_analysis.liquidity_score:.2f}")
+            ta = analysis.technical_analysis
+            tech_info = (f"tech_conf={ta.technical_confidence:.2f} "
+                        f"momentum={ta.momentum_score:.2f} "
+                        f"liquidity={ta.liquidity_score:.2f}")
         
         # Gemini info
         gemini_info = ""
@@ -429,8 +555,9 @@ class EnhancedNewsAnalyzer:
         # Strategy info
         strategy_info = ""
         if analysis.best_strategy:
-            strategy_info = (f"strategy={analysis.best_strategy.strategy_name}[{analysis.best_strategy.signal_type.upper()}] "
-                           f"strength={analysis.best_strategy.strength.name} conf={analysis.best_strategy.confidence:.2f} ")
+            bs = analysis.best_strategy
+            strategy_info = (f"strategy={bs.strategy_name}[{bs.signal_type.upper()}] "
+                           f"strength={bs.strength.name} conf={bs.confidence:.2f} ")
         
         log_info(
             f"HIGH CONFIDENCE: {analysis.symbol} "
@@ -452,19 +579,22 @@ class EnhancedNewsAnalyzer:
     
     def filter_high_confidence(self, analyses: List[EnhancedNewsAnalysis], 
                              use_combined_confidence: bool = True) -> List[EnhancedNewsAnalysis]:
-        """Filter for high confidence analyses"""
+        """Filter for high confidence analyses with optimized processing."""
         if not analyses:
             return []
         
         confidence_attr = 'combined_confidence' if use_combined_confidence else 'confidence'
         threshold = CONFIG.min_confidence_score
         
+        # Vectorized filtering
         high_conf = [
             analysis for analysis in analyses
-            if getattr(analysis, confidence_attr, 0) >= threshold
+            if analysis and getattr(analysis, confidence_attr, 0) >= threshold
         ]
         
         if high_conf:
+            # Sort by confidence for better trade selection
+            high_conf.sort(key=lambda x: getattr(x, confidence_attr, 0), reverse=True)
             log_info(f"Filtered to {len(high_conf)} high-confidence signals")
         else:
             self._log_detailed_signal_analysis(analyses, confidence_attr, threshold)
@@ -473,7 +603,7 @@ class EnhancedNewsAnalyzer:
     
     def _log_detailed_signal_analysis(self, analyses: List[EnhancedNewsAnalysis], 
                                     confidence_attr: str, threshold: float) -> None:
-        """Log detailed analysis for debugging"""
+        """Log detailed analysis for debugging with optimized output."""
         log_info("=" * 60)
         log_info("DEBUG: SIGNAL ANALYSIS")
         log_info("=" * 60)
@@ -482,12 +612,20 @@ class EnhancedNewsAnalyzer:
             log_info("DEBUG: No analyses to filter")
             return
         
-        scores = [getattr(a, confidence_attr, 0) for a in analyses]
+        # Get valid analyses only
+        valid_analyses = [a for a in analyses if a is not None]
+        if not valid_analyses:
+            log_info("DEBUG: No valid analyses")
+            return
+        
+        scores = [getattr(a, confidence_attr, 0) for a in valid_analyses]
         max_score = max(scores) if scores else 0
-        log_info(f"THRESHOLD: {threshold:.3f} | HIGHEST {confidence_attr.upper()}: {max_score:.3f}")
+        avg_score = sum(scores) / len(scores) if scores else 0
+        
+        log_info(f"THRESHOLD: {threshold:.3f} | HIGHEST {confidence_attr.upper()}: {max_score:.3f} | AVG: {avg_score:.3f}")
         
         # Log top 5 analyses
-        top_analyses = sorted(analyses, key=lambda x: getattr(x, confidence_attr, 0), reverse=True)[:5]
+        top_analyses = sorted(valid_analyses, key=lambda x: getattr(x, confidence_attr, 0), reverse=True)[:5]
         
         for i, analysis in enumerate(top_analyses, 1):
             log_info(f"\nSIGNAL {i}: {analysis.symbol}")
@@ -501,17 +639,34 @@ class EnhancedNewsAnalyzer:
             else:
                 log_info("   Technical Analysis: MISSING")
             
-            log_info(f"   COMBINED CONFIDENCE: {analysis.combined_confidence:.3f}")
+            combined_conf = getattr(analysis, confidence_attr, 0)
+            log_info(f"   {confidence_attr.upper()}: {combined_conf:.3f}")
             
-            if analysis.combined_confidence < threshold:
+            # Diagnostic info
+            if combined_conf < threshold:
+                issues = []
                 if analysis.confidence < 0.45:
-                    log_info("   ISSUE: Low news confidence")
+                    issues.append("Low news confidence")
                 if analysis.technical_analysis and analysis.technical_analysis.technical_confidence < 0.25:
-                    log_info("   ISSUE: Low technical confidence")
+                    issues.append("Low technical confidence")
                 if abs(analysis.sentiment_score) < 0.18:
-                    log_info("   ISSUE: Weak sentiment")
+                    issues.append("Weak sentiment")
+                
+                if issues:
+                    log_info(f"   ISSUES: {', '.join(issues)}")
         
         log_info("=" * 60)
+    
+    def get_performance_stats(self) -> Dict[str, Any]:
+        """Get analyzer performance statistics."""
+        return {
+            'total_analyses': self.analysis_count,
+            'cache_size': len(self.recent_analyses_cache),
+            'cache_hits': self.cache_hits,
+            'finbert_enabled': self.finbert_model is not None,
+            'gemini_enabled': self.gemini_analyzer.enabled,
+            'device': self.device
+        }
 
 
 # Create alias for backwards compatibility

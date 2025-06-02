@@ -1,5 +1,5 @@
 """
-Enhanced trader with modular components
+Enhanced trader with modular components and fixed debugging
 """
 import pandas as pd
 from typing import List, Optional, Dict, Any, Tuple, Set
@@ -151,7 +151,7 @@ class EnhancedTrader:
                     
                     if filtered_count == 0:
                         log_warning("ALL ARTICLES FILTERED OUT")
-                        self._debug_filter_rejections(news_df)
+                        self._debug_filter_rejections_updated(news_df)
                 
                 return filtered_news
             else:
@@ -162,11 +162,11 @@ class EnhancedTrader:
             log_error(f"Error in news pre-filtering: {e}")
             return news_df
     
-    def _debug_filter_rejections(self, news_df: pd.DataFrame) -> None:
-        """Debug why articles are being filtered out"""
+    def _debug_filter_rejections_updated(self, news_df: pd.DataFrame) -> None:
+        """Debug why articles are being filtered out with UPDATED logic."""
         current_time = datetime.now(timezone.utc)
         
-        log_warning("=== FILTER REJECTION ANALYSIS ===")
+        log_warning("=== FILTER REJECTION ANALYSIS (UPDATED) ===")
         
         for idx, row in news_df.iterrows():
             symbol = row.get('symbol', 'UNKNOWN')
@@ -177,23 +177,37 @@ class EnhancedTrader:
             rejection_reasons = []
             
             # Check basic requirements
-            if len(title) < 20:
-                rejection_reasons.append(f"Title too short ({len(title)} chars)")
+            if len(title.strip()) < 10:  # Updated minimum
+                rejection_reasons.append(f"Title too short ({len(title)} chars, min 10)")
             
-            if len(text) < 100:
-                rejection_reasons.append(f"Text too short ({len(text)} chars)")
+            if len(text.strip()) < 30:  # Updated minimum  
+                rejection_reasons.append(f"Text too short ({len(text)} chars, min 30)")
             
-            # Check staleness
+            # Check for preservation patterns
+            preserve_keywords = ['earnings', 'revenue', 'acquisition', 'merger', 'fda', 'approval', 'partnership', 'deal', 'breakthrough', 'guidance']
+            has_preserve_keyword = any(keyword.lower() in (title + ' ' + text).lower() for keyword in preserve_keywords)
+            
+            if has_preserve_keyword and len(text.strip()) >= 10:  # Very relaxed for preserved content
+                # This should be preserved, don't add text length rejection
+                rejection_reasons = [r for r in rejection_reasons if not r.startswith("Text too short")]
+            
+            # Check staleness with UPDATED time window
             if published_date:
                 try:
                     pub_time = pd.to_datetime(published_date, utc=True)
                     time_diff = current_time - pub_time
-                    cutoff_hours = 24 if CONFIG.testing_mode else 2
+                    cutoff_hours = 48 if CONFIG.testing_mode else 6.0  # Updated time window
                     
                     if time_diff.total_seconds() / 3600 > cutoff_hours:
                         rejection_reasons.append(f"Too old ({time_diff.total_seconds()/3600:.1f}h > {cutoff_hours}h)")
                 except:
                     rejection_reasons.append("Invalid published date")
+            
+            # Check for spam patterns
+            spam_indicators = ['click here', 'ad:', 'advertisement', 'sponsored']
+            if any(spam in (title + ' ' + text).lower() for spam in spam_indicators):
+                if not has_preserve_keyword:  # Don't reject preserved content for spam
+                    rejection_reasons.append("Contains spam indicators")
             
             # Log analysis
             title_short = title[:40] + "..." if len(title) > 40 else title
@@ -201,6 +215,8 @@ class EnhancedTrader:
                 log_warning(f"  {symbol}: {title_short}")
                 for reason in rejection_reasons:
                     log_warning(f"    ❌ {reason}")
+                if has_preserve_keyword:
+                    log_warning(f"    ℹ️  Has preserve keyword: should bypass some filters")
             else:
                 log_warning(f"  {symbol}: {title_short} ✅ (should pass)")
     

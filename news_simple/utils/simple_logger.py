@@ -1,10 +1,10 @@
 """
-Optimized logging utility with proper encoding support
+Optimized logging utility with proper encoding support and performance improvements
 """
 import logging
 import sys
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Optional, Dict, Final
 from config import CONFIG
 
 
@@ -12,7 +12,7 @@ class LoggerManager:
     """Singleton logger manager with optimized performance."""
     
     _instance: Optional[logging.Logger] = None
-    _emoji_map: Dict[str, str] = {
+    _emoji_map: Final[Dict[str, str]] = {
         '🚀': '[START]', '📋': '[INFO]', '✅': '[OK]', '💰': '[MONEY]',
         '🎯': '[TARGET]', '📊': '[STATUS]', '🏁': '[STOP]', '⚠️': '[WARNING]',
         '📈': '[CHART]', '❌': '[ERROR]', '🔍': '[DEBUG]', '📝': '[LOG]'
@@ -59,10 +59,16 @@ class LoggerManager:
     @classmethod
     def clean_message(cls, msg: str) -> str:
         """Remove emoji and problematic unicode characters efficiently."""
+        # Fast path for ASCII-only messages
+        if msg.isascii():
+            return msg
+        
+        # Replace known emojis first
         for emoji, replacement in cls._emoji_map.items():
             if emoji in msg:
                 msg = msg.replace(emoji, replacement)
         
+        # Filter out remaining problematic unicode
         return ''.join(
             char for char in msg 
             if ord(char) < 0x1F600 or ord(char) > 0x1F64F

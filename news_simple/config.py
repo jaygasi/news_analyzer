@@ -39,6 +39,11 @@ class Config:
     news_check_interval: int = 25
     price_check_interval: int = 4
     
+    # NEWS FETCHING LIMITS - ENHANCED FOR PAID ACCOUNTS
+    news_page_limit: int = 5  # Fetch multiple pages for more articles
+    news_per_page_limit: int = 100  # Max articles per page
+    max_total_news_articles: int = 500  # Total articles to process per cycle
+    
     # API settings
     api_rate_limit: int = 120
     request_timeout: int = 25
@@ -87,7 +92,10 @@ class Config:
             (self.position_size > 0, "Position size must be positive"),
             (0 < self.stop_loss_pct < 1, "Stop loss percentage must be between 0 and 1"),
             (0 < self.take_profit_pct < 1, "Take profit percentage must be between 0 and 1"),
-            (0 <= self.min_confidence_score <= 1, "Minimum confidence score must be between 0 and 1")
+            (0 <= self.min_confidence_score <= 1, "Minimum confidence score must be between 0 and 1"),
+            (self.news_page_limit > 0, "News page limit must be positive"),
+            (self.news_per_page_limit > 0, "News per page limit must be positive"),
+            (self.max_total_news_articles > 0, "Max total news articles must be positive")
         ]
         
         for condition, error_msg in validations:

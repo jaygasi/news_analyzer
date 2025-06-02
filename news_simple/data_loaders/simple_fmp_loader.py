@@ -1,16 +1,17 @@
 """
-Optimized FMP data loader with improved error handling and type hints
+Enhanced FMP data loader with multiple news endpoints and improved error handling
 """
 import requests
 import pandas as pd
 from typing import Optional, List, Dict, Any, Union
 import time
 from functools import lru_cache
-from utils.simple_logger import log_info, log_error, log_debug
+from config import CONFIG
+from utils.simple_logger import log_info, log_error, log_debug, log_warning
 
 
 class SimpleFMPLoader:
-    """Optimized FMP data loader with comprehensive error handling."""
+    """Enhanced FMP data loader with multiple news sources and comprehensive error handling."""
     
     def __init__(self, api_key: str) -> None:
         """Initialize FMP loader with API key validation."""
@@ -84,14 +85,11 @@ class SimpleFMPLoader:
         params = self._build_screener_params(limit)
         
         log_info(f"Requesting stock screener with limit: {limit}")
-        # Renaming variable for clarity before assertion
         api_response_data = self._make_request("stock-screener", params)
         
         if not self._validate_screener_response(api_response_data):
             return None
         
-        # After _validate_screener_response, api_response_data is known to be a List.
-        # Add an assertion to help Pylance (and for runtime safety).
         assert isinstance(api_response_data, list), "Screener data should be a list after validation"
         
         return self._process_screener_data(api_response_data)
@@ -231,27 +229,230 @@ class SimpleFMPLoader:
             log_error(f"Error processing price data: {e}")
             return None
     
-    def get_news_rss(self) -> Optional[pd.DataFrame]:
-        """Get latest news with improved datetime handling."""
+    def get_comprehensive_news(self) -> Optional[pd.DataFrame]:
+        """Get news from multiple FMP endpoints for comprehensive coverage."""
         try:
-            data = self._make_request("../v4/stock-news-sentiments-rss-feed", {"page": 0})
+            all_articles = []
             
-            if not data or not isinstance(data, list):
+            # 1. Primary RSS feed (current method)
+            log_debug("Fetching from RSS sentiment feed...")
+            rss_articles = self._get_rss_news()
+            if rss_articles:
+                all_articles.extend(rss_articles)
+                log_debug(f"RSS feed: {len(rss_articles)} articles")
+            
+            # 2. General stock news (new endpoint)
+            log_debug("Fetching from general stock news...")
+            general_articles = self._get_general_stock_news()
+            if general_articles:
+                all_articles.extend(general_articles)
+                log_debug(f"General news: {len(general_articles)} articles")
+            
+            # 3. Social sentiment (if available)
+            log_debug("Fetching social sentiment data...")
+            social_articles = self._get_social_sentiment_news()
+            if social_articles:
+                all_articles.extend(social_articles)
+                log_debug(f"Social sentiment: {len(social_articles)} articles")
+            
+            if not all_articles:
+                log_warning("No articles retrieved from any news endpoint")
                 return None
             
-            df = pd.DataFrame(data)
+            # Remove duplicates and process
+            df = pd.DataFrame(all_articles)
+            df = self._deduplicate_news_articles(df)
             
-            if df.empty:
-                return None
-            
+            log_info(f"Total comprehensive news articles: {len(df)}")
             return self._process_news_data(df)
-                
+            
         except Exception as e:
-            log_error(f"Error processing news data: {e}")
-            return None
+            log_error(f"Error in comprehensive news fetching: {e}")
+            # Fallback to original method
+            return self.get_news_rss()
+    
+    def _get_rss_news(self) -> List[Dict[str, Any]]:
+        """Get news from RSS sentiment feed."""
+        try:
+            all_articles = []
+            
+            # Fetch multiple pages
+            for page in range(CONFIG.news_page_limit):
+                params = {
+                    "page": page,
+                    "limit": CONFIG.news_per_page_limit
+                }
+                
+                data = self._make_request("../v4/stock-news-sentiments-rss-feed", params)
+                
+                if not data or not isinstance(data, list):
+                    break
+                
+                all_articles.extend(data)
+                
+                if len(data) < CONFIG.news_per_page_limit:
+                    break
+                
+                time.sleep(0.2)  # Rate limiting
+            
+            return all_articles
+            
+        except Exception as e:
+            log_error(f"Error fetching RSS news: {e}")
+            return []
+    
+    def _get_general_stock_news(self) -> List[Dict[str, Any]]:
+        """Get news from general stock news endpoint."""
+        try:
+            all_articles = []
+            
+            # Fetch multiple pages
+            for page in range(min(3, CONFIG.news_page_limit)):  # Limit to 3 pages for this endpoint
+                params = {
+                    "page": page,
+                    "limit": min(50, CONFIG.news_per_page_limit)  # Smaller limit for this endpoint
+                }
+                
+                data = self._make_request("stock_news", params)
+                
+                if not data or not isinstance(data, list):
+                    break
+                
+                # Transform data to match expected format
+                transformed_articles = []
+                for article in data:
+                    if isinstance(article, dict):
+                        # Map fields to expected format
+                        transformed = {
+                            'symbol': article.get('symbol', ''),
+                            'title': article.get('title', ''),
+                            'text': article.get('text', ''),
+                            'url': article.get('url', ''),
+                            'publishedDate': article.get('publishedDate', ''),
+                            'site': article.get('site', ''),
+                            'source': 'general_news'
+                        }
+                        transformed_articles.append(transformed)
+                
+                all_articles.extend(transformed_articles)
+                
+                if len(data) < params['limit']:
+                    break
+                
+                time.sleep(0.3)  # Slightly longer delay for this endpoint
+            
+            return all_articles
+            
+        except Exception as e:
+            log_debug(f"General stock news not available or error: {e}")
+            return []
+    
+    def _get_social_sentiment_news(self) -> List[Dict[str, Any]]:
+        """Get social sentiment data."""
+        try:
+            # Fetch for popular symbols
+            popular_symbols = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA', 'META']
+            all_articles = []
+            
+            for symbol in popular_symbols[:5]:  # Limit to 5 symbols to avoid rate limits
+                try:
+                    data = self._make_request(f"../v4/social-sentiments", {'symbol': symbol})
+                    
+                    if data and isinstance(data, list):
+                        # Transform social sentiment to news-like format
+                        for item in data[:5]:  # Limit items per symbol
+                            if isinstance(item, dict):
+                                transformed = {
+                                    'symbol': symbol,
+                                    'title': f"Social Sentiment Update: {symbol}",
+                                    'text': f"Social sentiment analysis shows {item.get('sentiment', 'neutral')} sentiment for {symbol}",
+                                    'url': '',
+                                    'publishedDate': item.get('date', ''),
+                                    'site': 'social_sentiment',
+                                    'source': 'social_sentiment',
+                                    'sentiment': item.get('sentiment', 'neutral')
+                                }
+                                all_articles.append(transformed)
+                    
+                    time.sleep(0.5)  # Longer delay for social sentiment
+                    
+                except Exception as e:
+                    log_debug(f"Error fetching social sentiment for {symbol}: {e}")
+                    continue
+            
+            return all_articles
+            
+        except Exception as e:
+            log_debug(f"Social sentiment not available or error: {e}")
+            return []
+    
+    def _deduplicate_news_articles(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Remove duplicate articles from multiple sources."""
+        if df.empty:
+            return df
+        
+        try:
+            # Remove exact duplicates by title and symbol
+            df = df.drop_duplicates(subset=['symbol', 'title'], keep='first')
+            
+            # Remove very similar titles
+            if len(df) <= 1000:  # Only for manageable sizes
+                df = self._remove_similar_titles(df)
+            
+            return df
+            
+        except Exception as e:
+            log_error(f"Error deduplicating news articles: {e}")
+            return df
+    
+    def _remove_similar_titles(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Remove articles with very similar titles."""
+        if 'title' not in df.columns:
+            return df
+        
+        try:
+            # Simple similarity check
+            seen_titles = set()
+            keep_indices = []
+            
+            for idx, row in df.iterrows():
+                title = str(row['title']).lower().strip()
+                title_words = set(title.split())
+                
+                # Check for high similarity with seen titles
+                is_similar = False
+                for seen_title in seen_titles:
+                    seen_words = set(seen_title.split())
+                    if title_words and seen_words:
+                        intersection = len(title_words & seen_words)
+                        union = len(title_words | seen_words)
+                        if union > 0 and intersection / union > 0.8:  # 80% similarity
+                            is_similar = True
+                            break
+                
+                if not is_similar:
+                    keep_indices.append(idx)
+                    seen_titles.add(title)
+                    
+                    # Limit memory usage
+                    if len(seen_titles) > 500:
+                        seen_titles = set(list(seen_titles)[-250:])
+            
+            return df.loc[keep_indices]
+            
+        except Exception as e:
+            log_error(f"Error removing similar titles: {e}")
+            return df
+    
+    def get_news_rss(self) -> Optional[pd.DataFrame]:
+        """Get news using comprehensive method (backwards compatibility)."""
+        return self.get_comprehensive_news()
     
     def _process_news_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """Process news data with optimized handling."""
+        if df.empty:
+            return df
+        
         # Handle datetime
         if 'publishedDate' in df.columns:
             df['publishedDate'] = pd.to_datetime(
@@ -264,11 +465,19 @@ class SimpleFMPLoader:
         if 'title' in df.columns and 'text' in df.columns:
             df['content'] = df['title'].astype(str) + " " + df['text'].astype(str)
         
-        # Filter essential data
+        # Ensure source field exists
+        if 'source' not in df.columns:
+            df['source'] = 'rss_feed'
+        
+        # Filter essential data with more permissive requirements
         essential_columns = ['symbol', 'title']
         for col in essential_columns:
             if col in df.columns:
-                df = df[df[col].notna() & (df[col] != '')]
+                df = df[df[col].notna() & (df[col].str.strip() != '')]
+        
+        # Remove completely empty text
+        if 'text' in df.columns:
+            df = df[df['text'].notna() & (df['text'].str.strip() != '')]
         
         return df
     
