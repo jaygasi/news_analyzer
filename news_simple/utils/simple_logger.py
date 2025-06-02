@@ -8,7 +8,7 @@ from typing import Optional, Dict
 from config import CONFIG
 
 
-class OptimizedLoggerManager:
+class LoggerManager:
     """Singleton logger manager with optimized performance."""
     
     _instance: Optional[logging.Logger] = None
@@ -43,7 +43,7 @@ class OptimizedLoggerManager:
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setLevel(logging.DEBUG)
         
-        # Optimized formatter
+        # Formatter
         formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
@@ -59,12 +59,10 @@ class OptimizedLoggerManager:
     @classmethod
     def clean_message(cls, msg: str) -> str:
         """Remove emoji and problematic unicode characters efficiently."""
-        # Fast emoji replacement using pre-built map
         for emoji, replacement in cls._emoji_map.items():
             if emoji in msg:
                 msg = msg.replace(emoji, replacement)
         
-        # Remove remaining problematic characters in one pass
         return ''.join(
             char for char in msg 
             if ord(char) < 0x1F600 or ord(char) > 0x1F64F
@@ -72,24 +70,24 @@ class OptimizedLoggerManager:
 
 
 # Global logger instance
-logger = OptimizedLoggerManager.get_logger()
+logger = LoggerManager.get_logger()
 
 
 def log_info(msg: str) -> None:
     """Log info message with optimized emoji removal."""
-    logger.info(OptimizedLoggerManager.clean_message(msg))
+    logger.info(LoggerManager.clean_message(msg))
 
 
 def log_error(msg: str) -> None:
     """Log error message with optimized emoji removal."""
-    logger.error(OptimizedLoggerManager.clean_message(msg))
+    logger.error(LoggerManager.clean_message(msg))
 
 
 def log_debug(msg: str) -> None:
     """Log debug message with optimized emoji removal."""
-    logger.debug(OptimizedLoggerManager.clean_message(msg))
+    logger.debug(LoggerManager.clean_message(msg))
 
 
 def log_warning(msg: str) -> None:
     """Log warning message with optimized emoji removal."""
-    logger.warning(OptimizedLoggerManager.clean_message(msg))
+    logger.warning(LoggerManager.clean_message(msg))
