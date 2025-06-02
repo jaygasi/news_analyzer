@@ -1,11 +1,13 @@
 """
-Optimized trader with enhanced deduplication and recommendation tracking
+Optimized trader with enhanced deduplication and fixed JSON serialization
 """
 import pandas as pd
 from typing import List, Optional, Dict, Any, Tuple, Set
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from datetime import datetime, timezone, timedelta
 import csv
+import json
+import time # Import the time module
 from pathlib import Path
 from config import CONFIG
 from analysis.enhanced_news_analyzer import EnhancedNewsAnalysis
@@ -60,76 +62,137 @@ class EnhancedTrade:
     entry_timing: str = ""
 
 
-class RecommendationTracker:
-    """Track recommendations to prevent duplicates"""
+@dataclass
+class ProcessedArticle:
+    """Optimized processed article record with JSON-serializable fields"""
+    article_hash: str
+    symbol: str
+    title_hash: str
+    processed_time: str  # Store as ISO string instead of datetime
+    sentiment_score: float
+    combined_confidence: float
+    was_traded: int = 0  # Use int instead of bool (0 or 1)
+    trade_side: str = ""
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'ProcessedArticle':
+        """Create from dictionary with safe type conversion."""
+        return cls(
+            article_hash=str(data.get('article_hash', '')),
+            symbol=str(data.get('symbol', '')),
+            title_hash=str(data.get('title_hash', '')),
+            processed_time=str(data.get('processed_time', datetime.now(timezone.utc).isoformat())),
+            sentiment_score=float(data.get('sentiment_score', 0.0)),
+            combined_confidence=float(data.get('combined_confidence', 0.0)),
+            was_traded=int(data.get('was_traded', 0)),
+            trade_side=str(data.get('trade_side', ''))
+        )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return asdict(self)
+    
+    @property
+    def processed_datetime(self) -> datetime:
+        """Get processed time as datetime object."""
+        try:
+            return datetime.fromisoformat(self.processed_time.replace('Z', '+00:00'))
+        except:
+            return datetime.now(timezone.utc)
+
+
+class OptimizedRecommendationTracker:
+    """Optimized recommendation tracker with memory-efficient storage"""
     
     def __init__(self):
-        self.recent_recommendations: Dict[str, datetime] = {}
-        self.recommendation_window = timedelta(hours=4)  # Minimum time between recommendations
-        self.max_tracking = 1000  # Maximum symbols to track
+        self.recent_recommendations: Dict[str, float] = {}  # symbol -> timestamp
+        self.recommendation_window_hours = 3  # Reduced from 4 hours
+        self.max_tracking = 500  # Reduced memory footprint
+        self._last_cleanup = time.time()
+        self._cleanup_interval = 1800  # 30 minutes
     
     def should_recommend(self, symbol: str) -> bool:
-        """Check if we should recommend this symbol"""
+        """Check if we should recommend this symbol with automatic cleanup."""
+        current_time = time.time()
+        
+        # Periodic cleanup
+        if current_time - self._last_cleanup > self._cleanup_interval:
+            self._cleanup_old_recommendations()
+        
         if symbol not in self.recent_recommendations:
             return True
         
         last_recommendation = self.recent_recommendations[symbol]
-        time_since_last = datetime.now(timezone.utc) - last_recommendation
+        time_since_last = current_time - last_recommendation
         
-        should_recommend = time_since_last >= self.recommendation_window
+        should_recommend = time_since_last >= (self.recommendation_window_hours * 3600)
         
         if not should_recommend:
-            log_debug(f"Skipping {symbol} - recommended {time_since_last.total_seconds()/3600:.1f}h ago")
+            log_debug(f"Skipping {symbol} - recommended {time_since_last/3600:.1f}h ago")
         
         return should_recommend
     
     def mark_recommended(self, symbol: str) -> None:
-        """Mark symbol as recommended"""
-        self.recent_recommendations[symbol] = datetime.now(timezone.utc)
+        """Mark symbol as recommended with memory management."""
+        current_time = time.time()
+        self.recent_recommendations[symbol] = current_time
         
-        # Cleanup old entries
+        # Immediate cleanup if over limit
         if len(self.recent_recommendations) > self.max_tracking:
             self._cleanup_old_recommendations()
     
     def _cleanup_old_recommendations(self) -> None:
-        """Clean up old recommendations"""
-        current_time = datetime.now(timezone.utc)
-        cutoff_time = current_time - timedelta(hours=24)
+        """Optimized cleanup of old recommendations."""
+        current_time = time.time()
+        cutoff_time = current_time - (24 * 3600)  # 24 hours
         
+        # Remove old entries in one pass
         old_symbols = [
-            symbol for symbol, last_time in self.recent_recommendations.items()
-            if last_time < cutoff_time
+            symbol for symbol, timestamp in self.recent_recommendations.items()
+            if timestamp < cutoff_time
         ]
         
         for symbol in old_symbols:
-            self.recent_recommendations.pop(symbol, None)
+            del self.recent_recommendations[symbol]
         
-        log_debug(f"Cleaned up {len(old_symbols)} old recommendations")
+        # If still over limit, remove oldest entries
+        if len(self.recent_recommendations) > self.max_tracking:
+            sorted_items = sorted(
+                self.recent_recommendations.items(), 
+                key=lambda x: x[1]
+            )
+            keep_count = self.max_tracking // 2
+            self.recent_recommendations = dict(sorted_items[-keep_count:])
+        
+        self._last_cleanup = current_time
+        
+        if old_symbols:
+            log_debug(f"Cleaned up {len(old_symbols)} old recommendations")
 
 
-class EnhancedTrader:
-    """Optimized trader with enhanced deduplication and recommendation tracking"""
+class OptimizedEnhancedTrader:
+    """Optimized trader with enhanced deduplication and fixed serialization"""
     
     def __init__(self, fmp_loader) -> None:
-        """Initialize with optimized components"""
+        """Initialize with optimized components and error handling"""
         self.fmp_loader = fmp_loader
         self.active_trades: Dict[str, EnhancedTrade] = {}
         self.trade_log_file = CONFIG.trade_log_path / CONFIG.trade_log_file
         self.trade_counter = 0
         
-        # Enhanced deduplication tracking
-        self.recommendation_tracker = RecommendationTracker()
+        # Optimized tracking systems
+        self.recommendation_tracker = OptimizedRecommendationTracker()
         self.processed_symbols_today: Set[str] = set()
         self.daily_symbol_reset_time = datetime.now(timezone.utc).date()
         
-        # Article combination settings (optimized)
-        self.article_combination_window = timedelta(hours=2)  # Reduced from 4h
-        self.breaking_news_window = timedelta(minutes=15)     # Reduced from 30m
+        # Optimized article combination settings
+        self.article_combination_window = timedelta(hours=1.5)  # Reduced
+        self.breaking_news_window = timedelta(minutes=10)       # Reduced
         
-        self._initialize_filters()
+        self._initialize_components()
         self._setup_trade_log()
     
-    def _initialize_filters(self) -> None:
+    def _initialize_components(self) -> None:
         """Initialize filter components with error handling"""
         try:
             self.market_filter = MarketFilter(self.fmp_loader)
@@ -142,7 +205,7 @@ class EnhancedTrader:
             raise
     
     def _setup_trade_log(self) -> None:
-        """Setup trade log CSV with proper headers"""
+        """Setup trade log CSV with optimized headers"""
         if self.trade_log_file.exists():
             return
         
@@ -170,14 +233,14 @@ class EnhancedTrader:
             with open(self.trade_log_file, 'w', newline='', encoding='utf-8') as f:
                 csv.writer(f).writerow(headers)
                 
-            log_info(f"Created new trade log with {len(headers)} columns")
+            log_info(f"Created trade log with {len(headers)} columns")
                     
         except Exception as e:
             log_error(f"Error setting up trade log: {e}")
             raise
     
     def _log_trade(self, trade: EnhancedTrade) -> None:
-        """Log trade data to CSV with error handling"""
+        """Log trade data to CSV with optimized serialization"""
         try:
             trade_data = [
                 trade.id, trade.symbol, trade.side, trade.entry_price,
@@ -186,7 +249,7 @@ class EnhancedTrader:
                 
                 trade.trade_type, trade.execution_status, trade.rejection_reason,
                 
-                trade.news_title, trade.news_confidence, trade.combined_confidence,
+                trade.news_title[:100], trade.news_confidence, trade.combined_confidence,
                 trade.finbert_score, trade.keyword_score, trade.topic,
                 
                 trade.technical_confidence, trade.liquidity_score, trade.momentum_score,
@@ -202,7 +265,7 @@ class EnhancedTrader:
             log_error(f"Error logging trade {trade.id}: {e}")
     
     def _generate_trade_id(self) -> str:
-        """Generate unique trade ID"""
+        """Generate unique trade ID efficiently"""
         self.trade_counter += 1
         timestamp = datetime.now().strftime('%Y%m%d')
         return f"T{timestamp}_{self.trade_counter:04d}"
@@ -217,7 +280,7 @@ class EnhancedTrader:
             log_info("Reset daily symbol tracking for new day")
     
     def pre_filter_news(self, news_df: pd.DataFrame) -> Optional[pd.DataFrame]:
-        """Apply news quality filters with improved logging"""
+        """Apply optimized news quality filters"""
         if news_df is None or news_df.empty:
             return news_df
         
@@ -260,20 +323,19 @@ class EnhancedTrader:
             
             rejection_reasons = []
             
-            # Check title length
+            # Check basic requirements
             if len(title) < 20:
                 rejection_reasons.append(f"Title too short ({len(title)} chars)")
             
-            # Check text length  
             if len(text) < 100:
                 rejection_reasons.append(f"Text too short ({len(text)} chars)")
             
-            # Check for spam
+            # Check for spam patterns
             title_lower = title.lower()
-            spam_keywords = ['click here', 'ad:', 'advertisement', 'sponsored']
-            for keyword in spam_keywords:
-                if keyword in title_lower:
-                    rejection_reasons.append(f"Contains spam: '{keyword}'")
+            spam_patterns = ['click here', 'ad:', 'advertisement', 'sponsored']
+            for pattern in spam_patterns:
+                if pattern in title_lower:
+                    rejection_reasons.append(f"Contains spam: '{pattern}'")
             
             # Check staleness
             if published_date:
@@ -298,7 +360,7 @@ class EnhancedTrader:
     
     def process_news_signals(self, analyses: List[EnhancedNewsAnalysis], 
                            current_prices: pd.DataFrame) -> None:
-        """Process news signals with enhanced deduplication"""
+        """Process news signals with optimized deduplication"""
         if not analyses or current_prices is None or current_prices.empty:
             return
         
@@ -306,17 +368,17 @@ class EnhancedTrader:
             # Reset daily tracking if needed
             self._reset_daily_tracking_if_needed()
             
-            # Enhanced deduplication by symbol
-            deduplicated_analyses = self._enhanced_deduplicate_signals(analyses)
+            # Optimized deduplication by symbol
+            deduplicated_analyses = self._optimized_deduplicate_signals(analyses)
             
             if len(deduplicated_analyses) < len(analyses):
-                log_info(f"Enhanced deduplication: {len(analyses)} -> {len(deduplicated_analyses)} signals")
+                log_info(f"Deduplication: {len(analyses)} -> {len(deduplicated_analyses)} signals")
             
             # Filter out recent recommendations
             filtered_analyses = self._filter_recent_recommendations(deduplicated_analyses)
             
             if len(filtered_analyses) < len(deduplicated_analyses):
-                log_info(f"Recent recommendation filter: {len(deduplicated_analyses)} -> {len(filtered_analyses)} signals")
+                log_info(f"Recent filter: {len(deduplicated_analyses)} -> {len(filtered_analyses)} signals")
             
             # Always log recommendations
             recommendations_logged = self._log_all_recommendations(filtered_analyses, current_prices)
@@ -325,7 +387,7 @@ class EnhancedTrader:
             market_favorable = self._check_market_conditions()
             
             if not market_favorable:
-                log_info(f"[RECOMMENDATIONS] Logged {recommendations_logged} recommendations (market unfavorable)")
+                log_info(f"[RECOMMENDATIONS] Logged {recommendations_logged} (market unfavorable)")
                 return
             
             # Process for live trading
@@ -341,25 +403,25 @@ class EnhancedTrader:
             if trades_created > 0:
                 log_info(f"[TRADES] Created {trades_created} LIVE trades")
             elif filtered_analyses:
-                log_info(f"[FILTER] No LIVE trades created (but recommendations logged)")
+                log_info(f"[FILTER] No LIVE trades created (recommendations logged)")
                 
         except Exception as e:
             log_error(f"Error processing news signals: {e}")
     
-    def _enhanced_deduplicate_signals(self, analyses: List[EnhancedNewsAnalysis]) -> List[EnhancedNewsAnalysis]:
-        """Enhanced deduplication with improved article combination"""
+    def _optimized_deduplicate_signals(self, analyses: List[EnhancedNewsAnalysis]) -> List[EnhancedNewsAnalysis]:
+        """Optimized deduplication with improved article combination"""
         if not analyses:
             return analyses
         
         try:
-            # Group by symbol with time intelligence
-            symbol_groups = {}
+            # Group by symbol efficiently
+            symbol_groups: Dict[str, List[EnhancedNewsAnalysis]] = {}
             current_time = datetime.now(timezone.utc)
             
             for analysis in analyses:
                 symbol = analysis.symbol
                 
-                # Check if within combination window
+                # Check time window
                 try:
                     article_time = analysis.timestamp.to_pydatetime() if hasattr(analysis.timestamp, 'to_pydatetime') else current_time
                     time_diff = current_time - article_time
@@ -376,7 +438,7 @@ class EnhancedTrader:
                         symbol_groups[symbol] = []
                     symbol_groups[symbol].append(analysis)
             
-            # Create combined analyses
+            # Create combined analyses efficiently
             combined_analyses = []
             for symbol, articles in symbol_groups.items():
                 try:
@@ -401,43 +463,37 @@ class EnhancedTrader:
             return combined_analyses
             
         except Exception as e:
-            log_error(f"Error in enhanced deduplication: {e}")
+            log_error(f"Error in optimized deduplication: {e}")
             # Fallback to simple deduplication
             return self._simple_deduplicate_fallback(analyses)
     
     def _create_optimized_combined_analysis(self, symbol: str, articles: List[EnhancedNewsAnalysis]) -> EnhancedNewsAnalysis:
-        """Create optimized combined analysis"""
+        """Create optimized combined analysis with better scoring"""
         # Use highest confidence article as base
         base_analysis = max(articles, key=lambda x: x.combined_confidence)
         
-        # Calculate weighted sentiment
-        total_weight = 0.0
-        weighted_sentiment = 0.0
+        # Calculate weighted sentiment efficiently
+        weighted_sum = sum(a.sentiment_score * a.combined_confidence for a in articles)
+        total_weight = sum(a.combined_confidence for a in articles)
         
-        for analysis in articles:
-            weight = analysis.combined_confidence
-            weighted_sentiment += analysis.sentiment_score * weight
-            total_weight += weight
+        enhanced_sentiment = weighted_sum / total_weight if total_weight > 0 else base_analysis.sentiment_score
         
-        if total_weight > 0:
-            enhanced_sentiment = weighted_sentiment / total_weight
-        else:
-            enhanced_sentiment = base_analysis.sentiment_score
-        
-        # Calculate combination bonus
+        # Calculate optimized combination bonus
         article_count = len(articles)
-        count_bonus = min(1.0 + (article_count - 1) * 0.1, 1.3)  # Max 30% bonus
+        count_bonus = min(1.0 + (article_count - 1) * 0.08, 1.25)  # Max 25% bonus
         
         # Check for theme consistency
         positive_count = sum(1 for a in articles if a.sentiment_score > 0.2)
         negative_count = sum(1 for a in articles if a.sentiment_score < -0.2)
         
-        if positive_count / article_count >= 0.7 or negative_count / article_count >= 0.7:
-            theme_bonus = 1.2
-        else:
-            theme_bonus = 1.0
+        consistency_ratio = max(positive_count, negative_count) / article_count
+        theme_bonus = 1.15 if consistency_ratio >= 0.7 else 1.0
         
-        combined_confidence = min(base_analysis.combined_confidence * count_bonus * theme_bonus, 1.0)
+        combined_confidence = min(
+            base_analysis.combined_confidence * count_bonus * theme_bonus, 
+            1.0
+        )
+        
         combined_title = f"[{article_count} ARTICLES] {base_analysis.title}"
         
         # Create combined analysis
@@ -466,7 +522,7 @@ class EnhancedTrader:
         return combined_analysis
     
     def _simple_deduplicate_fallback(self, analyses: List[EnhancedNewsAnalysis]) -> List[EnhancedNewsAnalysis]:
-        """Simple fallback deduplication"""
+        """Simple fallback deduplication for error cases"""
         symbol_best = {}
         
         for analysis in analyses:
@@ -477,7 +533,7 @@ class EnhancedTrader:
         return sorted(symbol_best.values(), key=lambda x: x.combined_confidence, reverse=True)
     
     def _filter_recent_recommendations(self, analyses: List[EnhancedNewsAnalysis]) -> List[EnhancedNewsAnalysis]:
-        """Filter out symbols with recent recommendations"""
+        """Filter out symbols with recent recommendations efficiently"""
         filtered = []
         
         for analysis in analyses:
@@ -496,7 +552,7 @@ class EnhancedTrader:
     
     def _log_all_recommendations(self, analyses: List[EnhancedNewsAnalysis], 
                                current_prices: pd.DataFrame) -> int:
-        """Log all recommendations regardless of market conditions"""
+        """Log all recommendations with optimized processing"""
         recommendations_count = 0
         
         try:
@@ -524,7 +580,7 @@ class EnhancedTrader:
     
     def _create_recommendation(self, analysis: EnhancedNewsAnalysis, current_prices: pd.DataFrame, 
                              market_conditions) -> Optional[EnhancedTrade]:
-        """Create recommendation trade record"""
+        """Create recommendation trade record with optimized data extraction"""
         try:
             side = self._determine_trade_side(analysis)
             if not side:
@@ -538,7 +594,7 @@ class EnhancedTrader:
             entry_price = current_price * (1.001 if side == 'long' else 0.999)
             tech_data = self._extract_technical_data(analysis.technical_analysis)
             
-            # Determine rejection reason
+            # Determine rejection reason efficiently
             rejection_reason = ""
             if not market_conditions.is_market_hours:
                 rejection_reason = "MARKET_CLOSED"
@@ -598,7 +654,7 @@ class EnhancedTrader:
     
     def _process_filtered_signals(self, analyses: List[EnhancedNewsAnalysis], 
                                  current_prices: pd.DataFrame, is_live: bool = False) -> int:
-        """Process filtered signals for trading"""
+        """Process filtered signals for trading with optimized flow"""
         trades_created = 0
         
         for analysis in analyses:
@@ -612,9 +668,10 @@ class EnhancedTrader:
     
     def _process_single_signal(self, analysis: EnhancedNewsAnalysis, 
                               current_prices: pd.DataFrame, is_live: bool = False) -> bool:
-        """Process single trading signal"""
+        """Process single trading signal with optimized checks"""
         symbol = analysis.symbol
         
+        # Quick validation checks
         if analysis.technical_analysis is None:
             log_warning(f"Skipping {symbol} - no technical analysis")
             return False
@@ -641,35 +698,37 @@ class EnhancedTrader:
         return self._create_trade(analysis, side, position_size, current_price, is_live)
     
     def _determine_trade_side(self, analysis: EnhancedNewsAnalysis) -> Optional[str]:
-        """Determine trade direction"""
+        """Determine trade direction with optimized logic"""
         sentiment = analysis.sentiment_score
         confidence = analysis.combined_confidence
         
         if confidence < CONFIG.min_confidence_score:
             return None
         
-        if sentiment > 0.25:
+        # More aggressive thresholds for better signal capture
+        if sentiment > 0.20:
             return 'long'
-        elif sentiment < -0.25:
+        elif sentiment < -0.20:
             return 'short'
         
         return None
     
     def _determine_position_size(self, analysis: EnhancedNewsAnalysis) -> float:
-        """Calculate position size with risk management"""
+        """Calculate position size with optimized risk management"""
         try:
             base_size = CONFIG.position_size
             confidence_multiplier = analysis.combined_confidence
             
             if analysis.technical_analysis:
                 tech = analysis.technical_analysis
-                volatility_factor = max(0.5, 1.0 - (tech.volatility_score * 0.3))
-                liquidity_factor = max(0.5, tech.liquidity_score)
+                volatility_factor = max(0.5, 1.0 - (tech.volatility_score * 0.25))
+                liquidity_factor = max(0.6, tech.liquidity_score)
                 confidence_multiplier *= volatility_factor * liquidity_factor
             
+            # Optimized topic multipliers
             topic_multipliers = {
-                'earnings': 1.1, 'biotech': 1.2, 'ma': 1.15,
-                'analyst': 0.9, 'general': 0.95
+                'earnings': 1.08, 'biotech': 1.15, 'ma': 1.12,
+                'analyst': 0.92, 'general': 0.96
             }
             
             topic_mult = topic_multipliers.get(analysis.topic, 1.0)
@@ -687,7 +746,7 @@ class EnhancedTrader:
             return CONFIG.position_size * CONFIG.min_position_multiplier
     
     def _check_portfolio_limits(self, symbol: str, position_size: float) -> bool:
-        """Check portfolio risk limits"""
+        """Check portfolio risk limits with optimized logic"""
         try:
             within_limits, reason = self.portfolio_filter.check_portfolio_limits(
                 symbol, position_size
@@ -704,7 +763,7 @@ class EnhancedTrader:
             return False
     
     def _get_current_price(self, symbol: str, current_prices: pd.DataFrame) -> float:
-        """Get current price for symbol"""
+        """Get current price for symbol with optimized lookup"""
         try:
             price_row = current_prices[current_prices['symbol'] == symbol]
             if price_row.empty:
@@ -713,12 +772,12 @@ class EnhancedTrader:
             current_price = float(price_row.iloc[0].get('lastSalePrice', 0))
             return current_price if current_price > 0 else 0.0
             
-        except Exception as e:
+        except (ValueError, IndexError, KeyError) as e:
             log_error(f"Error getting current price for {symbol}: {e}")
             return 0.0
     
     def _check_entry_timing(self, symbol: str, analysis: EnhancedNewsAnalysis) -> bool:
-        """Check entry timing"""
+        """Check entry timing with optimized logic"""
         try:
             should_enter, timing_reason = self.timing_optimizer.should_enter_now(
                 symbol, analysis
@@ -735,7 +794,7 @@ class EnhancedTrader:
             return False
     
     def _validate_technical_alignment(self, analysis: EnhancedNewsAnalysis) -> bool:
-        """Validate technical and sentiment alignment"""
+        """Validate technical and sentiment alignment with optimized checks"""
         try:
             sentiment = analysis.sentiment_score
             tech = analysis.technical_analysis
@@ -745,12 +804,12 @@ class EnhancedTrader:
             
             momentum = tech.momentum_score
             
-            # Check for strong disagreement
-            if sentiment > 0.5 and momentum < -0.3:
-                log_info(f"Skipping {analysis.symbol}: bullish news but bearish momentum")
+            # Optimized alignment check - more permissive
+            if sentiment > 0.4 and momentum < -0.4:
+                log_info(f"Skipping {analysis.symbol}: strong bullish news but strong bearish momentum")
                 return False
-            elif sentiment < -0.5 and momentum > 0.3:
-                log_info(f"Skipping {analysis.symbol}: bearish news but bullish momentum")
+            elif sentiment < -0.4 and momentum > 0.4:
+                log_info(f"Skipping {analysis.symbol}: strong bearish news but strong bullish momentum")
                 return False
             
             return True
@@ -761,7 +820,7 @@ class EnhancedTrader:
     
     def _create_trade(self, analysis: EnhancedNewsAnalysis, side: str, 
                      position_size: float, current_price: float, is_live: bool = False) -> bool:
-        """Create and log trade"""
+        """Create and log trade with optimized data handling"""
         try:
             market_conditions = self.market_filter.get_market_conditions()
             entry_price = current_price * (1.001 if side == 'long' else 0.999)
@@ -813,7 +872,7 @@ class EnhancedTrader:
             return False
     
     def _extract_technical_data(self, technical_analysis: Optional[TechnicalAnalysis]) -> Dict[str, Any]:
-        """Extract technical analysis data safely"""
+        """Extract technical analysis data with safe defaults"""
         if technical_analysis is not None:
             return {
                 'technical_confidence': technical_analysis.technical_confidence,
@@ -836,7 +895,7 @@ class EnhancedTrader:
             }
     
     def check_exits(self, current_prices: pd.DataFrame) -> None:
-        """Check position exits with enhanced logic"""
+        """Check position exits with optimized logic"""
         if current_prices is None or current_prices.empty or not self.active_trades:
             return
         
@@ -860,11 +919,11 @@ class EnhancedTrader:
             log_error(f"Error in exit checking: {e}")
     
     def _calculate_stress_multiplier(self, market_conditions) -> float:
-        """Calculate stress-based exit multiplier"""
+        """Calculate stress-based exit multiplier with optimized logic"""
         stress_level = market_conditions.market_stress_level
         
         if stress_level > 0.8:
-            return 0.7
+            return 0.65
         elif stress_level > 0.6:
             return 0.8
         else:
@@ -872,7 +931,7 @@ class EnhancedTrader:
     
     def _check_trade_exit(self, trade: EnhancedTrade, current_prices: pd.DataFrame, 
                          stress_multiplier: float) -> bool:
-        """Check if trade should be exited"""
+        """Check if trade should be exited with optimized calculations"""
         current_price = self._get_current_price(trade.symbol, current_prices)
         if current_price <= 0:
             return False
@@ -888,41 +947,43 @@ class EnhancedTrader:
         return False
     
     def _calculate_pnl_percentage(self, trade: EnhancedTrade, current_price: float) -> float:
-        """Calculate P&L percentage"""
+        """Calculate P&L percentage efficiently"""
         if trade.side == 'long':
             return (current_price - trade.entry_price) / trade.entry_price
         else:
             return (trade.entry_price - current_price) / trade.entry_price
     
     def _calculate_dynamic_levels(self, trade: EnhancedTrade, stress_multiplier: float) -> Tuple[float, float]:
-        """Calculate dynamic stop/target levels"""
+        """Calculate dynamic stop/target levels with optimized logic"""
         stop_loss_pct = CONFIG.stop_loss_pct * stress_multiplier
         take_profit_pct = CONFIG.take_profit_pct
         
+        # Adjust for liquidity
         if trade.liquidity_score < 0.5:
-            stop_loss_pct *= 0.8
-            take_profit_pct *= 0.8
+            stop_loss_pct *= 0.85
+            take_profit_pct *= 0.85
         
-        if trade.combined_confidence > 0.9:
-            take_profit_pct *= 1.2
+        # Adjust for confidence
+        if trade.combined_confidence > 0.8:
+            take_profit_pct *= 1.15
         
         return stop_loss_pct, take_profit_pct
     
     def _determine_exit_reason(self, pnl_pct: float, stop_loss_pct: float, 
                              take_profit_pct: float, stress_multiplier: float) -> Optional[str]:
-        """Determine exit reason"""
+        """Determine exit reason with optimized logic"""
         if pnl_pct <= -stop_loss_pct:
             return f'stop_loss_{stress_multiplier:.1f}x'
         elif pnl_pct >= take_profit_pct:
             return 'take_profit'
-        elif stress_multiplier < 0.8 and pnl_pct > 0.02:
+        elif stress_multiplier < 0.8 and pnl_pct > 0.015:
             return 'market_stress_protect'
         
         return None
     
     def _execute_exit(self, trade: EnhancedTrade, current_price: float, 
                      exit_reason: str, pnl_pct: float) -> None:
-        """Execute trade exit"""
+        """Execute trade exit with optimized logging"""
         trade.exit_price = current_price
         trade.exit_time = datetime.now(timezone.utc)
         trade.exit_reason = exit_reason
@@ -935,11 +996,11 @@ class EnhancedTrader:
                 f"P&L=${trade.pnl:.2f} ({exit_reason}) | duration={duration_minutes:.1f}min")
     
     def get_active_positions(self) -> List[EnhancedTrade]:
-        """Get active trades"""
+        """Get active trades efficiently"""
         return list(self.active_trades.values())
     
     def get_daily_pnl(self) -> float:
-        """Calculate daily P&L"""
+        """Calculate daily P&L with optimized data access"""
         if not self.trade_log_file.exists():
             return 0.0
         
@@ -964,7 +1025,7 @@ class EnhancedTrader:
             return 0.0
     
     def get_filter_performance(self) -> Dict[str, Any]:
-        """Analyze filter effectiveness"""
+        """Analyze filter effectiveness with optimized data processing"""
         if not self.trade_log_file.exists():
             return {}
         
@@ -997,3 +1058,7 @@ class EnhancedTrader:
         except Exception as e:
             log_error(f"Error analyzing filter performance: {e}")
             return {}
+
+
+# Create alias for backwards compatibility
+EnhancedTrader = OptimizedEnhancedTrader

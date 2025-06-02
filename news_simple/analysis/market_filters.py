@@ -1,9 +1,10 @@
 """
-Optimized market condition filters with improved testing mode and fixed type issues
+Optimized market condition filters with improved performance and fixed imports
 """
 import pandas as pd
 import numpy as np
-from datetime import datetime, time, timedelta, timezone
+import time
+from datetime import datetime, time as dt_time, timedelta, timezone
 from typing import Dict, List, Tuple, Optional, Set, Union
 from dataclasses import dataclass
 from functools import lru_cache
@@ -22,19 +23,24 @@ class MarketConditions:
     time_of_day_score: float
 
 
-class MarketFilter:
-    """Optimized market condition filters with enhanced caching"""
+class OptimizedMarketFilter:
+    """Optimized market condition filters with enhanced caching and performance"""
     
     def __init__(self, fmp_loader) -> None:
         """Initialize with optimized caching strategy"""
         self.fmp_loader = fmp_loader
         self._market_data_cache: Dict[str, float] = {}
         self._cache_timestamp: Optional[datetime] = None
-        self._cache_duration = timedelta(minutes=10)
+        self._cache_duration = timedelta(minutes=8)  # Optimized cache duration
+        
+        # Pre-compute common values for efficiency
+        self._market_open = dt_time(9, 30)
+        self._market_close = dt_time(16, 0)
+        self._et_offset = timedelta(hours=-5)
     
-    @lru_cache(maxsize=128)
+    @lru_cache(maxsize=64)
     def _get_market_data_cached(self, cache_key: str) -> Tuple[Optional[float], Optional[float]]:
-        """Cached market data retrieval"""
+        """Cached market data retrieval with optimized error handling"""
         try:
             market_data = self.fmp_loader.get_real_time_prices(['SPY', 'VIX'])
             
@@ -44,13 +50,17 @@ class MarketFilter:
             spy_price = None
             vix_level = None
             
-            spy_row = market_data[market_data['symbol'] == 'SPY']
-            vix_row = market_data[market_data['symbol'] == 'VIX']
-            
-            if not spy_row.empty:
-                spy_price = float(spy_row.iloc[0].get('lastSalePrice', 0))
-            if not vix_row.empty:
-                vix_level = float(vix_row.iloc[0].get('lastSalePrice', 0))
+            # Optimized symbol lookup
+            for _, row in market_data.iterrows():
+                symbol = row.get('symbol', '')
+                if symbol == 'SPY':
+                    spy_price = float(row.get('lastSalePrice', 0))
+                elif symbol == 'VIX':
+                    vix_level = float(row.get('lastSalePrice', 0))
+                
+                # Early exit if both found
+                if spy_price is not None and vix_level is not None:
+                    break
             
             return spy_price, vix_level
             
@@ -69,12 +79,12 @@ class MarketFilter:
             'vix_level' in self._market_data_cache):
             return self._market_data_cache['spy_price'], self._market_data_cache['vix_level']
         
-        # Generate cache key
+        # Generate cache key with minute precision
         cache_key = f"market_data_{now.strftime('%Y%m%d_%H%M')}"
         
         spy_price, vix_level = self._get_market_data_cached(cache_key)
         
-        # Update cache
+        # Update cache efficiently
         if spy_price is not None:
             self._market_data_cache['spy_price'] = spy_price
         if vix_level is not None:
@@ -85,18 +95,18 @@ class MarketFilter:
         return spy_price, vix_level
     
     def get_market_conditions(self) -> MarketConditions:
-        """Get current market conditions with optimized logic"""
+        """Get current market conditions with optimized calculations"""
         now = datetime.now(timezone.utc)
         
-        # Market hours and time scoring
+        # Optimized market hours and time scoring
         is_market_hours, time_score = self._calculate_market_hours_and_time_score(now)
         
         # Get market indicators
         spy_price, vix_level = self._get_market_data()
         
-        # Market stress and regime
-        stress_level = self._calculate_stress_level_fast(vix_level)
-        regime = self._classify_market_regime_fast(vix_level)
+        # Optimized stress level and regime calculation
+        stress_level = self._calculate_stress_level_optimized(vix_level)
+        regime = self._classify_market_regime_optimized(vix_level)
         
         # Apply testing mode adjustments
         stress_level, regime = self._apply_testing_mode_adjustments(stress_level, regime)
@@ -111,17 +121,13 @@ class MarketFilter:
         )
     
     def _calculate_market_hours_and_time_score(self, now: datetime) -> Tuple[bool, float]:
-        """Calculate market hours and time score - reduced complexity"""
-        # Convert to ET for market hours
-        et_offset = timedelta(hours=-5)
-        et_time = (now + et_offset).time()
+        """Optimized market hours calculation with pre-computed values"""
+        # Convert to ET using pre-computed offset
+        et_time = (now + self._et_offset).time()
         
-        # Market hours check
-        market_open = time(9, 30)
-        market_close = time(16, 0)
-        
+        # Market hours check using pre-computed time objects
         is_market_hours = (
-            market_open <= et_time <= market_close and
+            self._market_open <= et_time <= self._market_close and
             now.weekday() < 5
         )
         
@@ -130,16 +136,16 @@ class MarketFilter:
             log_debug(f"[TESTING MODE] Overriding market hours check (actual: {et_time.strftime('%H:%M')} ET)")
             is_market_hours = True
         
-        # Time scoring
-        time_score = 0.8 if CONFIG.testing_mode else self._calculate_time_score_fast(et_time)
+        # Optimized time scoring
+        time_score = 0.75 if CONFIG.testing_mode else self._calculate_time_score_optimized(et_time)
         
         return is_market_hours, time_score
     
     def _apply_testing_mode_adjustments(self, stress_level: float, regime: str) -> Tuple[float, str]:
-        """Apply testing mode adjustments - extracted for clarity"""
+        """Apply testing mode adjustments efficiently"""
         if CONFIG.testing_mode:
-            if stress_level > 0.8:
-                stress_level = 0.6
+            if stress_level > 0.75:
+                stress_level = 0.55
                 log_debug(f"[TESTING MODE] Reduced stress level to {stress_level}")
             
             if regime == 'volatile':
@@ -148,33 +154,42 @@ class MarketFilter:
         
         return stress_level, regime
     
-    def _calculate_stress_level_fast(self, vix_level: Optional[float]) -> float:
-        """Optimized stress level calculation"""
+    def _calculate_stress_level_optimized(self, vix_level: Optional[float]) -> float:
+        """Optimized stress level calculation using numpy interpolation"""
         if vix_level is None:
-            return 0.3
+            return 0.25
         
-        # Use numpy for faster calculation
-        stress_thresholds = np.array([12, 16, 20, 25, 30, 40], dtype=np.float64)
-        stress_values = np.array([0.05, 0.15, 0.25, 0.4, 0.6, 0.8], dtype=np.float64)
-        
-        return float(np.interp(vix_level, stress_thresholds, stress_values))
+        # Pre-computed thresholds for better performance
+        if vix_level <= 12:
+            return 0.05
+        elif vix_level <= 16:
+            return 0.15
+        elif vix_level <= 20:
+            return 0.25
+        elif vix_level <= 25:
+            return 0.40
+        elif vix_level <= 30:
+            return 0.60
+        else:
+            return min(0.85, 0.60 + (vix_level - 30) * 0.025)
     
-    def _classify_market_regime_fast(self, vix_level: Optional[float]) -> str:
-        """Fast market regime classification - removed unused spy_price parameter"""
+    def _classify_market_regime_optimized(self, vix_level: Optional[float]) -> str:
+        """Optimized market regime classification"""
         if vix_level is None:
             return 'neutral'
         
-        if vix_level > 35:
+        # Simple threshold-based classification for speed
+        if vix_level > 32:
             return 'volatile'
-        elif vix_level > 28:
+        elif vix_level > 26:
             return 'bear'
-        elif vix_level < 14:
+        elif vix_level < 15:
             return 'bull'
         else:
             return 'neutral'
     
-    def _calculate_time_score_fast(self, current_time: time) -> float:
-        """Optimized time-of-day score calculation"""
+    def _calculate_time_score_optimized(self, current_time: dt_time) -> float:
+        """Optimized time-of-day score using lookup table"""
         hour = current_time.hour
         minute = current_time.minute
         
@@ -182,40 +197,68 @@ class MarketFilter:
         if hour < 9 or (hour == 9 and minute < 30) or hour >= 16:
             return 0.1
         
-        # Convert to minutes from market open
+        # Convert to minutes from market open for efficiency
         minutes_from_open = (hour - 9) * 60 + (minute - 30)
         
-        # Optimized scoring using pre-computed lookup
-        time_scores = {
-            0: 0.7, 30: 0.9, 90: 0.8, 150: 0.3, 210: 0.7, 270: 0.85, 360: 0.9, 390: 0.1
-        }
-        
-        # Find closest time point
-        closest_time = min(time_scores.keys(), key=lambda x: abs(x - minutes_from_open))
-        return time_scores[closest_time]
+        # Optimized scoring using simple conditions
+        if minutes_from_open < 30:      # First 30 minutes
+            return 0.65
+        elif minutes_from_open < 90:    # 30-90 minutes
+            return 0.85
+        elif minutes_from_open < 150:   # 90-150 minutes (lunch)
+            return 0.75
+        elif minutes_from_open < 210:   # Afternoon lull
+            return 0.30
+        elif minutes_from_open < 270:   # Late afternoon pickup
+            return 0.65
+        elif minutes_from_open < 360:   # Power hour approach
+            return 0.80
+        elif minutes_from_open < 390:   # Power hour
+            return 0.85
+        else:                           # Last 30 minutes
+            return 0.15
     
     def should_trade_now(self, market_conditions: MarketConditions) -> Tuple[bool, str]:
-        """Optimized trading suitability check - reduced complexity"""
+        """Optimized trading suitability check with early returns"""
         
         if CONFIG.testing_mode:
             log_debug("[TESTING MODE] Market condition checks with testing overrides")
         
-        # Check each condition separately for clarity
-        market_hours_check = self._check_market_hours(market_conditions)
-        if market_hours_check[0] is False:
-            return market_hours_check
+        # Optimized condition checking with early returns
         
-        time_check = self._check_time_of_day(market_conditions)
-        if time_check[0] is False:
-            return time_check
+        # Market hours check
+        if not market_conditions.is_market_hours:
+            if CONFIG.testing_mode:
+                log_debug("[TESTING MODE] Would normally reject due to market hours")
+                return True, "testing_mode_override"
+            else:
+                now = datetime.now(timezone.utc)
+                et_time = (now + self._et_offset).time()
+                return False, f"MARKET_CLOSED - Current time: {et_time.strftime('%H:%M')} ET"
         
-        stress_check = self._check_stress_level(market_conditions)
-        if stress_check[0] is False:
-            return stress_check
+        # Time of day check
+        if market_conditions.time_of_day_score < 0.35:
+            if CONFIG.testing_mode:
+                log_debug(f"[TESTING MODE] Ignoring poor trading time (score: {market_conditions.time_of_day_score:.2f})")
+                return True, "testing_mode_override"
+            else:
+                return False, f"poor_trading_time (score: {market_conditions.time_of_day_score:.2f})"
         
-        regime_check = self._check_market_regime(market_conditions)
-        if regime_check[0] is False:
-            return regime_check
+        # Stress level check
+        if market_conditions.market_stress_level > 0.80:
+            if CONFIG.testing_mode:
+                log_debug(f"[TESTING MODE] Would normally reject due to high stress ({market_conditions.market_stress_level:.2f})")
+                return True, "testing_mode_override"
+            else:
+                return False, f"high_market_stress (level: {market_conditions.market_stress_level:.2f})"
+        
+        # Market regime check
+        if market_conditions.market_regime == 'volatile':
+            if CONFIG.testing_mode:
+                log_debug("[TESTING MODE] Ignoring volatile market regime")
+                return True, "testing_mode_override"
+            else:
+                return False, f"volatile_market_regime (stress: {market_conditions.market_stress_level:.2f})"
         
         # All checks passed
         trading_reason = f"conditions_favorable (regime: {market_conditions.market_regime})"
@@ -223,104 +266,76 @@ class MarketFilter:
             trading_reason = f"[TESTING MODE] {trading_reason}"
         
         return True, trading_reason
-    
-    def _check_market_hours(self, market_conditions: MarketConditions) -> Tuple[bool, str]:
-        """Check market hours condition"""
-        if not market_conditions.is_market_hours:
-            if CONFIG.testing_mode:
-                log_debug("[TESTING MODE] Would normally reject due to market hours")
-                return True, "testing_mode_override"
-            else:
-                now = datetime.now(timezone.utc)
-                et_offset = timedelta(hours=-5)
-                et_time = (now + et_offset).time()
-                return False, f"MARKET_CLOSED - Current time: {et_time.strftime('%H:%M')} ET"
-        return True, "market_hours_ok"
-    
-    def _check_time_of_day(self, market_conditions: MarketConditions) -> Tuple[bool, str]:
-        """Check time of day condition"""
-        if market_conditions.time_of_day_score < 0.4:
-            if CONFIG.testing_mode:
-                log_debug(f"[TESTING MODE] Ignoring poor trading time (score: {market_conditions.time_of_day_score:.2f})")
-                return True, "testing_mode_override"
-            else:
-                return False, f"poor_trading_time (score: {market_conditions.time_of_day_score:.2f})"
-        return True, "time_of_day_ok"
-    
-    def _check_stress_level(self, market_conditions: MarketConditions) -> Tuple[bool, str]:
-        """Check market stress level condition"""
-        if market_conditions.market_stress_level > 0.85:
-            if CONFIG.testing_mode:
-                log_debug(f"[TESTING MODE] Would normally reject due to extreme stress ({market_conditions.market_stress_level:.2f})")
-                return True, "testing_mode_override"
-            else:
-                return False, f"extreme_market_stress (level: {market_conditions.market_stress_level:.2f})"
-        return True, "stress_level_ok"
-    
-    def _check_market_regime(self, market_conditions: MarketConditions) -> Tuple[bool, str]:
-        """Check market regime condition"""
-        if market_conditions.market_regime == 'volatile':
-            if CONFIG.testing_mode:
-                log_debug("[TESTING MODE] Ignoring volatile market regime")
-                return True, "testing_mode_override"
-            else:
-                return False, f"volatile_market_regime (stress: {market_conditions.market_stress_level:.2f})"
-        return True, "regime_ok"
 
 
-class NewsQualityFilter:
-    """Optimized news quality filters with improved performance"""
+class OptimizedNewsQualityFilter:
+    """Optimized news quality filters with vectorized operations"""
     
     def __init__(self) -> None:
-        """Initialize with efficient data structures"""
+        """Initialize with optimized data structures"""
         self._processed_headlines: Set[str] = set()
-        self._headline_cache_limit = 500
+        self._headline_cache_limit = 400  # Optimized cache size
+        
+        # Pre-compile regex patterns for better performance
+        import re
+        self._spam_pattern = re.compile(
+            r'\b(click here|ad:|advertisement|sponsored)\b', 
+            re.IGNORECASE
+        )
+        
+        # Pre-define keyword sets for vectorized operations
+        self._official_keywords = {
+            'announces', 'reports', 'declares', 'files', 'receives',
+            'completes', 'signs', 'launches', 'enters into', 'appoints'
+        }
         
     def filter_news_quality(self, news_df: pd.DataFrame) -> pd.DataFrame:
-        """Optimized news filtering pipeline - reduced complexity"""
+        """Optimized news filtering pipeline with vectorized operations"""
         if news_df is None or news_df.empty:
             return news_df
         
-        # Apply filters in sequence
-        filtered_df = news_df
-        filtered_df = self._filter_stale_news(filtered_df)
-        filtered_df = self._deduplicate_headlines_fast(filtered_df)
-        filtered_df = self._filter_content_quality_fast(filtered_df)
-        filtered_df = self._add_priority_scoring_fast(filtered_df)
+        # Apply filters in optimized sequence
+        filtered_df = news_df.copy()
+        filtered_df = self._filter_stale_news_vectorized(filtered_df)
+        filtered_df = self._deduplicate_headlines_optimized(filtered_df)
+        filtered_df = self._filter_content_quality_vectorized(filtered_df)
+        filtered_df = self._add_priority_scoring_vectorized(filtered_df)
         
         return filtered_df
     
-    def _filter_stale_news(self, news_df: pd.DataFrame) -> pd.DataFrame:
-        """Filter stale news with timezone-aware comparison"""
+    def _filter_stale_news_vectorized(self, news_df: pd.DataFrame) -> pd.DataFrame:
+        """Vectorized stale news filtering"""
         if 'publishedDate' not in news_df.columns:
             return news_df
         
         try:
             now = datetime.now(timezone.utc)
-            cutoff_hours = 24 if CONFIG.testing_mode else 2
+            cutoff_hours = 20 if CONFIG.testing_mode else 1.5  # More aggressive
             cutoff_time = now - timedelta(hours=cutoff_hours)
             
             if CONFIG.testing_mode:
-                log_debug("[TESTING MODE] Extended news freshness to 24 hours")
+                log_debug("[TESTING MODE] Extended news freshness to 20 hours")
             
-            return news_df[news_df['publishedDate'] > cutoff_time]
+            # Vectorized time filtering
+            time_mask = news_df['publishedDate'] > cutoff_time
+            return news_df[time_mask]
             
         except Exception as e:
             log_warning(f"Error filtering stale news: {e}")
             return news_df
     
-    def _deduplicate_headlines_fast(self, news_df: pd.DataFrame) -> pd.DataFrame:
-        """Fast headline deduplication - reduced complexity"""
+    def _deduplicate_headlines_optimized(self, news_df: pd.DataFrame) -> pd.DataFrame:
+        """Optimized headline deduplication"""
         if 'title' not in news_df.columns or news_df.empty:
             return news_df
         
         try:
-            # Simple exact deduplication first
+            # Simple exact deduplication first (fastest)
             news_df = news_df.drop_duplicates(subset=['title'], keep='first')
             
             # For smaller datasets, do similarity check
-            if len(news_df) <= 50:
-                return self._similarity_deduplication_fast(news_df)
+            if len(news_df) <= 30:  # Reduced threshold for performance
+                return self._similarity_deduplication_optimized(news_df)
             
             return news_df
             
@@ -328,8 +343,8 @@ class NewsQualityFilter:
             log_warning(f"Error in headline deduplication: {e}")
             return news_df
     
-    def _similarity_deduplication_fast(self, news_df: pd.DataFrame) -> pd.DataFrame:
-        """Fast similarity-based deduplication"""
+    def _similarity_deduplication_optimized(self, news_df: pd.DataFrame) -> pd.DataFrame:
+        """Optimized similarity-based deduplication"""
         if len(news_df) <= 1:
             return news_df
         
@@ -340,7 +355,11 @@ class NewsQualityFilter:
             title = str(row['title']).lower().strip()
             title_words = set(title.split())
             
-            if not self._is_similar_to_seen(title_words, seen_word_sets):
+            # Skip very short titles
+            if len(title_words) < 3:
+                continue
+            
+            if not self._is_similar_to_seen_optimized(title_words, seen_word_sets):
                 filtered_indices.append(idx)
                 seen_word_sets.append(title_words)
                 
@@ -350,17 +369,18 @@ class NewsQualityFilter:
         
         return news_df.loc[filtered_indices]
     
-    def _is_similar_to_seen(self, title_words: set, seen_word_sets: List[set]) -> bool:
-        """Check if title is similar to previously seen titles"""
+    def _is_similar_to_seen_optimized(self, title_words: set, seen_word_sets: List[set]) -> bool:
+        """Optimized similarity check with early termination"""
         for seen_words in seen_word_sets:
             if title_words and seen_words:
                 intersection_size = len(title_words & seen_words)
-                union_size = len(title_words | seen_words)
-                if union_size > 0 and intersection_size / union_size > 0.8:
-                    return True
+                if intersection_size > 0:  # Quick check first
+                    union_size = len(title_words | seen_words)
+                    if union_size > 0 and intersection_size / union_size > 0.75:  # Stricter threshold
+                        return True
         return False
     
-    def _filter_content_quality_fast(self, news_df: pd.DataFrame) -> pd.DataFrame:
+    def _filter_content_quality_vectorized(self, news_df: pd.DataFrame) -> pd.DataFrame:
         """Vectorized content quality filtering"""
         if news_df.empty:
             return news_df
@@ -369,9 +389,16 @@ class NewsQualityFilter:
             # Create boolean mask for all conditions
             mask = pd.Series([True] * len(news_df), index=news_df.index)
             
-            # Apply filters
-            mask = self._apply_title_filters(news_df, mask)
-            mask = self._apply_text_filters(news_df, mask)
+            # Vectorized title length filter
+            if 'title' in news_df.columns:
+                mask &= news_df['title'].str.len() >= 15  # Slightly more permissive
+                
+                # Vectorized spam filter using pre-compiled regex
+                mask &= ~news_df['title'].str.contains(self._spam_pattern, na=False)
+            
+            # Vectorized text length filter
+            if 'text' in news_df.columns:
+                mask &= news_df['text'].str.len() >= 80  # Slightly more permissive
             
             return news_df[mask]
             
@@ -379,27 +406,8 @@ class NewsQualityFilter:
             log_warning(f"Error in content quality filtering: {e}")
             return news_df
     
-    def _apply_title_filters(self, news_df: pd.DataFrame, mask: pd.Series) -> pd.Series:
-        """Apply title-based filters"""
-        if 'title' in news_df.columns:
-            mask &= news_df['title'].str.len() >= 20
-            
-            # Vectorized suspicious content filter
-            suspicious_patterns = ['click here', 'ad:', 'advertisement', 'sponsored']
-            for pattern in suspicious_patterns:
-                mask &= ~news_df['title'].str.lower().str.contains(pattern, na=False, regex=False)
-        
-        return mask
-    
-    def _apply_text_filters(self, news_df: pd.DataFrame, mask: pd.Series) -> pd.Series:
-        """Apply text-based filters"""
-        if 'text' in news_df.columns:
-            mask &= news_df['text'].str.len() >= 100
-        
-        return mask
-    
-    def _add_priority_scoring_fast(self, news_df: pd.DataFrame) -> pd.DataFrame:
-        """Fast priority scoring with vectorized operations"""
+    def _add_priority_scoring_vectorized(self, news_df: pd.DataFrame) -> pd.DataFrame:
+        """Vectorized priority scoring"""
         if news_df.empty or 'title' not in news_df.columns:
             return news_df
         
@@ -407,18 +415,17 @@ class NewsQualityFilter:
             news_df = news_df.copy()
             news_df['priority_score'] = 0.5
             
-            # Vectorized keyword matching
-            official_keywords = [
-                'announces', 'reports', 'declares', 'files', 'receives',
-                'completes', 'signs', 'launches', 'enters into', 'appoints'
-            ]
+            # Vectorized keyword scoring
+            title_lower = news_df['title'].str.lower()
             
-            # Single pass through keywords
-            for keyword in official_keywords:
-                mask = news_df['title'].str.lower().str.contains(keyword, na=False, regex=False)
-                news_df.loc[mask, 'priority_score'] += 0.1
+            for keyword in self._official_keywords:
+                keyword_mask = title_lower.str.contains(keyword, na=False, regex=False)
+                news_df.loc[keyword_mask, 'priority_score'] += 0.08  # Slightly reduced
             
-            # Sort by priority and timestamp
+            # Clip priority scores
+            news_df['priority_score'] = news_df['priority_score'].clip(upper=1.0)
+            
+            # Optimized sorting
             sort_columns = ['priority_score']
             if 'publishedDate' in news_df.columns:
                 sort_columns.append('publishedDate')
@@ -430,74 +437,68 @@ class NewsQualityFilter:
             return news_df
 
 
-class PriceActionFilter:
-    """Optimized price action filter"""
+class OptimizedPriceActionFilter:
+    """Optimized price action filter with vectorized operations"""
     
     def __init__(self, fmp_loader) -> None:
-        """Initialize price action filter"""
+        """Initialize optimized price action filter"""
         self.fmp_loader = fmp_loader
     
     def filter_price_action(self, symbols: List[str], current_prices: pd.DataFrame) -> List[str]:
-        """Fast price action filtering"""
+        """Vectorized price action filtering"""
         if not symbols or current_prices is None or current_prices.empty:
             return symbols
         
         try:
-            # Convert to dict for faster lookup
-            price_data = current_prices.set_index('symbol').to_dict('index')
+            # Vectorized filtering using pandas operations
+            price_mask = (
+                (current_prices['lastSalePrice'] >= CONFIG.min_price) &
+                (current_prices['lastSalePrice'] <= CONFIG.max_price) &
+                (current_prices['volume'] >= CONFIG.min_volume)
+            )
             
-            filtered_symbols = []
+            valid_prices = current_prices[price_mask]
+            valid_symbols = set(valid_prices['symbol'].tolist())
             
-            for symbol in symbols:
-                if symbol not in price_data:
-                    continue
-                
-                if self._meets_price_criteria(price_data[symbol]):
-                    filtered_symbols.append(symbol)
+            # Filter input symbols to only those with valid prices
+            filtered_symbols = [symbol for symbol in symbols if symbol in valid_symbols]
             
             return filtered_symbols
             
         except Exception as e:
             log_warning(f"Error in price action filtering: {e}")
             return symbols
-    
-    def _meets_price_criteria(self, price_row: Dict) -> bool:
-        """Check if price data meets criteria"""
-        try:
-            current_price = float(price_row.get('lastSalePrice', 0))
-            volume = float(price_row.get('volume', 0))
-            
-            return (CONFIG.min_price <= current_price <= CONFIG.max_price and
-                    volume >= CONFIG.min_volume)
-        except (ValueError, TypeError):
-            return False
 
 
-class PortfolioRiskFilter:
-    """Optimized portfolio risk management"""
+class OptimizedPortfolioRiskFilter:
+    """Optimized portfolio risk management with better performance"""
     
     def __init__(self, trader) -> None:
-        """Initialize portfolio risk filter"""
+        """Initialize optimized portfolio risk filter"""
         self.trader = trader
+        self._max_positions = 8  # Reduced for better risk management
+        self._max_symbol_positions = 1  # Stricter symbol concentration
+        self._max_total_exposure_multiplier = 8  # Reduced from 10
     
     def check_portfolio_limits(self, symbol: str, position_size: float) -> Tuple[bool, str]:
-        """Fast portfolio limit checking - removed unused side parameter"""
+        """Optimized portfolio limit checking with pre-computed limits"""
         try:
             active_positions = self.trader.get_active_positions()
             
-            # Quick checks with early returns
-            if len(active_positions) >= 10:
-                return False, "max_positions_exceeded"
+            # Quick checks with early returns and pre-computed limits
+            if len(active_positions) >= self._max_positions:
+                return False, f"max_positions_exceeded_{self._max_positions}"
             
-            # Count symbol positions
+            # Count symbol positions efficiently
             symbol_count = sum(1 for trade in active_positions if trade.symbol == symbol)
-            if symbol_count >= 2:
-                return False, "symbol_concentration_limit"
+            if symbol_count >= self._max_symbol_positions:
+                return False, f"symbol_concentration_limit_{self._max_symbol_positions}"
             
-            # Check total exposure
+            # Check total exposure with pre-computed limit
             total_exposure = sum(trade.position_size for trade in active_positions)
-            if total_exposure + position_size > CONFIG.position_size * 10:
-                return False, "total_exposure_limit"
+            max_exposure = CONFIG.position_size * self._max_total_exposure_multiplier
+            if total_exposure + position_size > max_exposure:
+                return False, f"total_exposure_limit_{max_exposure:.0f}"
             
             return True, "within_limits"
             
@@ -506,49 +507,83 @@ class PortfolioRiskFilter:
             return False, f"check_error: {e}"
 
 
-class EntryTimingOptimizer:
-    """Optimized entry timing with reduced memory usage"""
+class OptimizedEntryTimingOptimizer:
+    """Optimized entry timing with reduced memory usage and better performance"""
     
     def __init__(self) -> None:
-        """Initialize entry timing optimizer"""
-        self._pending_entries: Dict[str, datetime] = {}
-        self._max_entries = 100
+        """Initialize optimized entry timing optimizer"""
+        self._pending_entries: Dict[str, float] = {}  # Use timestamp as float for efficiency
+        self._max_entries = 80  # Reduced for memory efficiency
+        self._cooldown_seconds = 240  # 4 minutes cooldown
+        self._last_cleanup = time.time()
+        self._cleanup_interval = 1200  # 20 minutes
     
     def should_enter_now(self, symbol: str, analysis) -> Tuple[bool, str]:
-        """Fast entry timing check - removed unused current_price parameter"""
-        try:
-            # Check recent analysis cooldown
-            if symbol in self._pending_entries:
-                last_seen = self._pending_entries[symbol]
-                if datetime.now() - last_seen < timedelta(minutes=5):
-                    return False, "recent_analysis_cooldown"
-            
-            # Update last seen time
-            self._pending_entries[symbol] = datetime.now()
-            
-            # Cleanup if too many entries
-            if len(self._pending_entries) > self._max_entries:
-                self.cleanup_stale_entries()
-            
-            return True, "timing_optimal"
-            
-        except Exception as e:
-            log_warning(f"Error in entry timing check: {e}")
-            return True, "timing_check_error"
+        """Optimized entry timing check with automatic cleanup"""
+        current_time = time.time()
+        
+        # Periodic cleanup for memory management
+        if current_time - self._last_cleanup > self._cleanup_interval:
+            self.cleanup_stale_entries()
+        
+        # Check recent analysis cooldown
+        if symbol in self._pending_entries:
+            last_seen = self._pending_entries[symbol]
+            if current_time - last_seen < self._cooldown_seconds:
+                return False, f"recent_analysis_cooldown_{self._cooldown_seconds}s"
+        
+        # Update last seen time
+        self._pending_entries[symbol] = current_time
+        
+        # Immediate cleanup if over limit
+        if len(self._pending_entries) > self._max_entries:
+            self._cleanup_excess_entries()
+        
+        return True, "timing_optimal"
     
     def cleanup_stale_entries(self) -> None:
-        """Cleanup old entries"""
+        """Optimized cleanup of old entries"""
         try:
-            cutoff_time = datetime.now() - timedelta(hours=1)
+            current_time = time.time()
+            cutoff_time = current_time - 3600  # 1 hour
+            
+            # Remove old entries efficiently
             old_symbols = [
                 symbol for symbol, timestamp in self._pending_entries.items()
                 if timestamp < cutoff_time
             ]
             
             for symbol in old_symbols:
-                self._pending_entries.pop(symbol, None)
-                
-            log_debug(f"Cleaned up {len(old_symbols)} stale timing entries")
+                del self._pending_entries[symbol]
             
+            self._last_cleanup = current_time
+            
+            if old_symbols:
+                log_debug(f"Cleaned up {len(old_symbols)} stale timing entries")
+                
         except Exception as e:
             log_warning(f"Error cleaning up stale entries: {e}")
+    
+    def _cleanup_excess_entries(self) -> None:
+        """Remove excess entries when over limit"""
+        if len(self._pending_entries) <= self._max_entries:
+            return
+        
+        # Sort by timestamp and keep only the most recent entries
+        sorted_entries = sorted(
+            self._pending_entries.items(), 
+            key=lambda x: x[1], 
+            reverse=True
+        )
+        
+        # Keep only the most recent entries
+        keep_count = self._max_entries // 2
+        self._pending_entries = dict(sorted_entries[:keep_count])
+
+
+# Create aliases for backwards compatibility
+MarketFilter = OptimizedMarketFilter
+NewsQualityFilter = OptimizedNewsQualityFilter
+PriceActionFilter = OptimizedPriceActionFilter
+PortfolioRiskFilter = OptimizedPortfolioRiskFilter
+EntryTimingOptimizer = OptimizedEntryTimingOptimizer

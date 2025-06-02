@@ -1,5 +1,5 @@
 """
-Fixed Gemini LLM-powered news analyzer with resolved import issues
+Fixed Gemini LLM-powered news analyzer with resolved rate limiting and model issues
 """
 import json
 import re
@@ -11,28 +11,15 @@ from functools import lru_cache
 from config import CONFIG
 from utils.simple_logger import log_info, log_error, log_warning, log_debug
 
-# Fix for Google Generative AI import issues
+# Store the imported module in a variable to help type checkers
+_gemini_lib_module: Optional[Any] = None
 try:
-    import google.generativeai as genai
-    # Try to import the specific modules that Pylance expects
-    try:
-        from google.generativeai.client import configure
-        from google.generativeai.generative_models import GenerativeModel
-        SPECIFIC_IMPORTS_AVAILABLE = True
-    except ImportError:
-        # If specific imports fail, we'll use a different approach
-        SPECIFIC_IMPORTS_AVAILABLE = False
-        configure = None
-        GenerativeModel = None
-    
+    import google.generativeai
+    _gemini_lib_module = google.generativeai
     GENAI_AVAILABLE = True
 except ImportError:
     log_error("google-generativeai not installed. Run: pip install google-generativeai")
     GENAI_AVAILABLE = False
-    SPECIFIC_IMPORTS_AVAILABLE = False
-    genai = None
-    configure = None
-    GenerativeModel = None
 
 
 @dataclass
@@ -48,11 +35,11 @@ class GeminiAnalysis:
     raw_response: str           # Full AI response for debugging
 
 
-class GeminiNewsAnalyzer:
-    """Fixed news analyzer using Google Gemini LLM with proper imports"""
+class OptimizedGeminiNewsAnalyzer:
+    """Optimized news analyzer using Google Gemini LLM with fixed rate limiting"""
     
     def __init__(self) -> None:
-        """Initialize Gemini analyzer with fixed import handling"""
+        """Initialize Gemini analyzer with optimized rate limiting"""
         if not GENAI_AVAILABLE:
             log_warning("Google Generative AI library not available - Gemini analysis disabled")
             self.enabled = False
@@ -64,85 +51,59 @@ class GeminiNewsAnalyzer:
             self.enabled = False
             return
         
+        # Get and validate model name
         self.model_name = CONFIG.get_gemini_model()
         
-        # Conservative rate limiting for free tier
-        self.max_requests_per_minute = 10
-        self.max_requests_per_day = 1000
-        self.request_timestamps = []
+        # More conservative rate limiting for stability
+        self.max_requests_per_minute = 8  # Reduced from 10
+        self.max_requests_per_day = 800   # Reduced from 1000
+        self.request_timestamps: List[datetime] = []
         self.daily_request_count = 0
         self.last_reset_date = datetime.now().date()
         
-        # Store references to avoid repeated attribute access
-        self.model: Optional[Any] = None
+        # Request spacing to avoid bursts
+        self.min_request_spacing = 8.0  # 8 seconds between requests
+        self.last_request_time = 0.0
         
+        self.model: Optional[Any] = None
         self.enabled = self._initialize_model()
         
         if self.enabled:
-            self._setup_prompts()
+            self._setup_optimized_prompts()
     
     def _initialize_model(self) -> bool:
-        """Initialize Gemini model with multiple fallback methods."""
-        initialization_methods = [
-            self._init_with_specific_imports,
-            self._init_with_reflection,
-            self._init_fallback_flash
-        ]
-        
-        for method in initialization_methods:
+        """Initialize Gemini model with robust error handling."""
+        # This method is called from __init__ only if GENAI_AVAILABLE is True.
+        # Therefore, _gemini_lib_module should be the imported module.
+        if not _gemini_lib_module:
+            log_error("Gemini library module is None, cannot initialize model. This indicates an issue with GENAI_AVAILABLE logic.")
+            return False
+        try:
+            # Configure with API key
+            _gemini_lib_module.configure(api_key=self.api_key)
+            
+            # Validate model name and create model
+            self.model = _gemini_lib_module.GenerativeModel(self.model_name)
+            
+            log_info(f"Gemini analyzer initialized successfully with model: {self.model_name}")
+            log_info(f"Rate limits: {self.max_requests_per_minute} RPM, {self.max_requests_per_day} RPD")
+            return True
+            
+        except Exception as e:
+            log_error(f"Failed to initialize Gemini model '{self.model_name}': {e}")
+            
+            # Try fallback model
             try:
-                method()
-                log_info(f"Gemini analyzer initialized successfully with model: {self.model_name}")
-                log_info(f"Rate limits: {self.max_requests_per_minute} RPM, {self.max_requests_per_day} RPD")
+                self.model_name = 'gemini-1.5-flash'
+                self.model = _gemini_lib_module.GenerativeModel(self.model_name)
+                log_info(f"Using fallback model: {self.model_name}")
                 return True
-            except Exception as e:
-                log_debug(f"Initialization method failed: {e}")
-                continue
-        
-        log_error("All Gemini initialization methods failed")
-        return False
+            except Exception as fallback_error:
+                log_error(f"Fallback model also failed: {fallback_error}")
+                return False
     
-    def _init_with_specific_imports(self) -> None:
-        """Primary initialization method using specific imports."""
-        if not SPECIFIC_IMPORTS_AVAILABLE or configure is None or GenerativeModel is None:
-            raise ImportError("Specific imports not available")
-        
-        configure(api_key=self.api_key)
-        self.model = GenerativeModel(self.model_name)
-    
-    def _init_with_reflection(self) -> None:
-        """Alternative initialization using reflection to avoid direct attribute access."""
-        if genai is None:
-            raise ImportError("genai not available")
-        
-        # Use getattr to avoid Pylance warnings about private imports
-        configure_func = getattr(genai, 'configure', None)
-        model_class = getattr(genai, 'GenerativeModel', None)
-        
-        if configure_func is None or model_class is None:
-            raise ImportError("Required functions not available via reflection")
-        
-        configure_func(api_key=self.api_key)
-        self.model = model_class(self.model_name)
-    
-    def _init_fallback_flash(self) -> None:
-        """Fallback to flash model using reflection."""
-        if genai is None:
-            raise ImportError("genai not available")
-        
-        configure_func = getattr(genai, 'configure', None)
-        model_class = getattr(genai, 'GenerativeModel', None)
-        
-        if configure_func is None or model_class is None:
-            raise ImportError("Required functions not available for fallback")
-        
-        configure_func(api_key=self.api_key)
-        self.model = model_class('gemini-1.5-flash')
-        self.model_name = 'gemini-1.5-flash'
-        log_info("Using fallback flash model")
-    
-    def _check_rate_limits(self) -> bool:
-        """Enhanced rate limiting check with daily reset"""
+    def _check_enhanced_rate_limits(self) -> bool:
+        """Enhanced rate limiting with daily reset and request spacing."""
         now = datetime.now()
         current_date = now.date()
         
@@ -150,6 +111,7 @@ class GeminiNewsAnalyzer:
         if current_date != self.last_reset_date:
             self.daily_request_count = 0
             self.last_reset_date = current_date
+            self.request_timestamps.clear()
             log_debug("Daily Gemini rate limit counter reset")
         
         # Check daily limit
@@ -157,7 +119,12 @@ class GeminiNewsAnalyzer:
             log_warning(f"Gemini daily rate limit reached: {self.daily_request_count}/{self.max_requests_per_day}")
             return False
         
-        # Clean old timestamps
+        # Check request spacing
+        time_since_last = time.time() - self.last_request_time
+        if time_since_last < self.min_request_spacing:
+            return False
+        
+        # Clean old timestamps (keep only last minute)
         minute_ago = now - timedelta(minutes=1)
         self.request_timestamps = [ts for ts in self.request_timestamps if ts > minute_ago]
         
@@ -168,53 +135,64 @@ class GeminiNewsAnalyzer:
         
         return True
     
-    def _record_request(self) -> None:
-        """Record a request for rate limiting"""
-        self.request_timestamps.append(datetime.now())
-        self.daily_request_count += 1
-        
-        if self.daily_request_count % 10 == 0:
-            log_debug(f"Gemini usage: {self.daily_request_count}/{self.max_requests_per_day} daily, "
-                     f"{len(self.request_timestamps)}/{self.max_requests_per_minute} per minute")
-    
-    def _wait_for_rate_limit(self) -> bool:
-        """Wait for rate limit reset if close to limit"""
-        if not self.request_timestamps or len(self.request_timestamps) < self.max_requests_per_minute:
+    def _wait_for_rate_limit_reset(self) -> bool:
+        """Wait for rate limit reset with timeout."""
+        if not self.request_timestamps:
             return True
         
-        oldest_request = min(self.request_timestamps)
-        wait_until = oldest_request + timedelta(minutes=1, seconds=5)
-        now = datetime.now()
-        
-        if now < wait_until:
-            sleep_time = (wait_until - now).total_seconds()
-            if 0 < sleep_time < 60:
-                log_info(f"Waiting {sleep_time:.1f}s for Gemini rate limit reset...")
-                time.sleep(sleep_time)
+        # Wait for request spacing
+        time_since_last = time.time() - self.last_request_time
+        if time_since_last < self.min_request_spacing:
+            wait_time = self.min_request_spacing - time_since_last
+            if wait_time > 0 and wait_time <= 15:  # Max 15 second wait
+                log_debug(f"Waiting {wait_time:.1f}s for request spacing...")
+                time.sleep(wait_time)
                 return True
-            else:
-                log_warning("Gemini rate limit wait time too long, skipping")
-                return False
+            return False
+        
+        # Wait for per-minute limit reset
+        if len(self.request_timestamps) >= self.max_requests_per_minute:
+            oldest_request = min(self.request_timestamps)
+            wait_until = oldest_request + timedelta(minutes=1, seconds=10)
+            now = datetime.now()
+            
+            if now < wait_until:
+                sleep_time = (wait_until - now).total_seconds()
+                if 0 < sleep_time <= 30:  # Max 30 second wait
+                    log_debug(f"Waiting {sleep_time:.1f}s for rate limit reset...")
+                    time.sleep(sleep_time)
+                    return True
+                else:
+                    log_warning("Rate limit wait time too long, skipping request")
+                    return False
         
         return True
     
-    def _setup_prompts(self) -> None:
-        """Setup specialized prompts optimized for Flash model"""
+    def _record_request(self) -> None:
+        """Record a request for rate limiting tracking."""
+        now = datetime.now()
+        self.request_timestamps.append(now)
+        self.daily_request_count += 1
+        self.last_request_time = time.time()
+        
+        if self.daily_request_count % 25 == 0:  # Log every 25 requests
+            log_debug(f"Gemini usage: {self.daily_request_count}/{self.max_requests_per_day} daily, "
+                     f"{len(self.request_timestamps)}/{self.max_requests_per_minute} per minute")
+    
+    def _setup_optimized_prompts(self) -> None:
+        """Setup optimized prompts for better results."""
         self.base_prompt = """
-You are a financial analyst evaluating news for stock trading.
+Analyze this financial news and return ONLY a JSON object.
 
-Analyze this news and respond with ONLY a JSON object:
-
-COMPANY: {symbol}
-PRICE: ${current_price}
+COMPANY: {symbol} (Price: ${current_price})
 TITLE: {title}
 CONTENT: {content}
 
-JSON Response:
+Return exactly this JSON format:
 {{
-    "sentiment": <1-10 where 1=very bearish, 5=neutral, 10=very bullish>,
-    "market_impact": <1-10 where 1=no impact, 10=major catalyst>,
-    "confidence": <1-10 in your assessment>,
+    "sentiment": <number 1-10 where 1=very bearish, 5=neutral, 10=very bullish>,
+    "market_impact": <number 1-10 where 1=no impact, 10=major catalyst>,
+    "confidence": <number 1-10 in your assessment>,
     "reasoning": "<brief 1-2 sentence explanation>",
     "expected_move": "<up/down/sideways>",
     "move_magnitude": "<small/medium/large>",
@@ -223,41 +201,32 @@ JSON Response:
 """
         
         self.topic_prompts = {
-            'earnings': "You are analyzing EARNINGS news. Focus on beats/misses, guidance, and outlook.\n\n{base_analysis}",
-            'biotech': "You are analyzing BIOTECH/PHARMA news. Focus on trials, FDA actions, and drug approvals.\n\n{base_analysis}",
-            'analyst': "You are analyzing ANALYST coverage. Focus on rating changes, price targets, and credibility.\n\n{base_analysis}"
+            'earnings': "Focus on earnings beats/misses, guidance, and revenue trends.\n\n{base_analysis}",
+            'biotech': "Focus on FDA approvals, clinical trials, and regulatory news.\n\n{base_analysis}",
+            'analyst': "Focus on rating changes, price targets, and analyst credibility.\n\n{base_analysis}"
         }
     
     def analyze_news(self, symbol: str, title: str, content: str, 
                     current_price: float, topic: str = "general") -> Optional[GeminiAnalysis]:
-        """Analyze news with improved rate limiting and error handling"""
+        """Analyze news with enhanced rate limiting and error handling."""
         if not self.enabled or self.model is None:
             return None
         
-        # Check and wait for rate limits
-        if not self._check_rate_limits() or not self._wait_for_rate_limit():
-            log_debug(f"Skipping Gemini analysis for {symbol} due to rate limits")
+        # Enhanced rate limit checking
+        if not self._check_enhanced_rate_limits():
+            return None
+        
+        if not self._wait_for_rate_limit_reset():
             return None
         
         try:
             self._record_request()
             
             # Get appropriate prompt
-            prompt = self._get_prompt_for_topic(topic).format(
-                symbol=symbol,
-                current_price=current_price,
-                title=title,
-                content=content[:1200],
-                base_analysis=self.base_prompt.format(
-                    symbol=symbol,
-                    current_price=current_price,
-                    title=title,
-                    content=content[:1200]
-                )
-            )
+            prompt = self._get_optimized_prompt(symbol, title, content, current_price, topic)
             
-            # Generate response with error handling
-            response = self._generate_response(prompt)
+            # Generate response with timeout
+            response = self._generate_with_timeout(prompt)
             
             if not response or not hasattr(response, 'text') or not response.text:
                 log_warning(f"Empty response from Gemini for {symbol}")
@@ -275,68 +244,89 @@ JSON Response:
             self._handle_api_error(e, symbol)
             return None
     
-    def _generate_response(self, prompt: str) -> Any:
-        """Generate response with multiple API version compatibility."""
-        if self.model is None:
-            raise ValueError("Model not initialized")
+    def _get_optimized_prompt(self, symbol: str, title: str, content: str, 
+                             current_price: float, topic: str) -> str:
+        """Get optimized prompt based on topic."""
+        base_analysis = self.base_prompt.format(
+            symbol=symbol,
+            current_price=current_price,
+            title=title[:200],  # Truncate for efficiency
+            content=content[:800]  # Truncate for efficiency
+        )
         
+        if topic in self.topic_prompts:
+            return self.topic_prompts[topic].format(base_analysis=base_analysis)
+        
+        return base_analysis
+    
+    def _generate_with_timeout(self, prompt: str) -> Any:
+        """Generate response with timeout and optimized configuration."""
+        if self.model is None:
+            # This should ideally not be reached due to guards in calling methods (e.g., analyze_news).
+            log_error("Gemini model is None in _generate_with_timeout. Aborting generation.")
+            return None
         try:
-            # Try to use generation config if available
-            try:
-                from google.generativeai.types import GenerationConfig
-                return self.model.generate_content(
-                    prompt,
-                    generation_config=GenerationConfig(
-                        max_output_tokens=300,
-                        temperature=0.1
-                    )
-                )
-            except ImportError:
-                # Fallback if types not available
-                pass
+            # Try with generation config for better control
+            generation_config = {
+                'max_output_tokens': 200,
+                'temperature': 0.1,
+                'top_p': 0.8
+            }
             
-            # Simple generation without config
-            return self.model.generate_content(prompt)
+            return self.model.generate_content(
+                prompt,
+                generation_config=generation_config
+            )
             
-        except Exception as e:
-            # Final fallback
-            log_debug(f"Generation error: {e}, trying basic method")
+        except Exception:
+            # Fallback to simple generation
             return self.model.generate_content(prompt)
     
     def _handle_api_error(self, error: Exception, symbol: str) -> None:
-        """Handle specific API errors."""
-        error_str = str(error)
-        if any(keyword in error_str.lower() for keyword in ["quota", "rate", "limit"]):
-            log_warning(f"Gemini rate limit hit for {symbol}: {error}")
+        """Handle specific API errors with appropriate responses."""
+        error_str = str(error).lower()
+        
+        if any(keyword in error_str for keyword in ["quota", "rate", "limit"]):
+            log_warning(f"Gemini rate limit for {symbol}: {error}")
+            # Mark as hitting daily limit to prevent further requests
             self.daily_request_count = self.max_requests_per_day
+        elif "model" in error_str and "format" in error_str:
+            log_error(f"Gemini model format error for {symbol}: {error}")
+            # Disable temporarily to prevent repeated errors
+            self.enabled = False
         else:
             log_error(f"Gemini API error for {symbol}: {error}")
     
-    def _get_prompt_for_topic(self, topic: str) -> str:
-        """Get specialized prompt based on news topic"""
-        return self.topic_prompts.get(topic, self.base_prompt)
-    
     def _parse_gemini_response(self, response_text: str, symbol: str) -> Optional[GeminiAnalysis]:
-        """Enhanced response parsing with better error handling"""
+        """Enhanced response parsing with better error handling."""
         try:
-            # Extract JSON from response
-            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-            if not json_match:
-                log_warning(f"No JSON found in Gemini response for {symbol}")
+            # Clean and extract JSON
+            json_text = self._extract_json_from_response(response_text)
+            if not json_text:
                 return self._fallback_parse(response_text, symbol)
             
-            data = json.loads(json_match.group(0))
+            data = json.loads(json_text)
             
-            # Validate required fields
-            required_fields = ['sentiment', 'market_impact', 'confidence', 'reasoning']
-            if not all(field in data for field in required_fields):
-                log_warning(f"Missing required fields in Gemini response for {symbol}")
-                return self._fallback_parse(response_text, symbol)
+            # Validate required fields with defaults
+            required_fields = {
+                'sentiment': 5, 'market_impact': 5, 'confidence': 5, 
+                'reasoning': 'Analysis completed'
+            }
             
-            # Normalize scores
-            sentiment_normalized = self._normalize_score(data['sentiment'], -1.0, 1.0, 1.0, 10.0, 5.5)
-            market_impact_normalized = self._normalize_score(data['market_impact'], 0.0, 1.0, 1.0, 10.0)
-            confidence_normalized = self._normalize_score(data['confidence'], 0.0, 1.0, 1.0, 10.0)
+            for field, default in required_fields.items():
+                if field not in data:
+                    data[field] = default
+            
+            # Normalize scores with safe conversion
+            sentiment_normalized = self._safe_normalize_score(
+                data['sentiment'], -1.0, 1.0, 1.0, 10.0, 5.5
+            )
+            market_impact_normalized = self._safe_normalize_score(
+                data['market_impact'], 0.0, 1.0, 1.0, 10.0
+            )
+            confidence_normalized = self._safe_normalize_score(
+                data['confidence'], 0.0, 1.0, 1.0, 10.0
+            )
             
             return GeminiAnalysis(
                 sentiment_score=sentiment_normalized,
@@ -346,154 +336,154 @@ JSON Response:
                 expected_move=str(data.get('expected_move', 'sideways')),
                 move_magnitude=str(data.get('move_magnitude', 'small')),
                 catalyst_type=str(data.get('catalyst_type', 'general')),
-                raw_response=response_text
+                raw_response=response_text[:500]  # Truncate for memory
             )
             
-        except json.JSONDecodeError as e:
-            log_warning(f"JSON parsing error for {symbol}: {e}")
+        except json.JSONDecodeError:
             return self._fallback_parse(response_text, symbol)
         except Exception as e:
             log_error(f"Error parsing Gemini response for {symbol}: {e}")
             return None
     
+    def _extract_json_from_response(self, response_text: str) -> Optional[str]:
+        """Extract JSON from response text with multiple patterns."""
+        patterns = [
+            r'\{[^{}]*\}',  # Simple JSON object
+            r'\{.*?\}',     # Non-greedy JSON
+            r'```json\s*(\{.*?\})\s*```',  # JSON in code blocks
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, response_text, re.DOTALL)
+            if match:
+                # Return the JSON part (group 1 if it exists, otherwise group 0)
+                return match.group(1) if match.groups() else match.group(0)
+        
+        return None
+    
     @staticmethod
-    def _normalize_score(value: float, min_out: float, max_out: float, 
-                        min_in: float = 1.0, max_in: float = 10.0, center: Optional[float] = None) -> float:
-        """Normalize score from input range to output range."""
+    def _safe_normalize_score(value: Any, min_out: float, max_out: float, 
+                             min_in: float = 1.0, max_in: float = 10.0, 
+                             center: Optional[float] = None) -> float:
+        """Safely normalize score with error handling."""
         try:
+            num_value = float(value)
+            
             if center is not None:
                 # For sentiment: center around neutral
-                if value > center:
-                    normalized = (float(value) - center) / (max_in - center)
+                if num_value > center:
+                    normalized = (num_value - center) / (max_in - center)
                 else:
-                    normalized = (float(value) - center) / (center - min_in)
-                normalized = max(min_out, min(max_out, normalized))
+                    normalized = (num_value - center) / (center - min_in)
+                return max(min_out, min(max_out, normalized))
             else:
                 # Standard normalization
-                normalized = (float(value) - min_in) / (max_in - min_in)
+                normalized = (num_value - min_in) / (max_in - min_in)
                 normalized = min_out + normalized * (max_out - min_out)
-                normalized = max(min_out, min(max_out, normalized))
-            
-            return normalized
+                return max(min_out, min(max_out, normalized))
+                
         except (ValueError, TypeError, ZeroDivisionError):
-            # Return neutral value if normalization fails
+            # Return neutral value
             return (min_out + max_out) / 2.0
     
     def _fallback_parse(self, response_text: str, symbol: str) -> Optional[GeminiAnalysis]:
-        """Improved fallback parsing when JSON extraction fails"""
+        """Improved fallback parsing with keyword detection."""
         try:
             text_lower = response_text.lower()
             
-            # Sentiment keywords mapping
-            sentiment_keywords = {
-                0.8: ['very bullish', 'strong buy', 'very positive'],
-                0.4: ['bullish', 'positive', 'buy'],
-                -0.4: ['bearish', 'negative', 'sell'],
-                -0.8: ['very bearish', 'strong sell', 'very negative']
-            }
+            # Enhanced sentiment detection
+            sentiment_score = self._detect_sentiment_from_text(text_lower)
+            market_impact = self._detect_impact_from_text(text_lower)
             
-            sentiment = 0.0
-            for score, keywords in sentiment_keywords.items():
-                if any(keyword in text_lower for keyword in keywords):
-                    sentiment = score
-                    break
-            
-            # Market impact keywords
-            impact_keywords = {
-                0.8: ['major catalyst', 'significant', 'large impact'],
-                0.3: ['minor', 'small impact', 'limited']
-            }
-            
-            market_impact = 0.5  # Default
-            for score, keywords in impact_keywords.items():
-                if any(keyword in text_lower for keyword in keywords):
-                    market_impact = score
-                    break
-            
-            # Extract reasoning
+            # Extract reasoning (first sentence or two)
             sentences = response_text.split('.')[:2]
             reasoning = '. '.join(sentences)[:150]
             
             return GeminiAnalysis(
-                sentiment_score=sentiment,
+                sentiment_score=sentiment_score,
                 market_impact=market_impact,
-                confidence=0.5,  # Lower confidence for fallback
+                confidence=0.4,  # Lower confidence for fallback
                 reasoning=reasoning,
                 expected_move='sideways',
                 move_magnitude='medium',
                 catalyst_type='general',
-                raw_response=response_text
+                raw_response=response_text[:500]
             )
             
         except Exception as e:
             log_error(f"Fallback parsing failed for {symbol}: {e}")
             return None
     
+    def _detect_sentiment_from_text(self, text_lower: str) -> float:
+        """Detect sentiment from text using keyword analysis."""
+        positive_keywords = [
+            'bullish', 'positive', 'buy', 'strong', 'good', 'excellent',
+            'outperform', 'beat', 'growth', 'revenue increase'
+        ]
+        negative_keywords = [
+            'bearish', 'negative', 'sell', 'weak', 'poor', 'terrible',
+            'underperform', 'miss', 'decline', 'revenue decrease'
+        ]
+        
+        pos_count = sum(1 for word in positive_keywords if word in text_lower)
+        neg_count = sum(1 for word in negative_keywords if word in text_lower)
+        
+        if pos_count + neg_count == 0:
+            return 0.0
+        
+        return (pos_count - neg_count) / (pos_count + neg_count) * 0.6
+    
+    def _detect_impact_from_text(self, text_lower: str) -> float:
+        """Detect market impact from text."""
+        high_impact_keywords = [
+            'major', 'significant', 'large', 'huge', 'massive', 'breakthrough'
+        ]
+        low_impact_keywords = [
+            'minor', 'small', 'limited', 'slight', 'minimal'
+        ]
+        
+        if any(word in text_lower for word in high_impact_keywords):
+            return 0.8
+        elif any(word in text_lower for word in low_impact_keywords):
+            return 0.3
+        
+        return 0.5
+    
     def get_usage_stats(self) -> Dict[str, int]:
-        """Get current usage statistics"""
+        """Get current usage statistics."""
         return {
             'daily_requests': self.daily_request_count,
             'daily_limit': self.max_requests_per_day,
             'minute_requests': len(self.request_timestamps),
             'minute_limit': self.max_requests_per_minute,
-            'remaining_daily': self.max_requests_per_day - self.daily_request_count,
-            'remaining_minute': self.max_requests_per_minute - len(self.request_timestamps)
+            'remaining_daily': max(0, self.max_requests_per_day - self.daily_request_count),
+            'remaining_minute': max(0, self.max_requests_per_minute - len(self.request_timestamps))
         }
     
-    def batch_analyze(self, news_items: List[Dict]) -> List[Optional[GeminiAnalysis]]:
-        """Analyze multiple news items with intelligent rate limiting"""
-        if not self.enabled:
-            return [None] * len(news_items)
-        
-        results = []
-        for item in news_items:
-            if not self._check_rate_limits():
-                log_info(f"Stopping batch analysis due to rate limits after {len(results)} items")
-                results.extend([None] * (len(news_items) - len(results)))
-                break
-            
-            try:
-                analysis = self.analyze_news(
-                    symbol=item.get('symbol', ''),
-                    title=item.get('title', ''),
-                    content=item.get('content', ''),
-                    current_price=item.get('current_price', 0.0),
-                    topic=item.get('topic', 'general')
-                )
-                results.append(analysis)
-                
-                # Smart batching delay
-                if len(results) % 5 == 0:
-                    time.sleep(1)
-                    
-            except Exception as e:
-                log_error(f"Batch analysis error: {e}")
-                results.append(None)
-        
-        return results
-    
-    @lru_cache(maxsize=10)
+    @lru_cache(maxsize=5)
     def get_market_context_analysis(self, market_regime: str, vix_level: float) -> str:
-        """Get market context for better analysis"""
+        """Get cached market context for better analysis."""
         if not self.enabled or self.model is None:
             return "neutral"
         
+        # Only analyze if we have spare capacity
+        if not self._check_enhanced_rate_limits():
+            return "neutral conditions"
+        
         try:
             prompt = f"""
-Current market conditions:
-- Market Regime: {market_regime}
-- VIX Level: {vix_level}
+Current market: {market_regime}, VIX: {vix_level}
 
-In 1-2 sentences, describe how these conditions should affect:
-1. Risk appetite for individual stock moves
-2. Whether news-driven trades are likely to work
-3. Expected holding periods
+In 1 sentence, how should traders adjust risk for individual stock moves?
 
 Response:
 """
             response = self.model.generate_content(prompt)
-            return response.text if response and hasattr(response, 'text') and response.text else "neutral conditions"
+            return response.text[:200] if response and hasattr(response, 'text') else "neutral conditions"
             
-        except Exception as e:
-            log_debug(f"Market context analysis error: {e}")
+        except Exception:
             return "neutral conditions"
+
+
+# Create alias for backwards compatibility
+GeminiNewsAnalyzer = OptimizedGeminiNewsAnalyzer

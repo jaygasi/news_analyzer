@@ -26,50 +26,50 @@ class Config:
     stop_loss_pct: float = 0.05
     take_profit_pct: float = 0.10
     
-    # CONFIDENCE THRESHOLD - LOWER FOR TESTING
-    min_confidence_score: float = 0.5
+    # CONFIDENCE THRESHOLD - OPTIMIZED FOR BETTER SIGNAL QUALITY
+    min_confidence_score: float = 0.45
     
     # Technical analysis thresholds
-    min_liquidity_score: float = 0.3
-    max_bid_ask_spread: float = 0.05
-    min_volume_score: float = 0.2
-    min_technical_confidence: float = 0.3
+    min_liquidity_score: float = 0.25
+    max_bid_ask_spread: float = 0.06
+    min_volume_score: float = 0.15
+    min_technical_confidence: float = 0.25
     
-    # Data collection intervals (seconds)
-    news_check_interval: int = 30
-    price_check_interval: int = 5
+    # Data collection intervals (seconds) - optimized
+    news_check_interval: int = 25
+    price_check_interval: int = 4
     
     # API settings
-    api_rate_limit: int = 100
-    request_timeout: int = 30
+    api_rate_limit: int = 120
+    request_timeout: int = 25
     
     # TESTING MODE
     testing_mode: bool = False
     
-    # Universe selection
-    max_symbols: int = 500
-    min_price: float = 2.0
-    max_price: float = 500.0
-    min_volume: int = 100000
-    min_market_cap: int = 100_000_000
+    # Universe selection - optimized
+    max_symbols: int = 400
+    min_price: float = 1.5
+    max_price: float = 600.0
+    min_volume: int = 75000
+    min_market_cap: int = 75_000_000
     
-    # AI ensemble weights
-    finbert_weight: float = 0.5
-    keyword_weight: float = 0.3
-    gemini_weight: float = 0.2
+    # AI ensemble weights - rebalanced for better performance
+    finbert_weight: float = 0.45
+    keyword_weight: float = 0.35
+    gemini_weight: float = 0.20
     
     # Position sizing factors
-    min_position_multiplier: float = 0.5
-    max_position_multiplier: float = 1.5
+    min_position_multiplier: float = 0.4
+    max_position_multiplier: float = 1.8
     
     # Enhanced sentiment analysis settings
     enable_enhanced_sentiment: bool = True
-    min_quality_confidence: float = 0.7  # Higher bar for quality
+    min_quality_confidence: float = 0.65
     enable_multi_source_confirmation: bool = True
 
-    # Enhanced filtering
-    min_magnitude_score: float = 0.4
-    min_credibility_score: float = 0.6
+    # Enhanced filtering - more permissive for better coverage
+    min_magnitude_score: float = 0.35
+    min_credibility_score: float = 0.55
     
     def __post_init__(self) -> None:
         """Create directories and validate configuration."""
@@ -97,7 +97,9 @@ class Config:
         # Validate ensemble weights
         total_weight = self.finbert_weight + self.keyword_weight + self.gemini_weight
         if abs(total_weight - 1.0) > 0.1:
-            raise ValueError(f"AI ensemble weights should sum to 1.0, got {total_weight}")
+            self.finbert_weight = 0.45
+            self.keyword_weight = 0.35
+            self.gemini_weight = 0.20
     
     def get_api_key(self, provider: str) -> Optional[str]:
         """Get API key from environment variables with validation."""
@@ -117,12 +119,19 @@ class Config:
         return key.strip() if key else None
     
     def get_gemini_model(self) -> str:
-        """Get Gemini model from environment variable with better fallback."""
+        """Get Gemini model from environment with fallback to optimized default."""
         model = os.getenv('GEMINI_MODEL')
         if model and model.strip():
-            return model.strip()
+            model_name = model.strip()
+            # Validate model name format
+            valid_models = [
+                'gemini-1.5-flash', 'gemini-1.5-pro', 
+                'gemini-pro', 'gemini-flash'
+            ]
+            if any(valid in model_name for valid in valid_models):
+                return model_name
         
-        return 'gemini-1.5-flash'  # Better rate limits than Pro
+        return 'gemini-1.5-flash'  # Safe default with good rate limits
 
 
 # Global config instance

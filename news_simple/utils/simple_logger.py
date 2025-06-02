@@ -4,43 +4,49 @@ Optimized logging utility with proper encoding support
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
 from config import CONFIG
 
 
-class LoggerManager:
-    """Singleton logger manager for consistent logging across the application."""
+class OptimizedLoggerManager:
+    """Singleton logger manager with optimized performance."""
     
     _instance: Optional[logging.Logger] = None
+    _emoji_map: Dict[str, str] = {
+        '🚀': '[START]', '📋': '[INFO]', '✅': '[OK]', '💰': '[MONEY]',
+        '🎯': '[TARGET]', '📊': '[STATUS]', '🏁': '[STOP]', '⚠️': '[WARNING]',
+        '📈': '[CHART]', '❌': '[ERROR]', '🔍': '[DEBUG]', '📝': '[LOG]'
+    }
     
     @classmethod
     def get_logger(cls, name: str = "trading_system") -> logging.Logger:
-        """Get or create logger instance."""
+        """Get or create logger instance with caching."""
         if cls._instance is None:
             cls._instance = cls._setup_logger(name)
         return cls._instance
     
     @classmethod
     def _setup_logger(cls, name: str) -> logging.Logger:
-        """Setup logger with proper encoding support for cross-platform compatibility."""
+        """Setup logger with optimized configuration."""
         logger = logging.getLogger(name)
         logger.setLevel(logging.INFO)
         
         if logger.handlers:
             return logger
         
-        # Console handler with UTF-8 encoding
+        # Console handler
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(logging.INFO)
         
-        # File handler with UTF-8 encoding
+        # File handler
         log_file = CONFIG.log_dir / f"{name}.log"
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setLevel(logging.DEBUG)
         
-        # Clean formatter without problematic characters
+        # Optimized formatter
         formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
         )
         console_handler.setFormatter(formatter)
         file_handler.setFormatter(formatter)
@@ -49,44 +55,41 @@ class LoggerManager:
         logger.addHandler(file_handler)
         
         return logger
+    
+    @classmethod
+    def clean_message(cls, msg: str) -> str:
+        """Remove emoji and problematic unicode characters efficiently."""
+        # Fast emoji replacement using pre-built map
+        for emoji, replacement in cls._emoji_map.items():
+            if emoji in msg:
+                msg = msg.replace(emoji, replacement)
+        
+        # Remove remaining problematic characters in one pass
+        return ''.join(
+            char for char in msg 
+            if ord(char) < 0x1F600 or ord(char) > 0x1F64F
+        )
 
 
 # Global logger instance
-logger = LoggerManager.get_logger()
-
-
-def _clean_message(msg: str) -> str:
-    """Remove emoji and problematic unicode characters for cross-platform compatibility."""
-    # Emoji replacements
-    emoji_replacements = {
-        '🚀': '[START]', '📋': '[INFO]', '✅': '[OK]', '💰': '[MONEY]',
-        '🎯': '[TARGET]', '📊': '[STATUS]', '🏁': '[STOP]', '⚠️': '[WARNING]',
-        '📈': '[CHART]'
-    }
-    
-    cleaned = msg
-    for emoji, replacement in emoji_replacements.items():
-        cleaned = cleaned.replace(emoji, replacement)
-    
-    # Remove remaining emoji characters
-    return ''.join(char for char in cleaned if ord(char) < 0x1F600 or ord(char) > 0x1F64F)
+logger = OptimizedLoggerManager.get_logger()
 
 
 def log_info(msg: str) -> None:
-    """Log info message with emoji removal for compatibility."""
-    logger.info(_clean_message(msg))
+    """Log info message with optimized emoji removal."""
+    logger.info(OptimizedLoggerManager.clean_message(msg))
 
 
 def log_error(msg: str) -> None:
-    """Log error message with emoji removal for compatibility."""
-    logger.error(_clean_message(msg))
+    """Log error message with optimized emoji removal."""
+    logger.error(OptimizedLoggerManager.clean_message(msg))
 
 
 def log_debug(msg: str) -> None:
-    """Log debug message with emoji removal for compatibility."""
-    logger.debug(_clean_message(msg))
+    """Log debug message with optimized emoji removal."""
+    logger.debug(OptimizedLoggerManager.clean_message(msg))
 
 
 def log_warning(msg: str) -> None:
-    """Log warning message with emoji removal for compatibility."""
-    logger.warning(_clean_message(msg))
+    """Log warning message with optimized emoji removal."""
+    logger.warning(OptimizedLoggerManager.clean_message(msg))
