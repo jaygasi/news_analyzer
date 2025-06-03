@@ -56,7 +56,7 @@ class BaseFMPLoader:
     
     def _make_request(self, endpoint: str, params: Optional[Dict[str, Any]] = None, 
                      use_v4: bool = False) -> Optional[Union[Dict, List]]:
-        """Make API request with comprehensive error handling and timestamp support."""
+        """Make API request with comprehensive error handling."""
         self._rate_limit()
         
         request_params = params or {}
@@ -81,10 +81,7 @@ class BaseFMPLoader:
         except requests.exceptions.ConnectionError:
             log_error(f"Connection error for {endpoint}")
         except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 429:
-                log_error(f"Rate limit hit for {endpoint}")
-            else:
-                log_error(f"HTTP error {e.response.status_code} for {endpoint}")
+            log_error(f"HTTP error {e.response.status_code} for {endpoint}")
         except requests.exceptions.RequestException as e:
             log_error(f"Request error for {endpoint}: {e}")
         except ValueError as e:
