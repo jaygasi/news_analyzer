@@ -2,6 +2,7 @@
 Base FMP data loader with core functionality and enhanced rate limiting
 """
 import requests
+from requests.adapters import HTTPAdapter  # Add this line
 import time
 from typing import Optional, Dict, Any, Union, List
 from utils.simple_logger import log_error, log_debug, log_warning
@@ -37,7 +38,7 @@ class BaseFMPLoader:
         })
         
         # More conservative connection pooling
-        adapter = requests.adapters.HTTPAdapter(
+        adapter = HTTPAdapter(
             pool_connections=3,  # Reduced from 5
             pool_maxsize=6,      # Reduced from 10
             max_retries=self.MAX_RETRIES

@@ -176,7 +176,7 @@ class NewsQualityFilter:
         if valid_dates_mask.any():
             # Use pandas Series subtraction for proper type handling
             valid_timestamps = df.loc[valid_dates_mask, '_parsed_date']
-            ages_timedelta = now - valid_timestamps  # This is now Timestamp - Series[Timestamp]
+            ages_timedelta = valid_timestamps.rsub(now)  # This is now Timestamp - Series[Timestamp]
             ages_hours = ages_timedelta.dt.total_seconds() / 3600
             
             # Apply time limits
@@ -485,7 +485,7 @@ class NewsQualityFilter:
                 return {}
             
             # Use pandas operations for datetime arithmetic
-            ages_timedelta = now - valid_dates
+            ages_timedelta = valid_dates.rsub(now)
             ages_hours = ages_timedelta.dt.total_seconds() / 3600
             
             return {

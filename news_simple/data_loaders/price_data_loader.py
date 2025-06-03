@@ -33,7 +33,15 @@ class PriceDataLoader(BaseFMPLoader):
         log_info(f"Requesting stock screener with enhanced parameters, limit: {limit}")
         data = self._make_request("stock-screener", params)
         
+        if data is None:
+            log_error("Failed to retrieve stock screener data")
+            return None
+        
         if not self._validate_response(data, "stock screener"):
+            return None
+        
+        if not isinstance(data, list):
+            log_error(f"Stock screener API returned data of type {type(data)} after validation, but a list was expected for processing.")
             return None
         
         return self._process_screener_data(data)
@@ -206,8 +214,13 @@ class PriceDataLoader(BaseFMPLoader):
         """Get market hours information."""
         try:
             data = self._make_request("market-hours")
-            return data
-            
+            if isinstance(data, dict): 
+                # Return only the markets information
+                return data
+            if data is not None:
+                log_debug(f"Market hours API returned an unexpected data type: {type(data)}. Expected dict or None.")
+            return None
+        
         except Exception as e:
             log_debug(f"Error getting market hours: {e}")
             return None
