@@ -60,33 +60,41 @@ class EnhancedFMPLoader:
             df = pd.DataFrame(all_articles)
             df = self._process_comprehensive_news(df)
             
-            log_info(f"Total comprehensive news: {len(df)} articles from {df['source'].nunique()} sources")
-            return df
+            if not df.empty:
+                log_info(f"Total comprehensive news: {len(df)} articles from {df['source'].nunique()} sources")
+            
+            return df if not df.empty else None
             
         except Exception as e:
             log_debug(f"Error in comprehensive news: {e}")
             return None
     
     def _process_comprehensive_news(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Process comprehensive news data."""
+        """Process comprehensive news data with proper DataFrame operations."""
         if df.empty:
             return df
         
         try:
+            # Make a copy to avoid SettingWithCopyWarning
+            df = df.copy()
+            
             # Enhanced deduplication
             df = self._enhanced_deduplicate_news(df)
             
-            # Process datetime
+            # Process datetime safely
             if 'publishedDate' in df.columns:
-                df['publishedDate'] = pd.to_datetime(df['publishedDate'], errors='coerce', utc=True)
+                df.loc[:, 'publishedDate'] = pd.to_datetime(df['publishedDate'], errors='coerce', utc=True)
             
-            # Create combined content field
+            # Create combined content field safely
             if 'title' in df.columns and 'text' in df.columns:
-                df['content'] = df['title'].astype(str) + " " + df['text'].astype(str)
+                df.loc[:, 'content'] = df['title'].astype(str) + " " + df['text'].astype(str)
             
-            # Ensure source field
+            # Ensure source field exists
             if 'source' not in df.columns:
-                df['source'] = 'unknown'
+                df.loc[:, 'source'] = 'unknown'
+            else:
+                # Fill missing source values
+                df.loc[:, 'source'] = df['source'].fillna('unknown')
             
             # Filter essential data
             essential_filters = (
@@ -96,23 +104,25 @@ class EnhancedFMPLoader:
                 (df['title'].str.strip() != '')
             )
             
-            return df[essential_filters]
+            filtered_df = df[essential_filters].copy()
+            return filtered_df
             
         except Exception as e:
             log_debug(f"Error processing comprehensive news: {e}")
             return df
     
     def _enhanced_deduplicate_news(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Enhanced deduplication with content similarity."""
+        """Enhanced deduplication with content similarity - improved for incremental fetching."""
         if df.empty:
             return df
         
         try:
-            # Remove exact duplicates
+            # Remove exact duplicates first
             df = df.drop_duplicates(subset=['symbol', 'title'], keep='first')
             
-            # Less aggressive similarity removal for diverse sources
-            if len(df) <= 1200:  # Increased threshold for comprehensive data
+            # For incremental fetching, be less aggressive with similarity removal
+            # since we should be getting fewer, more relevant articles
+            if len(df) > 100:  # Only apply similarity filtering if we have many articles
                 df = self._remove_similar_content(df)
             
             return df
@@ -122,46 +132,41 @@ class EnhancedFMPLoader:
             return df
     
     def _remove_similar_content(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Remove articles with similar content - optimized for diverse sources."""
+        """Remove articles with similar content - optimized for incremental processing."""
         if 'title' not in df.columns:
             return df
         
         try:
             unique_indices = []
-            seen_content = set()
+            processed_content = {}  # symbol -> set of content fingerprints
             
             for idx, row in df.iterrows():
                 title = str(row['title']).lower().strip()
                 symbol = str(row.get('symbol', '')).upper()
-                source = str(row.get('source', ''))
+                source = str(row.get('source', 'unknown'))
                 
-                # Create content fingerprint - consider source
+                # Create content fingerprint
                 title_words = set(word for word in title.split() if len(word) > 3)
-                content_key = (symbol, source, frozenset(title_words))
                 
-                # Check similarity - more lenient for different sources
+                if symbol not in processed_content:
+                    processed_content[symbol] = set()
+                
+                # Check for similarity within the same symbol
                 is_similar = False
-                for existing_symbol, existing_source, existing_words in seen_content:
-                    if (existing_symbol == symbol and 
-                        title_words and existing_words):
-                        
-                        # Higher threshold if different sources
-                        threshold = 0.9 if existing_source != source else 0.8
+                similarity_threshold = 0.85  # High threshold - only remove very similar content
+                
+                for existing_words in processed_content[symbol]:
+                    if title_words and existing_words:
                         similarity = len(title_words & existing_words) / len(title_words | existing_words)
-                        
-                        if similarity > threshold:
+                        if similarity > similarity_threshold:
                             is_similar = True
                             break
                 
                 if not is_similar:
                     unique_indices.append(idx)
-                    seen_content.add(content_key)
-                    
-                    # Prevent memory growth
-                    if len(seen_content) > 500:
-                        seen_content = set(list(seen_content)[-250:])
+                    processed_content[symbol].add(frozenset(title_words))
             
-            return df.loc[unique_indices]
+            return df.loc[unique_indices].copy()
             
         except Exception as e:
             log_debug(f"Error removing similar content: {e}")
@@ -195,6 +200,11 @@ class EnhancedFMPLoader:
     def set_universe_cache(self, universe: List[str]) -> None:
         """Set universe cache for all loaders that need it."""
         self.news_loader.set_universe_cache(universe)
+    
+    def force_refresh_news(self, hours_back: int = 1) -> None:
+        """Force refresh news sources to get fresh content."""
+        self.news_loader.force_refresh_from_time(hours_back)
+        log_info(f"Forced news refresh: reset to {hours_back} hours back")
     
     # Backward compatibility
     def get_news_rss(self) -> Optional[pd.DataFrame]:
