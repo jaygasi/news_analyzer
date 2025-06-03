@@ -26,8 +26,8 @@ class OptimizedNewsProcessor:
     
     # Class-level constants for performance
     MAX_CACHE_SIZE = 3000
-    DEDUP_SIMILARITY_THRESHOLD = 0.75
-    DEFAULT_MAX_AGE_HOURS = 12
+    DEDUP_SIMILARITY_THRESHOLD = 0.65  # Reduced from 0.75 to allow more variation
+    DEFAULT_MAX_AGE_HOURS = 6  # Reduced from 12 to get fresher content
     CACHE_CLEANUP_INTERVAL = 1800  # 30 minutes
     
     def __init__(self):
@@ -45,7 +45,7 @@ class OptimizedNewsProcessor:
         }
         
         # Auto-configuration based on mode
-        self.max_age_hours = 48 if CONFIG.testing_mode else self.DEFAULT_MAX_AGE_HOURS
+        self.max_age_hours = 24 if CONFIG.testing_mode else self.DEFAULT_MAX_AGE_HOURS
         self.last_cleanup = time.time()
         
         self._initialize_cache()
@@ -66,13 +66,14 @@ class OptimizedNewsProcessor:
         try:
             symbol = str(row.get('symbol', '')).strip().upper()
             title = str(row.get('title', '')).strip().lower()
-            date_hour = str(row.get('publishedDate', ''))[:13]  # YYYY-MM-DDTHH
+            # Use only date, not hour, to allow for updates throughout the day
+            date_only = str(row.get('publishedDate', ''))[:10]  # YYYY-MM-DD only
             
             # Normalize title for better deduplication
             normalized_title = self._normalize_title_advanced(title)
             
-            # Create hash key
-            hash_input = f"{symbol}-{normalized_title}-{date_hour}"
+            # Create hash key - removed hour to allow for updated articles
+            hash_input = f"{symbol}-{normalized_title}-{date_only}"
             return hashlib.md5(hash_input.encode('utf-8')).hexdigest()
             
         except Exception as e:
@@ -99,7 +100,7 @@ class OptimizedNewsProcessor:
         
         # Normalize whitespace and length
         cleaned_title = ' '.join(cleaned_title.split())
-        return cleaned_title[:100]  # Reasonable length limit
+        return cleaned_title[:80]  # Reduced from 100 for better matching
     
     def _load_processed_articles(self) -> None:
         """Load processed articles with robust error handling."""
@@ -193,7 +194,7 @@ class OptimizedNewsProcessor:
                     self.processing_stats['cache_hits'] += 1
                 else:
                     # Additional similarity check for current batch
-                    if not self._is_similar_to_recent(row, new_articles[-20:]):  # Check last 20
+                    if not self._is_similar_to_recent(row, new_articles[-10:]):  # Reduced from 20 to 10
                         new_articles.append(row)
                         self.processing_stats['cache_misses'] += 1
                     else:
@@ -402,8 +403,8 @@ class EnhancedTradingSystem:
     MAX_CONSECUTIVE_ERRORS = 10
     ERROR_BACKOFF_BASE = 2
     MAX_BACKOFF_SECONDS = 300  # 5 minutes
-    UNIVERSE_REFRESH_HOURS = 2
-    STATUS_INTERVAL_MINUTES = 3
+    UNIVERSE_REFRESH_HOURS = 4  # Increased from 2 hours
+    STATUS_INTERVAL_MINUTES = 5  # Increased from 3 minutes
     
     def __init__(self) -> None:
         """Initialize trading system with robust error handling."""
@@ -547,6 +548,7 @@ class EnhancedTradingSystem:
         log_info(f"Configuration: {CONFIG.news_page_limit} pages, "
                 f"{CONFIG.news_per_page_limit} per page, "
                 f"confidence threshold: {CONFIG.min_confidence_score}")
+        log_info(f"Universe size: {CONFIG.max_symbols}, Cache age limit: {self.news_processor.max_age_hours}h")
         
         # Initialize universe
         if not self.initialize_universe():
@@ -589,11 +591,11 @@ class EnhancedTradingSystem:
                     self._print_comprehensive_status()
                     last_status_print = current_time
                 
-                # Universe refresh check
-                if self.cycle_count % 50 == 0:  # Every 50 cycles
+                # Universe refresh check (less frequent)
+                if self.cycle_count % 100 == 0:  # Every 100 cycles instead of 50
                     self._refresh_universe_if_needed()
                 
-                await asyncio.sleep(1.0)  # Main loop interval
+                await asyncio.sleep(2.0)  # Increased from 1.0 to reduce load
                 
             except Exception as e:
                 await self._handle_main_loop_error(e)

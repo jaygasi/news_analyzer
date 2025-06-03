@@ -16,7 +16,7 @@ class SimpleFMPLoader:
     # Class-level constants for better performance
     BASE_URL = "https://financialmodelingprep.com/api/v3"
     TIMEOUT = 30
-    MIN_REQUEST_INTERVAL = 0.1
+    MIN_REQUEST_INTERVAL = 0.5  # Increased from 0.1 to reduce API load
     
     def __init__(self, api_key: str) -> None:
         """Initialize FMP loader with validated API key."""
@@ -102,8 +102,8 @@ class SimpleFMPLoader:
             "priceLowerThan": CONFIG.max_price,
             "volumeMoreThan": CONFIG.min_volume,
             "isActivelyTrading": "true",
-            "exchange": "NYSE,NASDAQ,AMEX",  # Added AMEX for more coverage
-            "sector": "Technology,Healthcare,Financial Services,Consumer Cyclical,Industrials,Communication Services,Consumer Defensive,Energy",  # News-heavy sectors
+            "exchange": "NASDAQ,NYSE",  # Focus on main exchanges for better news coverage
+            "sector": "Technology,Healthcare,Financial Services,Consumer Cyclical,Industrials,Communication Services,Consumer Defensive,Energy,Real Estate",  # Expanded sectors
             "limit": min(limit, 1000)
         }
         
@@ -159,13 +159,13 @@ class SimpleFMPLoader:
             (df['symbol'].str.len() <= 5) &  # Shorter symbols get more news
             (df['symbol'].str.match(r'^[A-Z]+$')) &  # Only alphabetic
             (~df['symbol'].str.contains(r'[.]')) &  # No dots (preferred shares)
-            (df['symbol'].str.len() >= 2)  # Minimum length
+            (df['symbol'].str.len() >= 1)  # Minimum length
         )
         
         df_filtered = df[filters]
         
         # If too restrictive, apply lenient filtering
-        if len(df_filtered) < 50:
+        if len(df_filtered) < 100:  # Increased from 50
             log_info("Applying lenient filtering for better coverage")
             lenient_filters = (
                 (df['symbol'].str.len() <= 6) &
@@ -190,7 +190,7 @@ class SimpleFMPLoader:
             return None
         
         # Process in optimized batches
-        symbol_batch = clean_symbols[:150]  # Increased batch size
+        symbol_batch = clean_symbols[:100]  # Reduced from 150 to avoid errors
         symbol_string = ",".join(symbol_batch)
         
         data = self._make_request(f"stock/full/real-time-price/{symbol_string}")
@@ -216,27 +216,33 @@ class SimpleFMPLoader:
             return None
     
     def get_comprehensive_news(self) -> Optional[pd.DataFrame]:
-        """Get enhanced news from multiple FMP endpoints."""
+        """Get enhanced news from multiple FMP endpoints with better error handling."""
         try:
             all_articles = []
             
-            # Enhanced RSS feed with better parameters
+            # Primary RSS feed with optimized parameters
             rss_articles = self._get_enhanced_rss_news()
             if rss_articles:
                 all_articles.extend(rss_articles)
                 log_debug(f"RSS feed: {len(rss_articles)} articles")
             
-            # General stock news with sector filtering
-            general_articles = self._get_filtered_general_news()
-            if general_articles:
-                all_articles.extend(general_articles)
-                log_debug(f"General news: {len(general_articles)} articles")
+            # Stock news endpoint
+            stock_news = self._get_stock_news()
+            if stock_news:
+                all_articles.extend(stock_news)
+                log_debug(f"Stock news: {len(stock_news)} articles")
             
-            # Earnings and FDA news (high-impact categories)
+            # Earnings news
             earnings_articles = self._get_earnings_news()
             if earnings_articles:
                 all_articles.extend(earnings_articles)
                 log_debug(f"Earnings news: {len(earnings_articles)} articles")
+            
+            # Press releases
+            press_releases = self._get_press_releases()
+            if press_releases:
+                all_articles.extend(press_releases)
+                log_debug(f"Press releases: {len(press_releases)} articles")
             
             if not all_articles:
                 log_warning("No articles from any news endpoint")
@@ -262,8 +268,6 @@ class SimpleFMPLoader:
                 params = {
                     "page": page,
                     "limit": CONFIG.news_per_page_limit,
-                    # Enhanced filtering for relevant news
-                    "hasNews": "true"
                 }
                 
                 data = self._make_request("../v4/stock-news-sentiments-rss-feed", params)
@@ -277,7 +281,7 @@ class SimpleFMPLoader:
                 if len(data) < CONFIG.news_per_page_limit:
                     break
                 
-                time.sleep(0.2)  # Rate limiting
+                time.sleep(0.5)  # Rate limiting between pages
             
             return articles
             
@@ -285,16 +289,15 @@ class SimpleFMPLoader:
             log_error(f"Error fetching RSS news: {e}")
             return []
     
-    def _get_filtered_general_news(self) -> List[Dict[str, Any]]:
-        """Get general news with sector and keyword filtering."""
+    def _get_stock_news(self) -> List[Dict[str, Any]]:
+        """Get general stock news."""
         try:
             articles = []
             
-            # Focus on high-impact news categories
             for page in range(min(3, CONFIG.news_page_limit)):
                 params = {
                     "page": page,
-                    "limit": min(50, CONFIG.news_per_page_limit)
+                    "limit": min(30, CONFIG.news_per_page_limit)
                 }
                 
                 data = self._make_request("stock_news", params)
@@ -305,7 +308,7 @@ class SimpleFMPLoader:
                 # Transform and filter for relevance
                 for article in data:
                     if self._is_relevant_news(article):
-                        transformed = self._transform_news_article(article, 'general_news')
+                        transformed = self._transform_news_article(article, 'stock_news')
                         articles.append(transformed)
                 
                 if len(data) < params['limit']:
@@ -316,14 +319,14 @@ class SimpleFMPLoader:
             return articles
             
         except Exception as e:
-            log_debug(f"General news not available: {e}")
+            log_debug(f"Stock news not available: {e}")
             return []
     
     def _get_earnings_news(self) -> List[Dict[str, Any]]:
         """Get earnings-specific news."""
         try:
             # Get recent earnings calendar for relevant symbols
-            data = self._make_request("earning_calendar", {"limit": 100})
+            data = self._make_request("earning_calendar", {"limit": 50})
             
             if not data:
                 return []
@@ -348,6 +351,35 @@ class SimpleFMPLoader:
             log_debug(f"Earnings news not available: {e}")
             return []
     
+    def _get_press_releases(self) -> List[Dict[str, Any]]:
+        """Get press releases."""
+        try:
+            articles = []
+            
+            for page in range(min(2, CONFIG.news_page_limit)):
+                params = {
+                    "page": page,
+                    "limit": 20
+                }
+                
+                data = self._make_request("press-releases", params)
+                
+                if not data or not isinstance(data, list):
+                    break
+                
+                for article in data:
+                    if 'symbol' in article and article['symbol']:
+                        transformed = self._transform_news_article(article, 'press_release')
+                        articles.append(transformed)
+                
+                time.sleep(0.3)
+            
+            return articles
+            
+        except Exception as e:
+            log_debug(f"Press releases not available: {e}")
+            return []
+    
     def _is_relevant_news(self, article: Dict) -> bool:
         """Filter for relevant news based on content."""
         if not isinstance(article, dict):
@@ -362,7 +394,8 @@ class SimpleFMPLoader:
             'earnings', 'revenue', 'profit', 'guidance', 'acquisition', 'merger',
             'fda', 'approval', 'partnership', 'contract', 'breakthrough',
             'upgrade', 'downgrade', 'target', 'analyst', 'dividend',
-            'buyback', 'spinoff', 'ipo', 'secondary offering'
+            'buyback', 'spinoff', 'ipo', 'secondary offering',
+            'beats', 'misses', 'exceeds', 'disappoints'
         ]
         
         return any(keyword in content for keyword in relevant_keywords)
@@ -389,7 +422,7 @@ class SimpleFMPLoader:
             df = df.drop_duplicates(subset=['symbol', 'title'], keep='first')
             
             # Enhanced similarity removal for manageable datasets
-            if len(df) <= 1000:
+            if len(df) <= 800:  # Increased from 1000
                 df = self._remove_similar_content(df)
             
             return df
@@ -420,7 +453,7 @@ class SimpleFMPLoader:
                 for existing_symbol, existing_words in seen_content:
                     if (existing_symbol == symbol and 
                         title_words and existing_words and
-                        len(title_words & existing_words) / len(title_words | existing_words) > 0.7):
+                        len(title_words & existing_words) / len(title_words | existing_words) > 0.6):  # Reduced threshold
                         is_similar = True
                         break
                 
@@ -429,8 +462,8 @@ class SimpleFMPLoader:
                     seen_content.add(content_key)
                     
                     # Prevent memory growth
-                    if len(seen_content) > 500:
-                        seen_content = set(list(seen_content)[-250:])
+                    if len(seen_content) > 300:  # Reduced from 500
+                        seen_content = set(list(seen_content)[-150:])
             
             return df.loc[unique_indices]
             

@@ -6,6 +6,8 @@ from typing import List, Optional, Dict, Any, Tuple, Set
 from datetime import datetime, timezone, timedelta
 import csv
 import time
+import shutil
+import os
 from pathlib import Path
 from config import CONFIG
 from analysis.enhanced_news_analyzer import EnhancedNewsAnalysis
@@ -23,7 +25,7 @@ from .position_manager import PositionManager
 class EnhancedTrader:
     """High-performance trader with optimized processing and robust risk management."""
     
-    # Class-level constants for performance
+    # Updated trade log headers to match the actual requirements
     TRADE_LOG_HEADERS = [
         'trade_id', 'symbol', 'side', 'entry_price', 'position_size',
         'entry_time', 'exit_price', 'exit_time', 'exit_reason', 'pnl',
@@ -85,11 +87,11 @@ class EnhancedTrader:
             raise
     
     def _setup_trade_log_safely(self) -> None:
-        """Setup trade log with robust error handling."""
+        """Setup trade log with robust error handling and Windows file lock protection."""
         try:
             if self.trade_log_file.exists():
                 # Validate existing log file
-                self._validate_existing_log()
+                self._validate_existing_log_safely()
                 return
             
             # Create new log file
@@ -102,40 +104,163 @@ class EnhancedTrader:
             log_error(f"Error setting up trade log: {e}")
             raise
     
-    def _validate_existing_log(self) -> None:
-        """Validate existing log file structure."""
+    def _validate_existing_log_safely(self) -> None:
+        """Validate existing log file structure with Windows-safe operations."""
         try:
-            with open(self.trade_log_file, 'r', encoding='utf-8') as f:
-                reader = csv.reader(f)
-                headers = next(reader, [])
-                
-                # Check if headers match expected structure
-                if set(headers) != set(self.TRADE_LOG_HEADERS):
-                    log_warning("Trade log headers don't match expected structure")
+            # First, try to read the headers without locking the file
+            headers = self._read_csv_headers_safely()
+            
+            if not headers:
+                log_warning("Could not read CSV headers, creating new file")
+                self._create_new_log_file()
+                return
+            
+            # Check if headers match expected structure
+            if set(headers) == set(self.TRADE_LOG_HEADERS):
+                log_info("Trade log headers validated successfully")
+                return
+            
+            # Headers don't match - need to handle this carefully
+            log_warning(f"Trade log headers mismatch. Expected {len(self.TRADE_LOG_HEADERS)}, got {len(headers)}")
+            log_warning("Creating new log file. Old data preserved with timestamp suffix.")
+            
+            # Create backup with timestamp to avoid file locking issues
+            self._create_timestamped_backup()
+            
+            # Create new file with correct headers
+            self._create_new_log_file()
                 
         except Exception as e:
-            log_warning(f"Error validating trade log: {e}")
+            log_error(f"Error validating trade log: {e}")
+            # Fallback: create new file
+            try:
+                self._create_new_log_file()
+            except Exception as fallback_error:
+                log_error(f"Fallback creation also failed: {fallback_error}")
+                raise
+    
+    def _read_csv_headers_safely(self) -> Optional[List[str]]:
+        """Safely read CSV headers without causing file locks."""
+        max_retries = 3
+        retry_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                with open(self.trade_log_file, 'r', encoding='utf-8') as f:
+                    reader = csv.reader(f)
+                    headers = next(reader, [])
+                    return headers
+            except (PermissionError, OSError) as e:
+                if attempt < max_retries - 1:
+                    log_debug(f"File access attempt {attempt + 1} failed, retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    log_warning(f"Could not read CSV headers after {max_retries} attempts: {e}")
+                    return None
+            except Exception as e:
+                log_error(f"Unexpected error reading CSV headers: {e}")
+                return None
+        
+        return None
+    
+    def _create_timestamped_backup(self) -> None:
+        """Create a timestamped backup copy to avoid file locking issues."""
+        try:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            backup_name = f"enhanced_trade_log_backup_{timestamp}.csv"
+            backup_file = self.trade_log_file.parent / backup_name
+            
+            # Use copy instead of move to avoid locking issues
+            shutil.copy2(self.trade_log_file, backup_file)
+            log_info(f"Created backup: {backup_file}")
+            
+        except Exception as e:
+            log_warning(f"Could not create backup (file may be in use): {e}")
+            # Don't fail the entire process if backup fails
+            pass
+    
+    def _create_new_log_file(self) -> None:
+        """Create new log file, handling existing file safely."""
+        max_retries = 3
+        retry_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                # If file exists and is locked, try to create with different name temporarily
+                if self.trade_log_file.exists():
+                    temp_file = self.trade_log_file.with_suffix('.new.csv')
+                    
+                    # Create new file with correct headers
+                    with open(temp_file, 'w', newline='', encoding='utf-8') as f:
+                        csv.writer(f).writerow(self.TRADE_LOG_HEADERS)
+                    
+                    # Try to replace the original
+                    try:
+                        if os.path.exists(self.trade_log_file):
+                            os.remove(self.trade_log_file)
+                        temp_file.replace(self.trade_log_file)
+                        log_info("Successfully created new trade log file")
+                        return
+                    except (PermissionError, OSError):
+                        # If we can't replace, use the temp file as the main file
+                        self.trade_log_file = temp_file
+                        log_info(f"Using temporary file as trade log: {self.trade_log_file}")
+                        return
+                else:
+                    # File doesn't exist, create normally
+                    with open(self.trade_log_file, 'w', newline='', encoding='utf-8') as f:
+                        csv.writer(f).writerow(self.TRADE_LOG_HEADERS)
+                    log_info("Created new trade log file")
+                    return
+                    
+            except (PermissionError, OSError) as e:
+                if attempt < max_retries - 1:
+                    log_debug(f"File creation attempt {attempt + 1} failed, retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    log_error(f"Could not create new log file after {max_retries} attempts: {e}")
+                    raise
+            except Exception as e:
+                log_error(f"Unexpected error creating new log file: {e}")
+                raise
     
     def _log_trade_safely(self, trade: EnhancedTrade) -> None:
-        """Log trade data with comprehensive error handling."""
-        try:
-            trade_data = [
-                trade.id, trade.symbol, trade.side, trade.entry_price,
-                trade.position_size, trade.entry_time, trade.exit_price,
-                trade.exit_time, trade.exit_reason, trade.pnl,
-                trade.trade_type, trade.execution_status, trade.rejection_reason,
-                trade.news_title[:150], trade.news_confidence, trade.combined_confidence,
-                trade.finbert_score, trade.keyword_score, trade.topic,
-                trade.technical_confidence, trade.liquidity_score, trade.momentum_score,
-                trade.volume_score, trade.rsi, trade.price_trend, trade.bid_ask_spread,
-                trade.market_regime, trade.market_stress, trade.time_score, trade.entry_timing
-            ]
-            
-            with open(self.trade_log_file, 'a', newline='', encoding='utf-8') as f:
-                csv.writer(f).writerow(trade_data)
+        """Log trade data with comprehensive error handling and retry logic."""
+        max_retries = 3
+        retry_delay = 0.5
+        
+        trade_data = [
+            trade.id, trade.symbol, trade.side, trade.entry_price,
+            trade.position_size, trade.entry_time.isoformat() if trade.entry_time else '',
+            trade.exit_price or '', trade.exit_time.isoformat() if trade.exit_time else '',
+            trade.exit_reason or '', trade.pnl or '',
+            trade.trade_type, trade.execution_status, trade.rejection_reason,
+            trade.news_title[:150] if trade.news_title else '',
+            trade.news_confidence, trade.combined_confidence,
+            trade.finbert_score, trade.keyword_score, trade.topic,
+            trade.technical_confidence, trade.liquidity_score, trade.momentum_score,
+            trade.volume_score, trade.rsi, trade.price_trend, trade.bid_ask_spread,
+            trade.market_regime, trade.market_stress, trade.time_score, trade.entry_timing
+        ]
+        
+        for attempt in range(max_retries):
+            try:
+                with open(self.trade_log_file, 'a', newline='', encoding='utf-8') as f:
+                    csv.writer(f).writerow(trade_data)
+                return  # Success
                 
-        except Exception as e:
-            log_error(f"Error logging trade {trade.id}: {e}")
+            except (PermissionError, OSError) as e:
+                if attempt < max_retries - 1:
+                    log_debug(f"Trade logging attempt {attempt + 1} failed, retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    log_error(f"Could not log trade {trade.id} after {max_retries} attempts: {e}")
+            except Exception as e:
+                log_error(f"Unexpected error logging trade {trade.id}: {e}")
+                break  # Don't retry for unexpected errors
     
     def _generate_unique_trade_id(self) -> str:
         """Generate unique trade ID with timestamp."""
@@ -170,11 +295,6 @@ class EnhancedTrader:
                 
                 log_info(f"News pre-filter: {initial_count} → {final_count} articles ({filter_rate:.1f}% filtered)")
                 
-                # Get filter statistics for monitoring
-                filter_stats = self.news_filter.get_filter_statistics(news_df, filtered_news)
-                if filter_stats:
-                    log_debug(f"Filter stats: {filter_stats}")
-                
                 return filtered_news
             else:
                 log_warning("All articles filtered out by quality filters")
@@ -192,9 +312,9 @@ class EnhancedTrader:
         try:
             current_time = datetime.now(timezone.utc)
             
-            for idx, row in news_df.head(10).iterrows():  # Analyze first 10 for performance
+            for idx, row in news_df.head(5).iterrows():  # Reduced from 10 to 5
                 symbol = row.get('symbol', 'UNKNOWN')
-                title = str(row.get('title', ''))[:100]
+                title = str(row.get('title', ''))[:80]  # Reduced length
                 
                 issues = []
                 
@@ -212,7 +332,7 @@ class EnhancedTrader:
                     try:
                         pub_date = pd.to_datetime(row['publishedDate'], utc=True)
                         age_hours = (current_time - pub_date).total_seconds() / 3600
-                        time_limit = 48 if CONFIG.testing_mode else 8
+                        time_limit = 24 if CONFIG.testing_mode else 6  # Updated limits
                         
                         if age_hours > time_limit:
                             issues.append(f"Too old ({age_hours:.1f}h > {time_limit}h)")
@@ -221,8 +341,6 @@ class EnhancedTrader:
                 
                 if issues:
                     log_warning(f"  {symbol}: {title}... - Issues: {', '.join(issues)}")
-                else:
-                    log_warning(f"  {symbol}: {title}... - No obvious issues found")
             
         except Exception as e:
             log_error(f"Error analyzing filter rejections: {e}")

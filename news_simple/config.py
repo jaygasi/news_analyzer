@@ -35,25 +35,25 @@ class Config:
     min_technical_confidence: float = 0.25
     
     # System intervals (seconds)
-    news_check_interval: int = 25
-    price_check_interval: int = 4
+    news_check_interval: int = 30  # Increased from 25 to reduce load
+    price_check_interval: int = 5  # Increased from 4
     
-    # News fetching configuration
-    news_page_limit: int = 5
-    news_per_page_limit: int = 100
-    max_total_news_articles: int = 500
+    # News fetching configuration - Optimized for better coverage
+    news_page_limit: int = 8  # Increased from 5 for more articles
+    news_per_page_limit: int = 50  # Reduced from 100 to avoid rate limits
+    max_total_news_articles: int = 800  # Increased from 500
     
     # API settings
     api_rate_limit: int = 120
     request_timeout: int = 25
     testing_mode: bool = False
     
-    # Universe selection
-    max_symbols: int = 400
-    min_price: float = 1.5
-    max_price: float = 600.0
-    min_volume: int = 75000
-    min_market_cap: int = 75_000_000
+    # Universe selection - Expanded for better coverage
+    max_symbols: int = 800  # Increased from 400
+    min_price: float = 1.0  # Reduced from 1.5 for more coverage
+    max_price: float = 1000.0  # Increased from 600
+    min_volume: int = 50000  # Reduced from 75000
+    min_market_cap: int = 50_000_000  # Reduced from 75M
     
     # AI ensemble weights
     finbert_weight: float = 0.45

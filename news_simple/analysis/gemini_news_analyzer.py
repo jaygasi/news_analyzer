@@ -55,15 +55,20 @@ class OptimizedGeminiNewsAnalyzer:
         self.model_name = CONFIG.get_gemini_model()
         
         # More conservative rate limiting for stability
-        self.max_requests_per_minute = 8  # Reduced from 10
-        self.max_requests_per_day = 800   # Reduced from 1000
+        self.max_requests_per_minute = 5  # Reduced from 8
+        self.max_requests_per_day = 400   # Reduced from 800
         self.request_timestamps: List[datetime] = []
         self.daily_request_count = 0
         self.last_reset_date = datetime.now().date()
         
         # Request spacing to avoid bursts
-        self.min_request_spacing = 8.0  # 8 seconds between requests
+        self.min_request_spacing = 12.0  # Increased from 8 seconds
         self.last_request_time = 0.0
+        
+        # Rate limit tracking
+        self.rate_limit_hit = False
+        self.last_rate_limit_warning = 0.0
+        self.warning_cooldown = 300  # 5 minutes between warnings
         
         self.model: Optional[Any] = None
         self.enabled = self._initialize_model()
@@ -112,11 +117,17 @@ class OptimizedGeminiNewsAnalyzer:
             self.daily_request_count = 0
             self.last_reset_date = current_date
             self.request_timestamps.clear()
+            self.rate_limit_hit = False
             log_debug("Daily Gemini rate limit counter reset")
+        
+        # If we've hit rate limits, don't spam warnings
+        if self.rate_limit_hit:
+            return False
         
         # Check daily limit
         if self.daily_request_count >= self.max_requests_per_day:
-            log_warning(f"Gemini daily rate limit reached: {self.daily_request_count}/{self.max_requests_per_day}")
+            self._log_rate_limit_warning("daily", self.daily_request_count, self.max_requests_per_day)
+            self.rate_limit_hit = True
             return False
         
         # Check request spacing
@@ -130,10 +141,17 @@ class OptimizedGeminiNewsAnalyzer:
         
         # Check per-minute limit
         if len(self.request_timestamps) >= self.max_requests_per_minute:
-            log_debug(f"Gemini per-minute rate limit reached: {len(self.request_timestamps)}/{self.max_requests_per_minute}")
+            self._log_rate_limit_warning("minute", len(self.request_timestamps), self.max_requests_per_minute)
             return False
         
         return True
+    
+    def _log_rate_limit_warning(self, limit_type: str, current: int, maximum: int) -> None:
+        """Log rate limit warning with cooldown to prevent spam."""
+        current_time = time.time()
+        if current_time - self.last_rate_limit_warning > self.warning_cooldown:
+            log_warning(f"Gemini {limit_type} rate limit reached: {current}/{maximum}")
+            self.last_rate_limit_warning = current_time
     
     def _wait_for_rate_limit_reset(self) -> bool:
         """Wait for rate limit reset with timeout."""
@@ -144,7 +162,7 @@ class OptimizedGeminiNewsAnalyzer:
         time_since_last = time.time() - self.last_request_time
         if time_since_last < self.min_request_spacing:
             wait_time = self.min_request_spacing - time_since_last
-            if wait_time > 0 and wait_time <= 15:  # Max 15 second wait
+            if wait_time > 0 and wait_time <= 20:  # Max 20 second wait
                 log_debug(f"Waiting {wait_time:.1f}s for request spacing...")
                 time.sleep(wait_time)
                 return True
@@ -163,7 +181,6 @@ class OptimizedGeminiNewsAnalyzer:
                     time.sleep(sleep_time)
                     return True
                 else:
-                    log_warning("Rate limit wait time too long, skipping request")
                     return False
         
         return True
@@ -175,7 +192,8 @@ class OptimizedGeminiNewsAnalyzer:
         self.daily_request_count += 1
         self.last_request_time = time.time()
         
-        if self.daily_request_count % 25 == 0:  # Log every 25 requests
+        # Only log every 50 requests to reduce log noise
+        if self.daily_request_count % 50 == 0:
             log_debug(f"Gemini usage: {self.daily_request_count}/{self.max_requests_per_day} daily, "
                      f"{len(self.request_timestamps)}/{self.max_requests_per_minute} per minute")
     
@@ -229,7 +247,7 @@ Return exactly this JSON format:
             response = self._generate_with_timeout(prompt)
             
             if not response or not hasattr(response, 'text') or not response.text:
-                log_warning(f"Empty response from Gemini for {symbol}")
+                log_debug(f"Empty response from Gemini for {symbol}")
                 return None
             
             analysis = self._parse_gemini_response(response.text, symbol)
@@ -287,15 +305,14 @@ Return exactly this JSON format:
         error_str = str(error).lower()
         
         if any(keyword in error_str for keyword in ["quota", "rate", "limit"]):
-            log_warning(f"Gemini rate limit for {symbol}: {error}")
-            # Mark as hitting daily limit to prevent further requests
-            self.daily_request_count = self.max_requests_per_day
+            self.rate_limit_hit = True
+            self._log_rate_limit_warning("API", self.daily_request_count, self.max_requests_per_day)
         elif "model" in error_str and "format" in error_str:
             log_error(f"Gemini model format error for {symbol}: {error}")
             # Disable temporarily to prevent repeated errors
             self.enabled = False
         else:
-            log_error(f"Gemini API error for {symbol}: {error}")
+            log_debug(f"Gemini API error for {symbol}: {error}")
     
     def _parse_gemini_response(self, response_text: str, symbol: str) -> Optional[GeminiAnalysis]:
         """Enhanced response parsing with better error handling."""
@@ -457,13 +474,14 @@ Return exactly this JSON format:
             'minute_requests': len(self.request_timestamps),
             'minute_limit': self.max_requests_per_minute,
             'remaining_daily': max(0, self.max_requests_per_day - self.daily_request_count),
-            'remaining_minute': max(0, self.max_requests_per_minute - len(self.request_timestamps))
+            'remaining_minute': max(0, self.max_requests_per_minute - len(self.request_timestamps)),
+            'rate_limit_hit': self.rate_limit_hit
         }
     
     @lru_cache(maxsize=5)
     def get_market_context_analysis(self, market_regime: str, vix_level: float) -> str:
         """Get cached market context for better analysis."""
-        if not self.enabled or self.model is None:
+        if not self.enabled or self.model is None or self.rate_limit_hit:
             return "neutral"
         
         # Only analyze if we have spare capacity
