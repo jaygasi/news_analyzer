@@ -26,34 +26,34 @@ class Config:
     position_size: float = 10000.0
     stop_loss_pct: float = 0.05
     take_profit_pct: float = 0.10
-    min_confidence_score: float = 0.45
+    min_confidence_score: float = 0.40  # Reduced from 0.45 to allow more trades
     
     # Technical analysis thresholds
-    min_liquidity_score: float = 0.25
-    max_bid_ask_spread: float = 0.06
-    min_volume_score: float = 0.15
-    min_technical_confidence: float = 0.25
+    min_liquidity_score: float = 0.20  # Reduced from 0.25
+    max_bid_ask_spread: float = 0.08  # Increased from 0.06
+    min_volume_score: float = 0.10  # Reduced from 0.15
+    min_technical_confidence: float = 0.20  # Reduced from 0.25
     
-    # System intervals (seconds)
-    news_check_interval: int = 30  # Increased from 25 to reduce load
-    price_check_interval: int = 5  # Increased from 4
+    # System intervals (seconds) - Optimized for better news flow
+    news_check_interval: int = 25  # Reduced from 30 for faster news processing
+    price_check_interval: int = 5
     
-    # News fetching configuration - Optimized for better coverage
-    news_page_limit: int = 8  # Increased from 5 for more articles
-    news_per_page_limit: int = 50  # Reduced from 100 to avoid rate limits
-    max_total_news_articles: int = 800  # Increased from 500
+    # News fetching configuration - Enhanced for comprehensive coverage
+    news_page_limit: int = 10  # Increased from 8 for more comprehensive coverage
+    news_per_page_limit: int = 40  # Reduced from 50 to balance API limits
+    max_total_news_articles: int = 1000  # Increased from 800
     
     # API settings
     api_rate_limit: int = 120
     request_timeout: int = 25
     testing_mode: bool = False
     
-    # Universe selection - Expanded for better coverage
-    max_symbols: int = 800  # Increased from 400
-    min_price: float = 1.0  # Reduced from 1.5 for more coverage
-    max_price: float = 1000.0  # Increased from 600
-    min_volume: int = 50000  # Reduced from 75000
-    min_market_cap: int = 50_000_000  # Reduced from 75M
+    # Universe selection - Optimized for news coverage
+    max_symbols: int = 1000  # Increased from 800 for better coverage
+    min_price: float = 0.50  # Reduced from 1.0 for more coverage
+    max_price: float = 1500.0  # Increased from 1000
+    min_volume: int = 30000  # Reduced from 50000 for more symbols
+    min_market_cap: int = 25_000_000  # Reduced from 50M for broader coverage
     
     # AI ensemble weights
     finbert_weight: float = 0.45
@@ -61,21 +61,22 @@ class Config:
     gemini_weight: float = 0.20
     
     # Position sizing
-    min_position_multiplier: float = 0.4
-    max_position_multiplier: float = 1.8
+    min_position_multiplier: float = 0.3  # Reduced from 0.4
+    max_position_multiplier: float = 2.0  # Increased from 1.8
     
-    # Enhanced sentiment analysis
+    # Enhanced sentiment analysis - More lenient for testing
     enable_enhanced_sentiment: bool = True
-    min_quality_confidence: float = 0.65
+    min_quality_confidence: float = 0.55  # Reduced from 0.65
     enable_multi_source_confirmation: bool = True
-    min_magnitude_score: float = 0.35
-    min_credibility_score: float = 0.55
+    min_magnitude_score: float = 0.25  # Reduced from 0.35
+    min_credibility_score: float = 0.45  # Reduced from 0.55
 
     def __post_init__(self) -> None:
         """Validate configuration and create directories."""
         self._create_directories()
         self._validate_parameters()
         self._normalize_weights()
+        self._apply_testing_mode_adjustments()
     
     def _create_directories(self) -> None:
         """Create required directories."""
@@ -107,6 +108,20 @@ class Config:
             self.finbert_weight /= total_weight
             self.keyword_weight /= total_weight
             self.gemini_weight /= total_weight
+    
+    def _apply_testing_mode_adjustments(self) -> None:
+        """Apply testing mode adjustments if enabled."""
+        # Check environment variable for testing mode
+        if os.getenv('TESTING_MODE', '').lower() in ('true', '1', 'yes'):
+            self.testing_mode = True
+            
+            # More lenient parameters for testing
+            self.min_confidence_score = max(0.30, self.min_confidence_score - 0.10)
+            self.min_liquidity_score = max(0.10, self.min_liquidity_score - 0.10)
+            self.min_technical_confidence = max(0.10, self.min_technical_confidence - 0.10)
+            self.news_check_interval = max(15, self.news_check_interval - 10)
+            
+            print(f"[CONFIG] Testing mode enabled - adjusted thresholds for development")
     
     def get_api_key(self, provider: str) -> Optional[str]:
         """Get API key for specified provider."""
