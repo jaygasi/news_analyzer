@@ -1,193 +1,332 @@
 """
-News data loader for FMP API - handles all news-related endpoints with incremental fetching
+News data loader for FMP API - handles all news-related endpoints with date-based filtering
 """
 import time
-import json
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import List, Dict, Any, Optional
+from datetime import datetime, timezone, timedelta
+from typing import List, Dict, Any
 from config import CONFIG
 from utils.simple_logger import log_debug, log_error, log_info
 from .base_fmp_loader import BaseFMPLoader
 
 
 class NewsDataLoader(BaseFMPLoader):
-    """Specialized loader for news-related FMP endpoints with incremental fetching."""
+    """Specialized loader for news-related FMP endpoints with date-based filtering."""
     
     def __init__(self, api_key: str) -> None:
+        """Initialize with optimized settings for fresh news."""
         super().__init__(api_key)
-        self.last_fetch_file = CONFIG.cache_dir / "last_fetch_timestamps.json"
-        self.last_fetch_times = self._load_last_fetch_times()
-        self._universe_cache = []
-    
-    def _load_last_fetch_times(self) -> Dict[str, str]:
-        """Load last fetch timestamps from file."""
-        try:
-            if self.last_fetch_file.exists():
-                with open(self.last_fetch_file, 'r') as f:
-                    return json.load(f)
-        except Exception as e:
-            log_debug(f"Could not load last fetch times: {e}")
+        self._universe_cache: List[str] = []
+        self._last_fetch_time = 0.0
+        self._fetch_cooldown = 5.0  # Minimum seconds between fetches to avoid rate limits
         
-        # Default to 6 hours ago for initial fetch
-        default_time = (datetime.now(timezone.utc) - timedelta(hours=6)).isoformat()
-        return {
-            "rss_feed": default_time,
-            "stock_news": default_time,
-            "fmp_articles": default_time,
-            "press_releases": default_time,
-            "company_news": default_time
-        }
+        # Track last successful fetch time for incremental updates
+        self._last_successful_fetch = None
     
-    def _save_last_fetch_times(self) -> None:
-        """Save last fetch timestamps to file."""
-        try:
-            with open(self.last_fetch_file, 'w') as f:
-                json.dump(self.last_fetch_times, f, indent=2)
-        except Exception as e:
-            log_debug(f"Could not save last fetch times: {e}")
-    
-    def _update_last_fetch_time(self, source: str, timestamp: Optional[str] = None) -> None:
-        """Update last fetch time for a source."""
-        if timestamp is None:
-            timestamp = datetime.now(timezone.utc).isoformat()
-        self.last_fetch_times[source] = timestamp
-        self._save_last_fetch_times()
-
     def get_comprehensive_news(self) -> List[Dict[str, Any]]:
-        """Get comprehensive news from all sources with incremental fetching."""
-        all_articles = []
-        current_time = datetime.now(timezone.utc)
+        """Get comprehensive news with date-based filtering for efficiency."""
+        current_time = time.time()
         
+        # Rate limiting check
+        if current_time - self._last_fetch_time < self._fetch_cooldown:
+            time.sleep(self._fetch_cooldown - (current_time - self._last_fetch_time))
+        
+        all_articles = []
+        
+        # Calculate time window for API filtering
+        now = datetime.now(timezone.utc)
+        
+        # Since we scan every 25 seconds, only fetch articles from last 3 minutes
+        # This accounts for:
+        # 1. Potential API delays/caching
+        # 2. Clock drift between systems  
+        # 3. Small overlap to prevent missing articles
+        time_window_minutes = 3
+        from_time = now - timedelta(minutes=time_window_minutes)
+        
+        log_debug(f"Fetching news from {from_time.isoformat()} to {now.isoformat()}")
+        
+        # Prioritize sources by freshness and reliability with date filtering
         news_sources = [
-            ("RSS feed", "rss_feed", self._get_rss_news_incremental),
-            ("Stock news", "stock_news", self._get_stock_news_incremental),
-            ("FMP articles", "fmp_articles", self._get_fmp_articles_incremental),
-            ("Press releases", "press_releases", self._get_press_releases_incremental),
-            ("Company news", "company_news", self._get_company_specific_news_incremental),
+            ("RSS feed", lambda: self._get_rss_news(from_time, now), 1.0),
+            ("Stock news", lambda: self._get_stock_news(from_time, now), 0.9),
+            ("Company news", lambda: self._get_company_specific_news(from_time, now), 0.8),
+            ("Press releases", lambda: self._get_press_releases(from_time, now), 0.7),
+            ("FMP articles", lambda: self._get_fmp_articles(from_time, now), 0.6),
         ]
         
-        for source_name, source_key, source_func in news_sources:
+        for source_name, source_func, priority in news_sources:
             try:
                 articles = source_func()
                 if articles:
+                    # Add priority metadata for sorting
+                    for article in articles:
+                        article['_priority'] = priority
                     all_articles.extend(articles)
-                    log_debug(f"{source_name}: {len(articles)} new articles")
-                    # Update last fetch time with current time
-                    self._update_last_fetch_time(source_key)
-                else:
-                    log_debug(f"{source_name}: No new articles")
+                    log_debug(f"{source_name}: {len(articles)} articles (priority: {priority})")
             except Exception as e:
                 log_debug(f"Error getting {source_name}: {e}")
         
-        log_info(f"Total new articles fetched: {len(all_articles)}")
+        self._last_fetch_time = time.time()
+        self._last_successful_fetch = now
+        
+        # Sort by priority and freshness
+        if all_articles:
+            all_articles = self._sort_articles_by_freshness(all_articles)
+            log_info(f"Total new articles fetched: {len(all_articles)}")
+        
         return all_articles
     
-    def _get_rss_news_incremental(self) -> List[Dict[str, Any]]:
-        """Get RSS news feed with incremental fetching."""
+    def _sort_articles_by_freshness(self, articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Sort articles by freshness and priority."""
+        try:
+            import pandas as pd
+            
+            # Convert to DataFrame for easier sorting
+            df = pd.DataFrame(articles)
+            
+            # Parse published dates
+            if 'publishedDate' in df.columns:
+                df['publishedDate'] = pd.to_datetime(df['publishedDate'], errors='coerce', utc=True)
+                # Fill NaN dates with a very old date for sorting
+                df['publishedDate'] = df['publishedDate'].fillna(pd.Timestamp('2020-01-01', tz='UTC'))
+            else:
+                # If no date, assign current time
+                df['publishedDate'] = pd.Timestamp.now(tz='UTC')
+            
+            # Sort by priority (descending) and publishedDate (descending - newest first)
+            df = df.sort_values(['_priority', 'publishedDate'], ascending=[False, False])
+            
+            # Remove priority metadata before returning
+            df = df.drop('_priority', axis=1, errors='ignore')
+            
+            return df.to_dict('records')
+            
+        except Exception as e:
+            log_debug(f"Error sorting articles by freshness: {e}")
+            return articles
+    
+    def _get_rss_news(self, from_time: datetime, to_time: datetime) -> List[Dict[str, Any]]:
+        """Get RSS news feed with date-based filtering."""
         try:
             articles = []
-            last_fetch = self.last_fetch_times.get("rss_feed")
             
-            # Convert to FMP API date format
-            since_date = self._format_date_for_api(last_fetch)
+            # Format times for API (try different formats as FMP might be picky)
+            from_str = from_time.strftime('%Y-%m-%d %H:%M:%S')
+            to_str = to_time.strftime('%Y-%m-%d %H:%M:%S')
+            from_iso = from_time.isoformat()
             
-            for page in range(min(CONFIG.news_page_limit, 3)):  # Limit pages for incremental
-                params = {
+            # Reduced page limit since we're date filtering
+            for page in range(min(3, CONFIG.news_page_limit)):
+                
+                # Try with date parameters first
+                params_with_date = {
                     "page": page,
                     "limit": CONFIG.news_per_page_limit,
+                    "from": from_str,
+                    "to": to_str
                 }
                 
-                # Add date filter if API supports it
-                if since_date:
-                    params["from"] = since_date
+                data = None
                 
-                data = self._make_request("stock-news-sentiments-rss-feed", params, use_v4=True)
+                # Try multiple date parameter formats
+                for date_params in [
+                    {"from": from_str, "to": to_str},
+                    {"from": from_iso, "to": to_time.isoformat()},
+                    {"fromDate": from_str, "toDate": to_str},
+                    {"startDate": from_str, "endDate": to_str}
+                ]:
+                    try:
+                        test_params = {
+                            "page": page,
+                            "limit": CONFIG.news_per_page_limit,
+                            **date_params
+                        }
+                        data = self._make_request("stock-news-sentiments-rss-feed", test_params, use_v4=True)
+                        if data and isinstance(data, list):
+                            log_debug(f"RSS: Date filtering working with params: {list(date_params.keys())}")
+                            break
+                    except Exception as e:
+                        log_debug(f"RSS: Date params {list(date_params.keys())} failed: {e}")
+                        continue
+                
+                # Fallback to no date filtering if all attempts failed
+                if not data or not isinstance(data, list):
+                    log_debug("RSS: Falling back to no date filtering")
+                    fallback_params = {
+                        "page": page,
+                        "limit": CONFIG.news_per_page_limit
+                    }
+                    data = self._make_request("stock-news-sentiments-rss-feed", fallback_params, use_v4=True)
                 
                 if not data or not isinstance(data, list):
                     break
                 
-                # Filter articles newer than last fetch
-                new_articles = self._filter_articles_by_date(data, last_fetch)
-                articles.extend(new_articles)
+                # Client-side date filtering as backup/verification
+                filtered_articles = []
+                for article in data:
+                    try:
+                        pub_date_str = article.get('publishedDate', '')
+                        if pub_date_str:
+                            pub_date = pd.to_datetime(pub_date_str, utc=True)
+                            if pd.notna(pub_date):
+                                # Only keep articles from our time window (with small buffer)
+                                age_minutes = (to_time - pub_date).total_seconds() / 60
+                                if age_minutes <= 10:  # 10 minute buffer for clock drift
+                                    article['source'] = 'rss_feed'
+                                    filtered_articles.append(article)
+                                    continue
+                        
+                        # Keep articles with no date or unparseable dates (might be fresh)
+                        article['source'] = 'rss_feed'
+                        filtered_articles.append(article)
+                        
+                    except Exception as e:
+                        log_debug(f"Error filtering article by date: {e}")
+                        # Keep article if date parsing fails
+                        article['source'] = 'rss_feed'
+                        filtered_articles.append(article)
                 
-                # If we get fewer articles than requested, we've reached the end
+                articles.extend(filtered_articles)
+                
                 if len(data) < CONFIG.news_per_page_limit:
                     break
                 
-                time.sleep(0.2)
+                time.sleep(0.1)
             
+            log_debug(f"RSS: Fetched {len(articles)} articles with date filtering")
             return articles
             
         except Exception as e:
-            log_error(f"Error fetching incremental RSS news: {e}")
+            log_error(f"Error fetching RSS news: {e}")
             return []
     
-    def _get_stock_news_incremental(self) -> List[Dict[str, Any]]:
-        """Get stock news with incremental fetching."""
+    def _get_stock_news(self, from_time: datetime, to_time: datetime) -> List[Dict[str, Any]]:
+        """Get general stock news with date filtering."""
         try:
             articles = []
-            last_fetch = self.last_fetch_times.get("stock_news")
-            since_date = self._format_date_for_api(last_fetch)
+            from_str = from_time.strftime('%Y-%m-%d')
+            to_str = to_time.strftime('%Y-%m-%d')
             
-            for page in range(min(2, CONFIG.news_page_limit)):  # Fewer pages for incremental
-                params = {
+            for page in range(min(2, CONFIG.news_page_limit)):  # Reduced since date filtered
+                
+                # Try with date parameters
+                params_with_date = {
                     "page": page,
-                    "limit": min(30, CONFIG.news_per_page_limit)
+                    "limit": min(30, CONFIG.news_per_page_limit),
+                    "from": from_str,
+                    "to": to_str
                 }
                 
-                if since_date:
-                    params["from"] = since_date
-                
-                data = self._make_request("stock_news", params)
+                try:
+                    data = self._make_request("stock_news", params_with_date)
+                    if not data or not isinstance(data, list):
+                        # Fallback without dates
+                        params_fallback = {
+                            "page": page,
+                            "limit": min(30, CONFIG.news_per_page_limit)
+                        }
+                        data = self._make_request("stock_news", params_fallback)
+                except:
+                    # Fallback without dates
+                    params_fallback = {
+                        "page": page,
+                        "limit": min(30, CONFIG.news_per_page_limit)
+                    }
+                    data = self._make_request("stock_news", params_fallback)
                 
                 if not data or not isinstance(data, list):
                     break
                 
-                # Filter and transform articles
-                new_articles = self._filter_articles_by_date(data, last_fetch)
-                for article in new_articles:
-                    if self._is_relevant_news(article):
+                for article in data:
+                    if self._is_relevant_and_recent(article, from_time, to_time):
                         transformed = self._transform_article(article, 'stock_news')
                         articles.append(transformed)
                 
-                if len(data) < params['limit']:
+                if len(data) < min(30, CONFIG.news_per_page_limit):
                     break
                 
-                time.sleep(0.2)
+                time.sleep(0.1)
             
             return articles
             
         except Exception as e:
-            log_debug(f"Incremental stock news not available: {e}")
+            log_debug(f"Stock news not available: {e}")
             return []
     
-    def _get_fmp_articles_incremental(self) -> List[Dict[str, Any]]:
-        """Get FMP articles with incremental fetching."""
+    def _get_press_releases(self, from_time: datetime, to_time: datetime) -> List[Dict[str, Any]]:
+        """Get press releases with date filtering."""
         try:
             articles = []
-            last_fetch = self.last_fetch_times.get("fmp_articles")
-            since_date = self._format_date_for_api(last_fetch)
+            from_str = from_time.strftime('%Y-%m-%d')
+            to_str = to_time.strftime('%Y-%m-%d')
             
             for page in range(min(2, CONFIG.news_page_limit)):
+                
+                # Try with date parameters
                 params = {
                     "page": page,
-                    "size": min(20, CONFIG.news_per_page_limit)
+                    "limit": 20,
+                    "from": from_str,
+                    "to": to_str
                 }
                 
-                if since_date:
-                    params["from"] = since_date
-                
-                data = self._make_request("fmp/articles", params, use_v4=True)
+                try:
+                    data = self._make_request("press-releases", params)
+                except:
+                    # Fallback without dates
+                    params = {"page": page, "limit": 20}
+                    data = self._make_request("press-releases", params)
                 
                 if not data or not isinstance(data, list):
                     break
                 
-                new_articles = self._filter_articles_by_date(data, last_fetch, date_field='date')
-                for article in new_articles:
-                    if 'tickers' in article and article['tickers']:
+                for article in data:
+                    if ('symbol' in article and article['symbol'] and 
+                        self._is_recent_article(article, from_time, to_time)):
+                        transformed = self._transform_article(article, 'press_release')
+                        articles.append(transformed)
+                
+                time.sleep(0.1)
+            
+            return articles
+            
+        except Exception as e:
+            log_debug(f"Press releases not available: {e}")
+            return []
+    
+    def _get_fmp_articles(self, from_time: datetime, to_time: datetime) -> List[Dict[str, Any]]:
+        """Get FMP curated articles with date filtering."""
+        try:
+            articles = []
+            from_str = from_time.strftime('%Y-%m-%d')
+            to_str = to_time.strftime('%Y-%m-%d')
+            
+            for page in range(min(2, CONFIG.news_page_limit)):
+                
+                # Try with date parameters
+                params = {
+                    "page": page,
+                    "size": 20,
+                    "from": from_str,
+                    "to": to_str
+                }
+                
+                try:
+                    data = self._make_request("fmp/articles", params, use_v4=True)
+                except:
+                    # Fallback without dates
+                    params = {"page": page, "size": 20}
+                    data = self._make_request("fmp/articles", params, use_v4=True)
+                
+                if not data or not isinstance(data, list):
+                    break
+                
+                for article in data:
+                    if ('tickers' in article and article['tickers'] and
+                        self._is_recent_article(article, from_time, to_time)):
+                        
                         # Process each ticker mentioned in the article
-                        for ticker in article['tickers'][:3]:  # Limit to first 3 tickers
+                        for ticker in article['tickers'][:3]:  # Limit to 3 for efficiency
                             transformed = {
                                 'symbol': ticker.strip().upper(),
                                 'title': article.get('title', ''),
@@ -199,150 +338,96 @@ class NewsDataLoader(BaseFMPLoader):
                             }
                             articles.append(transformed)
                 
-                if len(data) < params['size']:
+                if len(data) < 20:
                     break
                 
-                time.sleep(0.2)
+                time.sleep(0.1)
             
             return articles
             
         except Exception as e:
-            log_debug(f"Incremental FMP articles not available: {e}")
+            log_debug(f"FMP articles not available: {e}")
             return []
     
-    def _get_press_releases_incremental(self) -> List[Dict[str, Any]]:
-        """Get press releases with incremental fetching."""
+    def _get_company_specific_news(self, from_time: datetime, to_time: datetime) -> List[Dict[str, Any]]:
+        """Get company-specific news with date filtering."""
         try:
             articles = []
-            last_fetch = self.last_fetch_times.get("press_releases")
-            since_date = self._format_date_for_api(last_fetch)
             
-            for page in range(min(2, CONFIG.news_page_limit)):
-                params = {
-                    "page": page,
-                    "limit": 20
-                }
-                
-                if since_date:
-                    params["from"] = since_date
-                
-                data = self._make_request("press-releases", params)
-                
-                if not data or not isinstance(data, list):
-                    break
-                
-                new_articles = self._filter_articles_by_date(data, last_fetch)
-                for article in new_articles:
-                    if 'symbol' in article and article['symbol']:
-                        transformed = self._transform_article(article, 'press_release')
-                        articles.append(transformed)
-                
-                time.sleep(0.2)
+            # Get universe symbols - focus on top performers
+            universe_symbols = getattr(self, '_universe_cache', [])[:50]  # Reduced for efficiency
             
-            return articles
+            from_str = from_time.strftime('%Y-%m-%d')
+            to_str = to_time.strftime('%Y-%m-%d')
             
-        except Exception as e:
-            log_debug(f"Incremental press releases not available: {e}")
-            return []
-    
-    def _get_company_specific_news_incremental(self) -> List[Dict[str, Any]]:
-        """Get company-specific news with incremental fetching."""
-        try:
-            articles = []
-            last_fetch = self.last_fetch_times.get("company_news")
-            since_date = self._format_date_for_api(last_fetch)
-            
-            # Get universe symbols (limit to top 20 for API efficiency in incremental mode)
-            universe_symbols = self._universe_cache[:20] if self._universe_cache else []
-            
+            # Process in smaller batches for efficiency
             for symbol in universe_symbols:
                 try:
-                    params = {"limit": 3}  # Reduce limit for incremental
+                    # Try with date parameters
+                    params = {
+                        "limit": 5,
+                        "from": from_str,
+                        "to": to_str
+                    }
                     
-                    if since_date:
-                        params["from"] = since_date
-                    
-                    data = self._make_request(f"stock_news/{symbol}", params)
+                    try:
+                        data = self._make_request(f"stock_news/{symbol}", params)
+                    except:
+                        # Fallback without dates
+                        params = {"limit": 5}
+                        data = self._make_request(f"stock_news/{symbol}", params)
                     
                     if data and isinstance(data, list):
-                        new_articles = self._filter_articles_by_date(data, last_fetch)
-                        for article in new_articles:
-                            transformed = self._transform_article(article, 'company_news')
-                            transformed['symbol'] = symbol  # Ensure symbol is set
-                            articles.append(transformed)
+                        for article in data:
+                            if self._is_recent_article(article, from_time, to_time):
+                                transformed = self._transform_article(article, 'company_news')
+                                transformed['symbol'] = symbol  # Ensure symbol is set
+                                articles.append(transformed)
                     
-                    time.sleep(0.1)  # Small delay between symbol requests
+                    time.sleep(0.05)  # Very short delay
                     
                 except Exception as e:
-                    log_debug(f"Error getting incremental news for {symbol}: {e}")
+                    log_debug(f"Error getting news for {symbol}: {e}")
                     continue
             
             return articles
             
         except Exception as e:
-            log_debug(f"Incremental company-specific news not available: {e}")
+            log_debug(f"Company-specific news not available: {e}")
             return []
     
-    def _format_date_for_api(self, timestamp_str: Optional[str]) -> Optional[str]:
-        """Format timestamp for FMP API date parameters."""
-        if not timestamp_str:
-            return None
-        
+    def _is_recent_article(self, article: Dict, from_time: datetime, to_time: datetime) -> bool:
+        """Check if article is within our time window."""
         try:
-            # Parse ISO timestamp and convert to API format (YYYY-MM-DD)
-            dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-            return dt.strftime('%Y-%m-%d')
-        except Exception as e:
-            log_debug(f"Error formatting date {timestamp_str}: {e}")
-            return None
+            pub_date_str = article.get('publishedDate') or article.get('date', '')
+            if not pub_date_str:
+                return True  # Include articles with no date
+            
+            pub_date = pd.to_datetime(pub_date_str, utc=True)
+            if pd.isna(pub_date):
+                return True  # Include articles with unparseable dates
+            
+            # Check if within time window (with small buffer)
+            buffer_minutes = 15  # 15 minute buffer
+            from_time_buffered = from_time - timedelta(minutes=buffer_minutes)
+            to_time_buffered = to_time + timedelta(minutes=buffer_minutes)
+            
+            return from_time_buffered <= pub_date <= to_time_buffered
+            
+        except Exception:
+            return True  # Include on error
     
-    def _filter_articles_by_date(self, articles: List[Dict], last_fetch: Optional[str], 
-                                date_field: str = 'publishedDate') -> List[Dict]:
-        """Filter articles to only include those newer than last fetch."""
-        if not last_fetch or not articles:
-            return articles
-        
-        try:
-            last_fetch_dt = datetime.fromisoformat(last_fetch.replace('Z', '+00:00'))
-            filtered_articles = []
-            
-            for article in articles:
-                article_date_str = article.get(date_field, '')
-                if not article_date_str:
-                    # Include articles without dates
-                    filtered_articles.append(article)
-                    continue
-                
-                try:
-                    # Parse article date
-                    if 'T' in article_date_str:
-                        article_dt = datetime.fromisoformat(article_date_str.replace('Z', '+00:00'))
-                    else:
-                        # Handle date-only format
-                        article_dt = datetime.strptime(article_date_str, '%Y-%m-%d')
-                        article_dt = article_dt.replace(tzinfo=timezone.utc)
-                    
-                    # Include if newer than last fetch
-                    if article_dt > last_fetch_dt:
-                        filtered_articles.append(article)
-                        
-                except Exception as e:
-                    log_debug(f"Error parsing article date {article_date_str}: {e}")
-                    # Include articles with unparseable dates
-                    filtered_articles.append(article)
-            
-            return filtered_articles
-            
-        except Exception as e:
-            log_debug(f"Error filtering articles by date: {e}")
-            return articles
+    def _is_relevant_and_recent(self, article: Dict, from_time: datetime, to_time: datetime) -> bool:
+        """Check if article is both relevant and recent."""
+        return self._is_relevant_news(article) and self._is_recent_article(article, from_time, to_time)
     
     def set_universe_cache(self, universe: List[str]) -> None:
         """Set universe cache for company-specific news fetching."""
-        self._universe_cache = universe[:50]  # Cache top 50 symbols for incremental fetching
+        self._universe_cache = universe[:100]  # Cache top 100 symbols
+        log_debug(f"Updated universe cache with {len(self._universe_cache)} symbols")
     
     def _is_relevant_news(self, article: Dict) -> bool:
-        """Filter for relevant news based on content."""
+        """Enhanced relevance filtering for news articles."""
         if not isinstance(article, dict):
             return False
         
@@ -350,23 +435,47 @@ class NewsDataLoader(BaseFMPLoader):
         text = str(article.get('text', '')).lower()
         content = f"{title} {text}"
         
-        # High-value keywords
+        # High-value keywords (expanded list)
         relevant_keywords = [
-            'earnings', 'revenue', 'profit', 'guidance', 'acquisition', 'merger',
-            'fda', 'approval', 'partnership', 'contract', 'breakthrough',
-            'upgrade', 'downgrade', 'target', 'analyst', 'dividend',
-            'buyback', 'spinoff', 'ipo', 'secondary offering',
-            'beats', 'misses', 'exceeds', 'disappoints'
+            # Financial results
+            'earnings', 'revenue', 'profit', 'guidance', 'sales', 'income',
+            'eps', 'quarterly', 'annual', 'results', 'beats', 'misses', 'exceeds', 'disappoints',
+            
+            # Corporate actions
+            'acquisition', 'merger', 'buyout', 'takeover', 'deal', 'agreement',
+            'partnership', 'joint venture', 'collaboration', 'alliance',
+            'dividend', 'buyback', 'repurchase', 'spinoff', 'split',
+            
+            # Regulatory & approvals
+            'fda', 'approval', 'approved', 'rejected', 'trial', 'study',
+            'patent', 'license', 'regulatory', 'investigation',
+            
+            # Market moving events
+            'breakthrough', 'innovation', 'launch', 'announces', 'reports',
+            'upgrade', 'downgrade', 'target', 'analyst', 'recommendation',
+            'ipo', 'listing', 'offering', 'secondary',
+            
+            # Leadership & strategy
+            'ceo', 'cfo', 'executive', 'management', 'appointed', 'resigned',
+            'strategy', 'restructuring', 'expansion', 'investment',
+            
+            # Financial health
+            'debt', 'funding', 'financing', 'loan', 'credit', 'bankruptcy',
+            'cash', 'balance sheet', 'financial position'
         ]
         
-        return any(keyword in content for keyword in relevant_keywords)
-    
-    def force_refresh_from_time(self, hours_back: int = 1) -> None:
-        """Force refresh last fetch times to pull more recent data."""
-        refresh_time = (datetime.now(timezone.utc) - timedelta(hours=hours_back)).isoformat()
+        # Check for keyword matches
+        keyword_matches = sum(1 for keyword in relevant_keywords if keyword in content)
         
-        for source in self.last_fetch_times:
-            self.last_fetch_times[source] = refresh_time
+        # Must have at least 1 relevant keyword
+        has_keywords = keyword_matches >= 1
         
-        self._save_last_fetch_times()
-        log_info(f"Forced refresh: last fetch times reset to {hours_back} hours ago")
+        # Additional quality checks
+        has_symbol = 'symbol' in article and str(article['symbol']).strip()
+        has_reasonable_length = len(content.strip()) >= 20
+        
+        # Filter out obvious spam/promotional content
+        spam_indicators = ['click here', 'visit our website', 'subscribe now', 'advertisement', 'promo']
+        is_not_spam = not any(spam in content for spam in spam_indicators)
+        
+        return has_keywords and has_symbol and has_reasonable_length and is_not_spam

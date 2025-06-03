@@ -30,7 +30,7 @@ class EnhancedFMPLoader:
         log_info("Enhanced FMP loader initialized with all specialized loaders")
     
     def get_comprehensive_news(self) -> Optional[pd.DataFrame]:
-        """Get comprehensive news from all sources."""
+        """Get comprehensive news from all sources with minimal deduplication."""
         try:
             all_articles = []
             
@@ -56,120 +56,62 @@ class EnhancedFMPLoader:
                 log_debug("No articles from any news source")
                 return None
             
-            # Create DataFrame and process
+            # Create DataFrame and process with minimal deduplication
             df = pd.DataFrame(all_articles)
-            df = self._process_comprehensive_news(df)
+            df = self._process_comprehensive_news_minimal(df)
             
-            if not df.empty:
-                log_info(f"Total comprehensive news: {len(df)} articles from {df['source'].nunique()} sources")
-            
-            return df if not df.empty else None
+            log_info(f"Total comprehensive news: {len(df)} articles from {df['source'].nunique()} sources")
+            return df
             
         except Exception as e:
             log_debug(f"Error in comprehensive news: {e}")
             return None
     
-    def _process_comprehensive_news(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Process comprehensive news data with proper DataFrame operations."""
+    def _process_comprehensive_news_minimal(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Process comprehensive news data with minimal filtering to preserve fresh content."""
         if df.empty:
             return df
         
         try:
-            # Make a copy to avoid SettingWithCopyWarning
+            # FIX: Create explicit copy to avoid SettingWithCopyWarning
             df = df.copy()
             
-            # Enhanced deduplication
-            df = self._enhanced_deduplicate_news(df)
+            # Only remove exact duplicates - no similarity filtering at this level
+            df = df.drop_duplicates(subset=['symbol', 'title'], keep='first')
             
-            # Process datetime safely
+            # Process datetime - Fixed SettingWithCopyWarning
             if 'publishedDate' in df.columns:
                 df.loc[:, 'publishedDate'] = pd.to_datetime(df['publishedDate'], errors='coerce', utc=True)
             
-            # Create combined content field safely
+            # Create combined content field - Fixed SettingWithCopyWarning
             if 'title' in df.columns and 'text' in df.columns:
                 df.loc[:, 'content'] = df['title'].astype(str) + " " + df['text'].astype(str)
             
-            # Ensure source field exists
+            # Ensure source field - Fixed SettingWithCopyWarning
             if 'source' not in df.columns:
                 df.loc[:, 'source'] = 'unknown'
-            else:
-                # Fill missing source values
-                df.loc[:, 'source'] = df['source'].fillna('unknown')
             
-            # Filter essential data
+            # Filter only essential missing data
             essential_filters = (
                 df['symbol'].notna() & 
                 (df['symbol'].str.strip() != '') &
                 df['title'].notna() & 
-                (df['title'].str.strip() != '')
+                (df['title'].str.strip() != '') &
+                (df['title'].str.len() >= 5)  # Minimum title length
             )
             
-            filtered_df = df[essential_filters].copy()
+            filtered_df = df[essential_filters].copy()  # Explicit copy
+            
+            # Sort by publication date to prioritize fresh content
+            if 'publishedDate' in filtered_df.columns:
+                filtered_df = filtered_df.sort_values('publishedDate', ascending=False, na_position='last')
+            
+            log_debug(f"Minimal processing: {len(df)} → {len(filtered_df)} articles (removed only essential missing data)")
+            
             return filtered_df
             
         except Exception as e:
             log_debug(f"Error processing comprehensive news: {e}")
-            return df
-    
-    def _enhanced_deduplicate_news(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Enhanced deduplication with content similarity - improved for incremental fetching."""
-        if df.empty:
-            return df
-        
-        try:
-            # Remove exact duplicates first
-            df = df.drop_duplicates(subset=['symbol', 'title'], keep='first')
-            
-            # For incremental fetching, be less aggressive with similarity removal
-            # since we should be getting fewer, more relevant articles
-            if len(df) > 100:  # Only apply similarity filtering if we have many articles
-                df = self._remove_similar_content(df)
-            
-            return df
-            
-        except Exception as e:
-            log_debug(f"Error in deduplication: {e}")
-            return df
-    
-    def _remove_similar_content(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Remove articles with similar content - optimized for incremental processing."""
-        if 'title' not in df.columns:
-            return df
-        
-        try:
-            unique_indices = []
-            processed_content = {}  # symbol -> set of content fingerprints
-            
-            for idx, row in df.iterrows():
-                title = str(row['title']).lower().strip()
-                symbol = str(row.get('symbol', '')).upper()
-                source = str(row.get('source', 'unknown'))
-                
-                # Create content fingerprint
-                title_words = set(word for word in title.split() if len(word) > 3)
-                
-                if symbol not in processed_content:
-                    processed_content[symbol] = set()
-                
-                # Check for similarity within the same symbol
-                is_similar = False
-                similarity_threshold = 0.85  # High threshold - only remove very similar content
-                
-                for existing_words in processed_content[symbol]:
-                    if title_words and existing_words:
-                        similarity = len(title_words & existing_words) / len(title_words | existing_words)
-                        if similarity > similarity_threshold:
-                            is_similar = True
-                            break
-                
-                if not is_similar:
-                    unique_indices.append(idx)
-                    processed_content[symbol].add(frozenset(title_words))
-            
-            return df.loc[unique_indices].copy()
-            
-        except Exception as e:
-            log_debug(f"Error removing similar content: {e}")
             return df
     
     # Delegate methods to appropriate loaders
@@ -186,25 +128,26 @@ class EnhancedFMPLoader:
         return self.price_loader.get_historical_data(symbol, days)
     
     def get_social_sentiment_for_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Get social sentiment for symbol."""
-        return self.social_loader.get_social_sentiment_for_symbol(symbol)
+        """Get social sentiment for symbol - DISABLED to avoid 429 errors."""
+        # Temporarily disabled to reduce API load
+        log_debug(f"Social sentiment lookup disabled to avoid rate limits for {symbol}")
+        return None
     
     def get_analyst_estimates_for_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Get analyst estimates for symbol."""
-        return self.analyst_loader.get_analyst_estimates_for_symbol(symbol)
+        """Get analyst estimates for symbol - DISABLED to avoid 429 errors."""
+        # Temporarily disabled to reduce API load
+        log_debug(f"Analyst estimates lookup disabled to avoid rate limits for {symbol}")
+        return None
     
     def get_price_target_for_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Get price target for symbol."""
-        return self.analyst_loader.get_price_target_for_symbol(symbol)
+        """Get price target for symbol - DISABLED to avoid 429 errors."""
+        # Temporarily disabled to reduce API load
+        log_debug(f"Price target lookup disabled to avoid rate limits for {symbol}")
+        return None
     
     def set_universe_cache(self, universe: List[str]) -> None:
         """Set universe cache for all loaders that need it."""
         self.news_loader.set_universe_cache(universe)
-    
-    def force_refresh_news(self, hours_back: int = 1) -> None:
-        """Force refresh news sources to get fresh content."""
-        self.news_loader.force_refresh_from_time(hours_back)
-        log_info(f"Forced news refresh: reset to {hours_back} hours back")
     
     # Backward compatibility
     def get_news_rss(self) -> Optional[pd.DataFrame]:

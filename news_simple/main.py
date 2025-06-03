@@ -1,5 +1,5 @@
 """
-Optimized main trading system with improved news processing and content-based deduplication
+Optimized main trading system with date-based news filtering and logical bypass windows
 """
 import asyncio
 import time
@@ -21,83 +21,94 @@ from trading.trade_models import ProcessedArticle
 import pandas as pd
 
 class OptimizedNewsProcessor:
-    """Enhanced news processor with content-based deduplication instead of time-based."""
+    """Enhanced news processor with logical bypass windows and efficient caching."""
     
-    # Optimized constants for better news flow
-    MAX_CACHE_SIZE = 1500  # Reduced cache size for faster processing
-    CONTENT_SIMILARITY_THRESHOLD = 0.85  # High threshold - only block very similar content
-    CACHE_CLEANUP_INTERVAL = 7200  # 2 hours instead of 1 hour
+    # Optimized constants for 25-second scan frequency
+    MAX_CACHE_SIZE = 800  # Reduced further since we're more efficient
+    DEDUP_SIMILARITY_THRESHOLD = 0.90
+    DEFAULT_MAX_AGE_HOURS = 2  # Much shorter since we scan every 25 seconds
+    CACHE_CLEANUP_INTERVAL = 600  # 10 minutes 
+    FRESH_ARTICLE_BYPASS_MINUTES = 2  # LOGICAL: Only 2 minutes for 25-second scans
     
     def __init__(self):
-        """Initialize with content-based processing."""
+        """Initialize with optimized configuration for frequent scanning."""
         self.processed_articles_file = CONFIG.cache_dir / "processed_articles.json"
-        self.processed_content: Dict[str, Set[str]] = {}  # symbol -> set of content hashes
+        self.processed_hashes: Set[str] = set()
         self.processed_articles: Dict[str, ProcessedArticle] = {}
         
         # Performance tracking
         self.processing_stats = {
             'total_processed': 0,
-            'content_duplicates_filtered': 0,
+            'duplicates_filtered': 0,
             'cache_hits': 0,
             'cache_misses': 0,
-            'new_articles_processed': 0
+            'fresh_articles_allowed': 0,
+            'bypassed_fresh_articles': 0
         }
         
-        # More generous processing
+        # Logical settings for 25-second scanning
+        self.max_age_hours = 4 if CONFIG.testing_mode else self.DEFAULT_MAX_AGE_HOURS
         self.last_cleanup = time.time()
+        
+        # More selective similarity checking
+        self.similarity_check_enabled = True
+        self.max_similarity_checks = 2  # Only check last 2 articles
         
         self._initialize_cache()
     
     def _initialize_cache(self) -> None:
-        """Initialize cache with error recovery."""
+        """Initialize cache with aggressive cleanup for frequent scanning."""
         try:
             self._load_processed_articles()
             self._cleanup_old_articles()
-            log_info(f"News processor initialized with {len(self.processed_articles)} cached articles")
+            log_info(f"News processor initialized with {len(self.processed_articles)} cached articles "
+                    f"(max age: {self.max_age_hours}h, bypass: {self.FRESH_ARTICLE_BYPASS_MINUTES}min)")
         except Exception as e:
             log_error(f"Error initializing news processor cache: {e}")
             self.processed_articles = {}
-            self.processed_content = {}
+            self.processed_hashes = set()
     
-    def _generate_content_hash(self, row: pd.Series) -> str:
-        """Generate content-based hash for true deduplication."""
+    def _generate_article_hash(self, row: pd.Series) -> str:
+        """Generate hash with minute precision optimized for frequent scanning."""
         try:
             symbol = str(row.get('symbol', '')).strip().upper()
             title = str(row.get('title', '')).strip().lower()
+            pub_date = str(row.get('publishedDate', ''))
             
-            # Normalize title more intelligently
-            normalized_title = self._normalize_title_for_content(title)
+            # Use minute precision for better granularity
+            date_minute = pub_date[:16] if len(pub_date) >= 16 else pub_date[:13]
             
-            # Create hash based on symbol + normalized content
-            hash_input = f"{symbol}-{normalized_title}"
-            return hashlib.md5(hash_input.encode('utf-8')).hexdigest()[:16]  # Shorter hash
+            # Minimal title normalization
+            normalized_title = self._normalize_title_minimal(title)
+            
+            # Create hash key
+            hash_input = f"{symbol}-{normalized_title}-{date_minute}"
+            return hashlib.md5(hash_input.encode('utf-8')).hexdigest()
             
         except Exception as e:
-            log_debug(f"Error generating content hash: {e}")
-            return hashlib.md5(str(time.time()).encode()).hexdigest()[:16]
+            log_debug(f"Error generating article hash: {e}")
+            return hashlib.md5(str(time.time()).encode()).hexdigest()
     
-    def _normalize_title_for_content(self, title: str) -> str:
-        """Normalize title based on actual content, not metadata."""
+    def _normalize_title_minimal(self, title: str) -> str:
+        """Minimal title normalization to preserve variations."""
         import re
         
-        # Remove metadata but keep content
+        # Remove only obvious noise
         noise_patterns = [
-            r'^\s*(breaking|news|alert):\s*',  # Breaking news prefixes
-            r'\s*-\s*(reuters|bloomberg|cnbc|marketwatch|yahoo).*$',  # Source suffixes
-            r'\b(just now|moments ago|\d{1,2}:\d{2}\s*(AM|PM))\b',  # Time references
-            r'\s*\|\s*.*$',  # Pipe-separated metadata
+            r'^\s*(breaking|news alert):\s*',
+            r'\s*-\s*(reuters|bloomberg|ap).*$',
+            r'\b\d{1,2}:\d{2}\s*(AM|PM)\b'
         ]
         
         cleaned_title = title
         for pattern in noise_patterns:
             cleaned_title = re.sub(pattern, '', cleaned_title, flags=re.IGNORECASE)
         
-        # Normalize whitespace and keep meaningful content
         cleaned_title = ' '.join(cleaned_title.split())
-        return cleaned_title[:100]  # Keep more content than before
+        return cleaned_title[:150]
     
     def _load_processed_articles(self) -> None:
-        """Load processed articles with content mapping."""
+        """Load processed articles with aggressive age filtering."""
         if not self.processed_articles_file.exists():
             return
         
@@ -112,29 +123,44 @@ class OptimizedNewsProcessor:
                 try:
                     processed_article = ProcessedArticle.from_dict(article_data)
                     
-                    # Only keep articles from last 24 hours for content checking
-                    article_age = (current_time - processed_article.processed_datetime).total_seconds() / 3600
-                    if article_age <= 24:  # 24 hours instead of max_age_hours
+                    # Aggressive age check for frequent scanning
+                    article_age_hours = (current_time - processed_article.processed_datetime).total_seconds() / 3600
+                    
+                    if article_age_hours <= self.max_age_hours:
                         self.processed_articles[article_hash] = processed_article
-                        
-                        # Build content mapping
-                        symbol = processed_article.symbol
-                        if symbol not in self.processed_content:
-                            self.processed_content[symbol] = set()
-                        self.processed_content[symbol].add(article_hash)
-                        
+                        self.processed_hashes.add(article_hash)
                         loaded_count += 1
                         
                 except Exception as e:
                     log_debug(f"Skipping invalid cached article: {e}")
                     continue
             
-            log_info(f"Loaded {loaded_count} valid articles for content checking")
+            log_info(f"Loaded {loaded_count} recent articles from cache (max age: {self.max_age_hours}h)")
             
         except Exception as e:
             log_warning(f"Error loading article cache: {e}")
             self.processed_articles = {}
-            self.processed_content = {}
+            self.processed_hashes = set()
+    
+    def _is_article_fresh(self, row: pd.Series) -> bool:
+        """Check if article is fresh enough to bypass filters - LOGICAL FOR 25s SCANS."""
+        try:
+            pub_date_str = str(row.get('publishedDate', ''))
+            if not pub_date_str:
+                return False
+                
+            pub_date = pd.to_datetime(pub_date_str, utc=True, errors='coerce')
+            if pd.isna(pub_date):
+                return False
+                
+            current_time = pd.Timestamp.now(tz='UTC')
+            age_minutes = (current_time - pub_date).total_seconds() / 60
+            
+            # LOGICAL: Only 2 minutes for 25-second scanning frequency
+            return age_minutes <= self.FRESH_ARTICLE_BYPASS_MINUTES
+            
+        except Exception:
+            return False
     
     def _save_processed_articles(self) -> None:
         """Save articles with atomic write."""
@@ -160,7 +186,7 @@ class OptimizedNewsProcessor:
             log_error(f"Error saving article cache: {e}")
     
     def filter_new_articles(self, news_df: pd.DataFrame) -> pd.DataFrame:
-        """Filter articles based on content uniqueness, not time."""
+        """Optimized article filtering with logical bypass windows."""
         if news_df is None or news_df.empty:
             return news_df
         
@@ -168,45 +194,74 @@ class OptimizedNewsProcessor:
         initial_count = len(news_df)
         
         try:
-            # Less frequent cleanup
+            # More frequent cleanup for efficient operation
             if time.time() - self.last_cleanup > self.CACHE_CLEANUP_INTERVAL:
                 self._cleanup_old_articles()
                 self.last_cleanup = time.time()
             
             new_articles = []
-            content_duplicate_count = 0
-            similar_content_count = 0
+            duplicate_count = 0
+            similar_count = 0
+            fresh_bypass_count = 0
             
-            # Process articles with content-based filtering
+            # Process articles with logical fresh content handling
             for idx, row in news_df.iterrows():
-                content_hash = self._generate_content_hash(row)
-                symbol = str(row.get('symbol', '')).strip().upper()
+                # Check if article is fresh (last 2 minutes)
+                is_fresh = self._is_article_fresh(row)
                 
-                # Check if this exact content was already processed
-                if self._is_content_already_processed(content_hash, symbol):
-                    content_duplicate_count += 1
-                    self.processing_stats['cache_hits'] += 1
+                if is_fresh:
+                    # Fresh articles get minimal filtering
+                    article_hash = self._generate_article_hash(row)
+                    
+                    # Only skip if processed in last 90 seconds (very recent)
+                    if article_hash in self.processed_hashes:
+                        cached_article = self.processed_articles.get(article_hash)
+                        if cached_article:
+                            processed_age_seconds = (datetime.now(timezone.utc) - cached_article.processed_datetime).total_seconds()
+                            if processed_age_seconds > 90:  # 90 seconds = logical for breaking news updates
+                                new_articles.append(row)
+                                fresh_bypass_count += 1
+                                self.processing_stats['bypassed_fresh_articles'] += 1
+                            else:
+                                duplicate_count += 1
+                        else:
+                            new_articles.append(row)
+                            fresh_bypass_count += 1
+                            self.processing_stats['bypassed_fresh_articles'] += 1
+                    else:
+                        new_articles.append(row)
+                        fresh_bypass_count += 1
+                        self.processing_stats['bypassed_fresh_articles'] += 1
                     continue
                 
-                # Check for similar content within the same symbol
-                if self._is_similar_content_processed(row, symbol):
-                    similar_content_count += 1
-                    self.processing_stats['content_duplicates_filtered'] += 1
-                    continue
+                # Standard filtering for older articles
+                article_hash = self._generate_article_hash(row)
                 
-                # This is genuinely new content
-                new_articles.append(row)
-                self.processing_stats['cache_misses'] += 1
+                # Check cache
+                if article_hash in self.processed_hashes:
+                    if self._should_reprocess_article(article_hash, row):
+                        new_articles.append(row)
+                        self.processing_stats['fresh_articles_allowed'] += 1
+                    else:
+                        duplicate_count += 1
+                        self.processing_stats['cache_hits'] += 1
+                else:
+                    # Minimal similarity checking
+                    if not self._is_similar_to_recent_minimal(row, new_articles[-self.max_similarity_checks:]):
+                        new_articles.append(row)
+                        self.processing_stats['cache_misses'] += 1
+                    else:
+                        similar_count += 1
+                        self.processing_stats['duplicates_filtered'] += 1
             
             # Create result DataFrame
             result_df = pd.DataFrame(new_articles).reset_index(drop=True) if new_articles else pd.DataFrame()
             
             # Enhanced logging
             processing_time = time.time() - start_time
-            log_info(f"Content filtering: {initial_count} → {len(result_df)} articles "
-                    f"(content duplicates: {content_duplicate_count}, "
-                    f"similar content: {similar_content_count}) "
-                    f"in {processing_time:.2f}s")
+            log_info(f"Article filtering: {initial_count} → {len(result_df)} articles "
+                    f"(duplicates: {duplicate_count}, similar: {similar_count}, "
+                    f"fresh bypass: {fresh_bypass_count}) in {processing_time:.2f}s")
             
             return result_df
             
@@ -214,43 +269,61 @@ class OptimizedNewsProcessor:
             log_error(f"Error filtering articles: {e}")
             return news_df
     
-    def _is_content_already_processed(self, content_hash: str, symbol: str) -> bool:
-        """Check if this exact content hash was already processed."""
-        return (symbol in self.processed_content and 
-                content_hash in self.processed_content[symbol])
+    def _should_reprocess_article(self, article_hash: str, row: pd.Series) -> bool:
+        """Logical reprocessing rules for frequent scanning."""
+        try:
+            if article_hash not in self.processed_articles:
+                return False
+            
+            cached_article = self.processed_articles[article_hash]
+            age_minutes = (datetime.now(timezone.utc) - cached_article.processed_datetime).total_seconds() / 60
+            
+            # For 25-second scans, be more selective about reprocessing
+            # Only reprocess if article is over 30 minutes old
+            if age_minutes >= 30:
+                return True
+            
+            # Or if it's a low-confidence article over 10 minutes old
+            if age_minutes >= 10 and cached_article.combined_confidence < 0.5:
+                return True
+            
+            return False
+            
+        except Exception:
+            return False
     
-    def _is_similar_content_processed(self, current_row: pd.Series, symbol: str) -> bool:
-        """Check if similar content for this symbol was already processed."""
-        if symbol not in self.processed_content:
+    def _is_similar_to_recent_minimal(self, current_row: pd.Series, recent_articles: List) -> bool:
+        """Minimal similarity checking with very high threshold."""
+        if not recent_articles or not self.similarity_check_enabled:
             return False
         
         try:
-            current_title = self._normalize_title_for_content(str(current_row.get('title', '')).lower())
-            current_words = set(word for word in current_title.split() if len(word) > 3)
+            current_symbol = str(current_row.get('symbol', '')).upper()
+            current_title = self._normalize_title_minimal(str(current_row.get('title', '')).lower())
+            current_words = set(word for word in current_title.split() if len(word) > 4)
             
-            if not current_words:
-                return False
-            
-            # Check against recently processed articles for this symbol
-            for content_hash in self.processed_content[symbol]:
-                if content_hash in self.processed_articles:
-                    processed_article = self.processed_articles[content_hash]
-                    processed_title = self._normalize_title_for_content(processed_article.title_hash)
-                    processed_words = set(word for word in processed_title.split() if len(word) > 3)
-                    
-                    if processed_words:
-                        similarity = len(current_words & processed_words) / len(current_words | processed_words)
-                        if similarity > self.CONTENT_SIMILARITY_THRESHOLD:
-                            return True
+            # Only check last article of same symbol
+            for existing_row in recent_articles[-1:]:  # Only check very last article
+                existing_symbol = str(existing_row.get('symbol', '')).upper()
+                
+                if current_symbol != existing_symbol:
+                    continue
+                
+                existing_title = self._normalize_title_minimal(str(existing_row.get('title', '')).lower())
+                existing_words = set(word for word in existing_title.split() if len(word) > 4)
+                
+                # Very high threshold for similarity
+                if (current_words and existing_words and
+                    len(current_words & existing_words) / len(current_words | existing_words) > self.DEDUP_SIMILARITY_THRESHOLD):
+                    return True
             
             return False
             
-        except Exception as e:
-            log_debug(f"Error checking content similarity: {e}")
+        except Exception:
             return False
     
     def mark_articles_processed(self, analyses: List, original_news_df: pd.DataFrame) -> None:
-        """Mark articles as processed with content-based tracking."""
+        """Mark articles as processed with optimized logic for frequent scanning."""
         if original_news_df.empty:
             return
         
@@ -263,22 +336,26 @@ class OptimizedNewsProcessor:
                 analysis.symbol: analysis for analysis in analyses
             } if analyses else {}
             
-            # Process each article
+            # Batch process articles
             for _, row in original_news_df.iterrows():
-                content_hash = self._generate_content_hash(row)
+                article_hash = self._generate_article_hash(row)
+                
+                # For frequent scanning, only skip very recently processed articles
+                if article_hash in self.processed_hashes:
+                    cached_article = self.processed_articles.get(article_hash)
+                    if cached_article:
+                        processed_age_seconds = (datetime.now(timezone.utc) - cached_article.processed_datetime).total_seconds()
+                        if processed_age_seconds < 120:  # Only skip if processed in last 2 minutes
+                            continue
+                
                 symbol = str(row.get('symbol', '')).strip().upper()
-                
-                # Skip if already processed (content-based check)
-                if self._is_content_already_processed(content_hash, symbol):
-                    continue
-                
                 analysis = analysis_lookup.get(symbol)
                 
                 # Create processed article record
                 processed_article = ProcessedArticle(
-                    article_hash=content_hash,
+                    article_hash=article_hash,
                     symbol=symbol,
-                    title_hash=self._normalize_title_for_content(str(row.get('title', '')).lower()),
+                    title_hash=self._normalize_title_minimal(str(row.get('title', '')).lower()),
                     processed_time=current_time,
                     sentiment_score=analysis.sentiment_score if analysis else 0.0,
                     combined_confidence=analysis.combined_confidence if analysis else 0.0,
@@ -286,21 +363,15 @@ class OptimizedNewsProcessor:
                     trade_side=self._determine_trade_side(analysis.sentiment_score) if analysis else ""
                 )
                 
-                # Store article and update content mapping
-                self.processed_articles[content_hash] = processed_article
-                
-                if symbol not in self.processed_content:
-                    self.processed_content[symbol] = set()
-                self.processed_content[symbol].add(content_hash)
-                
+                self.processed_articles[article_hash] = processed_article
+                self.processed_hashes.add(article_hash)
                 new_processed += 1
             
             # Update stats and save
             self.processing_stats['total_processed'] += new_processed
-            self.processing_stats['new_articles_processed'] += new_processed
             
             if new_processed > 0:
-                log_info(f"Marked {new_processed} new articles as processed")
+                log_info(f"Marked {new_processed} articles as processed")
                 self._save_processed_articles()
                 
         except Exception as e:
@@ -315,7 +386,7 @@ class OptimizedNewsProcessor:
         return ""
     
     def _cleanup_old_articles(self) -> None:
-        """Clean up old articles - keep 24 hours of content for similarity checking."""
+        """Aggressive cleanup optimized for frequent scanning."""
         if not self.processed_articles:
             return
         
@@ -323,29 +394,22 @@ class OptimizedNewsProcessor:
             initial_count = len(self.processed_articles)
             current_time = datetime.now(timezone.utc)
             
-            # Find articles older than 24 hours
+            # Very aggressive cleanup for frequent scanning
             old_hashes = []
             for article_hash, article in self.processed_articles.items():
-                article_age = (current_time - article.processed_datetime).total_seconds() / 3600
-                if article_age > 24:  # Keep 24 hours of history
+                age_hours = (current_time - article.processed_datetime).total_seconds() / 3600
+                
+                # Remove old articles OR low confidence articles older than 1 hour
+                if (age_hours > self.max_age_hours or 
+                    (age_hours > 1 and article.combined_confidence < 0.4)):
                     old_hashes.append(article_hash)
             
-            # Remove old articles and update content mapping
+            # Remove old articles
             for article_hash in old_hashes:
-                if article_hash in self.processed_articles:
-                    article = self.processed_articles[article_hash]
-                    symbol = article.symbol
-                    
-                    # Remove from articles
-                    del self.processed_articles[article_hash]
-                    
-                    # Remove from content mapping
-                    if symbol in self.processed_content:
-                        self.processed_content[symbol].discard(article_hash)
-                        if not self.processed_content[symbol]:
-                            del self.processed_content[symbol]
+                self.processed_articles.pop(article_hash, None)
+                self.processed_hashes.discard(article_hash)
             
-            # Size-based cleanup if still too large
+            # Aggressive size limits
             if len(self.processed_articles) > self.MAX_CACHE_SIZE:
                 self._trim_cache_to_size()
             
@@ -357,35 +421,30 @@ class OptimizedNewsProcessor:
             log_error(f"Error cleaning up articles: {e}")
     
     def _trim_cache_to_size(self) -> None:
-        """Trim cache to maximum size keeping most recent articles."""
+        """Trim cache to maximum size keeping most valuable articles."""
         if len(self.processed_articles) <= self.MAX_CACHE_SIZE:
             return
         
         try:
-            # Sort by timestamp (keep most recent)
+            # Sort by value (recent + high confidence + was traded)
             sorted_articles = sorted(
                 self.processed_articles.items(),
-                key=lambda x: x[1].processed_datetime.timestamp(),
+                key=lambda x: (
+                    x[1].processed_datetime.timestamp(),
+                    x[1].combined_confidence,
+                    x[1].was_traded
+                ),
                 reverse=True
             )
             
-            # Keep most recent articles
-            keep_count = int(self.MAX_CACHE_SIZE * 0.8)
+            # Keep top articles
+            keep_count = int(self.MAX_CACHE_SIZE * 0.75)  # Keep 75%
             articles_to_keep = dict(sorted_articles[:keep_count])
-            articles_to_remove = dict(sorted_articles[keep_count:])
             
-            # Update content mapping
-            for article_hash in articles_to_remove:
-                article = self.processed_articles[article_hash]
-                symbol = article.symbol
-                if symbol in self.processed_content:
-                    self.processed_content[symbol].discard(article_hash)
-                    if not self.processed_content[symbol]:
-                        del self.processed_content[symbol]
-            
-            # Update articles
+            # Update structures
             removed_count = len(self.processed_articles) - len(articles_to_keep)
             self.processed_articles = articles_to_keep
+            self.processed_hashes = set(self.processed_articles.keys())
             
             log_info(f"Trimmed cache: removed {removed_count} articles")
             
@@ -394,6 +453,8 @@ class OptimizedNewsProcessor:
     
     def get_processing_stats(self) -> Dict[str, Any]:
         """Get comprehensive processing statistics."""
+        current_time = datetime.now(timezone.utc)
+        
         # Calculate additional metrics
         high_confidence_count = sum(
             1 for article in self.processed_articles.values()
@@ -405,7 +466,7 @@ class OptimizedNewsProcessor:
             if article.was_traded == 1
         )
         
-        symbols_covered = len(self.processed_content)
+        symbols_covered = len(set(article.symbol for article in self.processed_articles.values()))
         
         # Average confidence
         confidences = [article.combined_confidence for article in self.processed_articles.values()]
@@ -418,23 +479,25 @@ class OptimizedNewsProcessor:
             'actual_trades': trades_count,
             'symbols_covered': symbols_covered,
             'avg_confidence': avg_confidence,
+            'max_age_hours': self.max_age_hours,
             'cache_efficiency': self.processing_stats['cache_hits'] / max(
                 self.processing_stats['cache_hits'] + self.processing_stats['cache_misses'], 1
             ),
-            'content_similarity_threshold': self.CONTENT_SIMILARITY_THRESHOLD,
-            'processing_method': 'content_based'
+            'similarity_threshold': self.DEDUP_SIMILARITY_THRESHOLD,
+            'fresh_bypass_threshold_minutes': self.FRESH_ARTICLE_BYPASS_MINUTES,
+            'scan_frequency_seconds': CONFIG.news_check_interval
         }
 
 
 class EnhancedTradingSystem:
-    """High-performance trading system with content-based news processing."""
+    """High-performance trading system with comprehensive monitoring and error recovery."""
     
     # System-level constants
     MAX_CONSECUTIVE_ERRORS = 10
     ERROR_BACKOFF_BASE = 2
     MAX_BACKOFF_SECONDS = 300  # 5 minutes
-    UNIVERSE_REFRESH_HOURS = 6
-    STATUS_INTERVAL_MINUTES = 3
+    UNIVERSE_REFRESH_HOURS = 6  # Increased to refresh less frequently
+    STATUS_INTERVAL_MINUTES = 3  # More frequent status updates
     
     def __init__(self) -> None:
         """Initialize trading system with robust error handling."""
@@ -459,7 +522,8 @@ class EnhancedTradingSystem:
             'total_trades_created': 0,
             'uptime_start': time.time(),
             'errors_recovered': 0,
-            'new_articles_processed': 0
+            'fresh_articles_processed': 0,
+            'bypassed_fresh_articles': 0
         }
         
         # Initialize components
@@ -506,10 +570,6 @@ class EnhancedTradingSystem:
                     self.universe = self._create_optimized_universe(screener_df)
                     
                     if len(self.universe) > 0:
-                        # Set universe in loaders for targeted fetching
-                        self.fmp_loader.set_universe_cache(self.universe)
-                        self.news_analyzer.set_universe(self.universe)
-                        
                         self.last_universe_refresh = time.time()
                         log_info(f"Universe initialized with {len(self.universe)} symbols")
                         log_info(f"Sample symbols: {self.universe[:15]}")
@@ -579,20 +639,18 @@ class EnhancedTradingSystem:
     
     async def run(self) -> None:
         """Main system run loop with enhanced error recovery."""
-        log_info("🚀 Starting Enhanced News Catalyst Trading System")
+        log_info("🚀 Starting Enhanced News Catalyst Trading System with Date-Based Filtering")
         log_info(f"Configuration: {CONFIG.news_page_limit} pages, "
                 f"{CONFIG.news_per_page_limit} per page, "
                 f"confidence threshold: {CONFIG.min_confidence_score}")
-        log_info(f"Universe size: {CONFIG.max_symbols}")
-        log_info(f"News processing: Content-based deduplication (threshold: {self.news_processor.CONTENT_SIMILARITY_THRESHOLD})")
+        log_info(f"Universe size: {CONFIG.max_symbols}, Cache age limit: {self.news_processor.max_age_hours}h")
+        log_info(f"News processing: Date-filtered with {self.news_processor.FRESH_ARTICLE_BYPASS_MINUTES}min bypass "
+                f"(scan frequency: {CONFIG.news_check_interval}s)")
         
         # Initialize universe
         if not self.initialize_universe():
             log_error("❌ Failed to initialize trading universe")
             return
-        
-        # Force fresh news on startup
-        self.fmp_loader.force_refresh_news(hours_back=2)
         
         # Main trading loop
         await self._execute_main_loop()
@@ -607,7 +665,7 @@ class EnhancedTradingSystem:
         last_position_check = 0.0
         last_status_print = 0.0
         
-        log_info("📊 Enhanced trading system active - Press Ctrl+C to stop")
+        log_info("📊 Enhanced trading system active with date-based filtering - Press Ctrl+C to stop")
         
         while self.running:
             try:
@@ -634,27 +692,27 @@ class EnhancedTradingSystem:
                 if self.cycle_count % 50 == 0:
                     self._refresh_universe_if_needed()
                 
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(1.5)  # Slightly faster processing
                 
             except Exception as e:
                 await self._handle_main_loop_error(e)
     
     async def _process_news_cycle(self) -> None:
-        """Process news cycle with incremental fetching."""
+        """Process news cycle with comprehensive error handling."""
         cycle_start = time.time()
         self.cycle_count += 1
         
         try:
             log_debug(f"Starting news cycle #{self.cycle_count}")
             
-            # Get incremental news (should be much smaller now)
+            # Get raw news with date-based filtering
             raw_news_df = self.fmp_loader.get_comprehensive_news()
             
             if raw_news_df is None or raw_news_df.empty:
-                log_debug("No new news data received")
+                log_debug("No news data received")
                 return
             
-            log_info(f"Retrieved {len(raw_news_df)} articles from {raw_news_df['source'].nunique()} sources")
+            log_info(f"Retrieved {len(raw_news_df)} raw articles from {raw_news_df['source'].nunique()} sources")
             
             # Filter to universe
             universe_news_df = self._filter_news_to_universe(raw_news_df)
@@ -700,15 +758,15 @@ class EnhancedTradingSystem:
     async def _process_news_pipeline(self, universe_news_df: pd.DataFrame) -> None:
         """Process news through the analysis pipeline."""
         try:
-            # Filter articles based on content uniqueness
+            # Filter new articles with improved logical filtering
             new_articles_df = self.news_processor.filter_new_articles(universe_news_df)
             
             if new_articles_df.empty:
-                log_debug("No new unique content to process after filtering")
+                log_info("No new articles to process after filtering")
                 self.news_processor.mark_articles_processed([], universe_news_df)
                 return
             
-            log_info(f"Processing {len(new_articles_df)} articles with unique content")
+            log_info(f"Processing {len(new_articles_df)} new articles (from {new_articles_df['source'].nunique()} sources)")
             
             # Quality filtering
             quality_filtered_df = self.trader.pre_filter_news(new_articles_df)
@@ -732,14 +790,15 @@ class EnhancedTradingSystem:
                 quality_filtered_df, prices_df
             )
             
-            # Mark articles as processed (content-based)
+            # Mark articles as processed
             self.news_processor.mark_articles_processed(analyses, universe_news_df)
             
             if analyses:
                 # Process trading signals
                 self.trader.process_news_signals(analyses, prices_df)
                 self.performance_metrics['total_articles_processed'] += len(analyses)
-                self.performance_metrics['new_articles_processed'] += len(new_articles_df)
+                self.performance_metrics['fresh_articles_processed'] += self.news_processor.processing_stats.get('fresh_articles_allowed', 0)
+                self.performance_metrics['bypassed_fresh_articles'] += self.news_processor.processing_stats.get('bypassed_fresh_articles', 0)
             else:
                 log_info("No valid analyses generated")
                 
@@ -802,7 +861,7 @@ class EnhancedTradingSystem:
             analyzer_stats = self.news_analyzer.get_performance_stats()
             
             log_info("=" * 80)
-            log_info("📊 ENHANCED TRADING SYSTEM STATUS")
+            log_info("📊 ENHANCED TRADING SYSTEM STATUS (DATE-FILTERED)")
             log_info("=" * 80)
             
             # System health
@@ -821,13 +880,14 @@ class EnhancedTradingSystem:
             log_info(f"   Recommendations Logged: {trader_stats.get('recommendations_logged', 0)}")
             
             # News processing (enhanced)
-            log_info(f"📰 News Processing (Content-Based):")
+            log_info(f"📰 News Processing (Date-Filtered):")
             log_info(f"   Articles Cached: {news_stats.get('cached_articles', 0)}")
             log_info(f"   Cache Efficiency: {news_stats.get('cache_efficiency', 0):.1%}")
-            log_info(f"   New Articles Processed: {self.performance_metrics.get('new_articles_processed', 0)}")
+            log_info(f"   Fresh Articles Bypassed: {self.performance_metrics.get('bypassed_fresh_articles', 0)}")
+            log_info(f"   Fresh Articles Allowed: {self.performance_metrics.get('fresh_articles_processed', 0)}")
             log_info(f"   High Confidence Signals: {news_stats.get('high_confidence_signals', 0)}")
             log_info(f"   Symbols Covered: {news_stats.get('symbols_covered', 0)}")
-            log_info(f"   Content Similarity Threshold: {news_stats.get('content_similarity_threshold', 'N/A')}")
+            log_info(f"   Fresh Bypass: {news_stats.get('fresh_bypass_threshold_minutes', 'N/A')}min (logical for {news_stats.get('scan_frequency_seconds', 'N/A')}s scans)")
             
             # Analysis performance
             log_info(f"🔍 Analysis Performance:")
