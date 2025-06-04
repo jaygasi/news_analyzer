@@ -1,0 +1,9 @@
+requests
+pandas
+tenacity
+transformers
+torch # Required for FinBERT (transformers depends on it)
+spacy
+python-json-logger
+dotenv
+python-dotenv

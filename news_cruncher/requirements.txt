@@ -1,0 +1,42 @@
+# Core data processing
+pandas>=2.0.0
+numpy>=1.24.0
+dotenv
+
+# HTTP requests and environment management
+requests>=2.31.0
+python-dotenv>=1.0.0
+
+# AI/ML for FinBERT sentiment analysis
+torch>=2.0.0
+transformers>=4.30.0
+
+# Google Gemini LLM integration
+google-generativeai>=0.3.0
+
+# OpenAI API
+openai>=1.0.0
+
+# Anthropic Claude API
+anthropic>=0.7.0
+
+# HTTP adapter for better connection handling
+urllib3>=2.0.0
+
+# For async operations
+asyncio
+
+# Built-in modules (no installation needed):
+# sqlite3 - for database
+# csv - for CSV logging
+# json - for JSON parsing
+# hashlib - for article hashing
+# datetime - for timestamps
+# pathlib - for file paths
+# signal - for graceful shutdown
+# sys - for system operations
+# os - for environment variables
+# typing - for type hints
+# dataclasses - for data structures
+# re - for regex operations
+# time - for delays and timing
