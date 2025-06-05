@@ -332,7 +332,7 @@ class FinancialNewsAnalyzer:
         """Analyze each ticker with news and technical analysis"""
         ticker_analyses = {}
         
-        for i, ticker in enumerate(prioritized_tickers[:50], 1):  # Limit to top 50 tickers
+        for i, ticker in enumerate(prioritized_tickers[:Config.MAX_TICKERS_TO_ANALYZE], 1):  # Limit to top 50 tickers
             try:
                 log_debug(f"Analyzing {ticker} ({i}/{min(len(prioritized_tickers), 50)})")
                 

@@ -259,6 +259,18 @@ class Config:
         'earnings-call-transcript',      # Earnings transcripts (usually 10-30 articles)
         'analyst-estimates'              # Analyst reports (usually 20-50 articles)
     ]
+    # ================================================================
+    # 📊 ANALYSIS LIMITS
+    # ================================================================
+
+    # 🎯 Maximum Tickers to Analyze Per Cycle
+    # CURRENT: 50 tickers (takes ~10 minutes)
+    # EFFECT: Higher = more potential decisions but longer processing time
+    # PERFORMANCE: ~12 seconds per ticker based on API delays
+    # RANGE: 50-200 recommended
+    # EXAMPLE: 100 = ~20 minutes processing, more decisions
+    #          200 = ~40 minutes processing, maximum coverage
+    MAX_TICKERS_TO_ANALYZE: int = 100  # Increased from hardcoded 50
     
     # ================================================================
     # 🛠️ UTILITY METHODS
