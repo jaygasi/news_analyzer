@@ -1,5 +1,5 @@
 """
-Main application for simplified financial news analysis system - FIXED IMPORTS
+Main application for simplified financial news analysis system with price tracking - FIXED IMPORTS
 Python 3.13.3 compatible
 """
 import asyncio
@@ -14,12 +14,13 @@ from data_loaders.news_fetcher import NewsFetcher
 from core.ticker_aggregator import TickerAggregator
 from analysis.multi_llm_analyzer import MultiLLMAnalyzer
 from analysis.technical_analyzer_simple import TechnicalAnalyzer
+from analysis.price_tracker import PriceTracker, TrackingScheduler
 from core.decision_engine import DecisionEngine
 from output.csv_logger import CSVLogger
 
 
 class FinancialNewsAnalyzer:
-    """Main application class for financial news analysis"""
+    """Main application class for financial news analysis with price tracking"""
     
     def __init__(self) -> None:
         """Initialize the financial news analyzer"""
@@ -38,7 +39,7 @@ class FinancialNewsAnalyzer:
         # Setup signal handlers
         self._setup_signal_handlers()
         
-        log_info("Financial News Analyzer initialized successfully")
+        log_info("Financial News Analyzer with price tracking initialized successfully")
     
     def _validate_configuration(self) -> None:
         """Validate required configuration with enhanced service status"""
@@ -79,7 +80,7 @@ class FinancialNewsAnalyzer:
             log_info("✅ Good service coverage for robust predictions")
     
     def _initialize_components(self) -> None:
-        """Initialize all system components"""
+        """Initialize all system components including price tracking"""
         try:
             # Database components
             self.article_tracker = ArticleTracker()
@@ -100,6 +101,10 @@ class FinancialNewsAnalyzer:
             # Output
             self.csv_logger = CSVLogger()
             
+            # Price tracking components
+            self.price_tracker = PriceTracker(self.news_fetcher)
+            self.tracking_scheduler = TrackingScheduler(self.price_tracker, self.csv_logger)
+            
             # Log service initialization status
             service_status = self.llm_analyzer.get_service_status()
             log_info("🤖 AI Service initialization status:")
@@ -110,7 +115,7 @@ class FinancialNewsAnalyzer:
                 else:
                     log_info(f"  ❌ {service_name}: Not available")
             
-            log_info("All components initialized successfully")
+            log_info("All components including price tracking initialized successfully")
             
         except Exception as e:
             log_error(f"Failed to initialize components: {e}")
@@ -126,9 +131,12 @@ class FinancialNewsAnalyzer:
         signal.signal(signal.SIGTERM, signal_handler)
     
     async def run(self) -> None:
-        """Main application loop"""
-        log_info("🚀 Starting Financial News Analysis System")
+        """Main application loop with price tracking"""
+        log_info("🚀 Starting Financial News Analysis System with Price Tracking")
         self._print_startup_info()
+        
+        # Start price tracking scheduler as background task
+        tracking_task = asyncio.create_task(self.tracking_scheduler.run_scheduler())
         
         try:
             while self.running:
@@ -144,6 +152,10 @@ class FinancialNewsAnalyzer:
             log_error(f"Fatal error in main loop: {e}")
             raise
         finally:
+            # Stop price tracking scheduler
+            self.tracking_scheduler.running = False
+            tracking_task.cancel()
+            
             await self._shutdown()
     
     def _print_startup_info(self) -> None:
@@ -152,10 +164,11 @@ class FinancialNewsAnalyzer:
         time_since_last = datetime.now(timezone.utc) - self.last_successful_run
         
         log_info("=" * 60)
-        log_info("📊 FINANCIAL NEWS ANALYSIS SYSTEM")
+        log_info("📊 FINANCIAL NEWS ANALYSIS SYSTEM WITH PRICE TRACKING")
         log_info("=" * 60)
         log_info(f"🔑 Configuration:")
         log_info(f"   Min confidence threshold: {Config.MIN_CONFIDENCE_THRESHOLD}")
+        log_info(f"   Max tickers to analyze: {Config.MAX_TICKERS_TO_ANALYZE}")
         log_info(f"   Last successful run: {self.last_successful_run.strftime('%Y-%m-%d %H:%M:%S UTC')}")
         
         # Show actual lookback that will be used
@@ -171,6 +184,7 @@ class FinancialNewsAnalyzer:
         service_status = self.llm_analyzer.get_service_status()
         available_services = [name for name, status in service_status.items() if status['available']]
         log_info(f"🤖 Available AI services: {', '.join(available_services)}")
+        log_info(f"📈 Price tracking: ENABLED")
         
         log_info("=" * 60)
     
@@ -212,7 +226,7 @@ class FinancialNewsAnalyzer:
         return cutoff_time
     
     async def _process_cycle(self) -> None:
-        """Process one complete analysis cycle"""
+        """Process one complete analysis cycle with price tracking"""
         self.cycle_count += 1
         cycle_start = datetime.now()
         
@@ -223,9 +237,9 @@ class FinancialNewsAnalyzer:
         decisions_made = 0
         
         try:
-            # Step 1: Fetch latest news - FIXED METHOD NAME
+            # Step 1: Fetch latest news
             log_info(f"📰 Step 1: Fetching news")
-            all_articles = self.news_fetcher.fetch_all_news()  # FIXED: was fetch_all_news_since
+            all_articles = self.news_fetcher.fetch_all_news()
             articles_fetched = len(all_articles)
             
             if not all_articles:
@@ -261,7 +275,7 @@ class FinancialNewsAnalyzer:
             log_info("🎯 Step 4: Prioritizing tickers for analysis...")
             prioritized_tickers = self.ticker_aggregator.prioritize_tickers(ticker_buckets)
             
-            # Step 5: Analyze each ticker
+            # Step 5: Analyze each ticker (now with configurable limit)
             log_info(f"🧠 Step 5: Analyzing {len(prioritized_tickers)} tickers...")
             ticker_analyses = await self._analyze_tickers(prioritized_tickers, ticker_buckets)
             
@@ -270,11 +284,17 @@ class FinancialNewsAnalyzer:
             decisions = self.decision_engine.batch_process_decisions(ticker_analyses)
             decisions_made = len(decisions)
             
-            # Step 7: Log decisions
+            # Step 7: Log decisions and start price tracking
             if decisions:
                 log_info(f"📝 Step 7: Logging {decisions_made} trading decisions...")
                 logged_count = self.csv_logger.log_decisions_batch(decisions)
-                log_info(f"✅ Successfully logged {logged_count} decisions")
+                
+                # Add price tracking for LONG/SHORT decisions
+                for decision in decisions:
+                    if decision.decision in ['LONG', 'SHORT']:
+                        self.tracking_scheduler.add_tracking(decision)
+                
+                log_info(f"✅ Successfully logged {logged_count} decisions with price tracking enabled")
                 
                 # Print summary of decisions
                 self._print_decisions_summary(decisions)
@@ -317,6 +337,11 @@ class FinancialNewsAnalyzer:
                     limit = status.get('daily_limit', 0)
                     log_info(f"  {service_name}: {requests}/{limit} requests")
             
+            # Show price tracking statistics
+            pending_tracks = len(self.tracking_scheduler.pending_tracks)
+            if pending_tracks > 0:
+                log_info(f"📊 Active price tracking: {pending_tracks} positions being monitored")
+            
             # Cleanup old data periodically
             if self.cycle_count % 10 == 0:
                 self._periodic_cleanup()
@@ -332,9 +357,13 @@ class FinancialNewsAnalyzer:
         """Analyze each ticker with news and technical analysis"""
         ticker_analyses = {}
         
-        for i, ticker in enumerate(prioritized_tickers[:Config.MAX_TICKERS_TO_ANALYZE], 1):  # Limit to top 50 tickers
+        # Use configurable limit instead of hardcoded 50
+        max_tickers = Config.MAX_TICKERS_TO_ANALYZE
+        tickers_to_analyze = prioritized_tickers[:max_tickers]
+        
+        for i, ticker in enumerate(tickers_to_analyze, 1):
             try:
-                log_debug(f"Analyzing {ticker} ({i}/{min(len(prioritized_tickers), 50)})")
+                log_debug(f"Analyzing {ticker} ({i}/{len(tickers_to_analyze)})")
                 
                 articles = ticker_buckets[ticker]
                 
@@ -432,6 +461,11 @@ class FinancialNewsAnalyzer:
             log_info(f"   Database: {db_stats.get('total_articles', 0)} articles, {db_stats.get('unique_tickers', 0)} tickers")
             log_info(f"   CSV: {csv_stats.get('total_decisions', 0)} decisions logged")
             
+            # Price tracking statistics
+            if 'tracking_statistics' in csv_stats:
+                tracking_stats = csv_stats['tracking_statistics']
+                log_info(f"   Price tracking: {tracking_stats.get('completed', 0)} completed, {tracking_stats.get('pending', 0)} pending")
+            
         except Exception as e:
             log_error(f"Error in periodic cleanup: {e}")
     
@@ -450,6 +484,11 @@ class FinancialNewsAnalyzer:
             log_info(f"   Articles processed: {db_stats.get('total_articles', 0)}")
             log_info(f"   Decisions logged: {csv_stats.get('total_decisions', 0)}")
             log_info(f"   Unique tickers analyzed: {db_stats.get('unique_tickers', 0)}")
+            
+            # Price tracking final stats
+            pending_tracks = len(self.tracking_scheduler.pending_tracks)
+            if pending_tracks > 0:
+                log_info(f"   Price tracking: {pending_tracks} positions still being monitored")
             
             # Service usage
             for service_name, status in service_status.items():

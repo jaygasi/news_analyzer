@@ -3,7 +3,8 @@ Decision engine that combines news and technical analysis - Enhanced for better 
 Python 3.13.3 compatible
 """
 from typing import Dict, List, Optional, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from analysis.multi_llm_analyzer import DirectionalPrediction
 from analysis.technical_analyzer_simple import TechnicalSignal
 from config import Config
@@ -12,7 +13,7 @@ from utils.simple_logger import log_debug, log_info, log_warning
 
 @dataclass
 class TradingDecision:
-    """Final trading decision with all supporting data"""
+    """Final trading decision with all supporting data including price tracking"""
     ticker: str
     decision: str  # 'LONG', 'SHORT', 'NONE'
     confidence: float  # 0.0 to 1.0
@@ -36,6 +37,26 @@ class TradingDecision:
     # Metadata
     article_count: int = 0
     analysis_timestamp: str = ""
+    
+    # Price tracking fields
+    recommendation_price: Optional[float] = None
+    recommendation_timestamp: Optional[datetime] = None
+    
+    price_45m: Optional[float] = None
+    price_45m_timestamp: Optional[datetime] = None
+    price_45m_change_pct: Optional[float] = None
+    
+    price_1hr: Optional[float] = None
+    price_1hr_timestamp: Optional[datetime] = None
+    price_1hr_change_pct: Optional[float] = None
+    
+    price_close: Optional[float] = None
+    price_close_timestamp: Optional[datetime] = None
+    price_close_change_pct: Optional[float] = None
+    
+    tracking_schedule: List[datetime] = field(default_factory=list)
+    tracking_completed: bool = False
+    tracking_status: str = "pending"
 
 
 class DecisionEngine:

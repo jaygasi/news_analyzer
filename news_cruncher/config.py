@@ -248,6 +248,15 @@ class Config:
     #          2000 = comprehensive but very slow cycles
     MAX_NEWS_ARTICLES: int = 1000
     
+    # 🎯 Maximum Tickers to Analyze Per Cycle
+    # CURRENT: 100 tickers (takes ~20 minutes)
+    # EFFECT: Higher = more potential decisions but longer processing time
+    # PERFORMANCE: ~12 seconds per ticker based on API delays
+    # RANGE: 50-200 recommended
+    # EXAMPLE: 100 = ~20 minutes processing, more decisions
+    #          200 = ~40 minutes processing, maximum coverage
+    MAX_TICKERS_TO_ANALYZE: int = int(os.getenv('MAX_TICKERS_TO_ANALYZE', '100'))
+    
     # 📰 News Sources to Fetch
     # CURRENT: Stock news, press releases, earnings, analyst estimates
     # EFFECT: Which FMP endpoints to query for news
@@ -259,19 +268,29 @@ class Config:
         'earnings-call-transcript',      # Earnings transcripts (usually 10-30 articles)
         'analyst-estimates'              # Analyst reports (usually 20-50 articles)
     ]
+    
     # ================================================================
-    # 📊 ANALYSIS LIMITS
+    # 📈 PRICE TRACKING CONFIGURATION
     # ================================================================
 
-    # 🎯 Maximum Tickers to Analyze Per Cycle
-    # CURRENT: 50 tickers (takes ~10 minutes)
-    # EFFECT: Higher = more potential decisions but longer processing time
-    # PERFORMANCE: ~12 seconds per ticker based on API delays
-    # RANGE: 50-200 recommended
-    # EXAMPLE: 100 = ~20 minutes processing, more decisions
-    #          200 = ~40 minutes processing, maximum coverage
-    MAX_TICKERS_TO_ANALYZE: int = 100  # Increased from hardcoded 50
-    
+    # 🕐 Price Check Intervals
+    # EFFECT: When to check prices after making a recommendation
+    # EXAMPLE: PRICE_CHECK_1 = 30 means check price 30 minutes after recommendation
+    PRICE_CHECK_1_MINUTES: int = int(os.getenv('PRICE_CHECK_1_MINUTES', '45'))
+    PRICE_CHECK_2_MINUTES: int = int(os.getenv('PRICE_CHECK_2_MINUTES', '60'))
+
+    # 🕓 Market Close Price Check Time (EST)
+    # EFFECT: What time to fetch the "close" price (10 minutes before actual close)
+    # FORMAT: 24-hour format, EST timezone
+    # EXAMPLE: 15:50 = 3:50 PM EST (10 minutes before 4:00 PM close)
+    CLOSE_PRICE_HOUR: int = int(os.getenv('CLOSE_PRICE_HOUR', '15'))
+    CLOSE_PRICE_MINUTE: int = int(os.getenv('CLOSE_PRICE_MINUTE', '50'))
+
+    # 🔄 Price Tracker Check Frequency  
+    # EFFECT: How often the background scheduler checks for due price reads
+    # RANGE: 1-10 minutes recommended
+    # EXAMPLE: 5 = check every 5 minutes, 1 = check every minute (more responsive)
+    PRICE_TRACKER_CHECK_INTERVAL: int = int(os.getenv('PRICE_TRACKER_CHECK_INTERVAL', '5'))
     # ================================================================
     # 🛠️ UTILITY METHODS
     # ================================================================
@@ -371,6 +390,7 @@ class Config:
             'service_count': len(enabled_services),
             'confidence_threshold': cls.MIN_CONFIDENCE_THRESHOLD,
             'max_articles': cls.MAX_NEWS_ARTICLES,
+            'max_tickers': cls.MAX_TICKERS_TO_ANALYZE,
             'news_age_range': f"{cls.MIN_NEWS_AGE_MINUTES}min - {cls.MAX_NEWS_AGE_HOURS}h",
             'output_file': str(cls.CSV_OUTPUT_PATH),
             'has_finbert_deps': cls.has_finbert_dependencies()
@@ -387,17 +407,20 @@ class Config:
 🆓 FREE TIER SETUP (Minimal costs):
 - Enable: FinBERT, Gemini, Alpha Vantage, Keywords
 - Set MAX_NEWS_ARTICLES = 500
+- Set MAX_TICKERS_TO_ANALYZE = 75
 - Set MIN_CONFIDENCE_THRESHOLD = 0.7
 
 💰 PREMIUM SETUP (Best quality):  
 - Enable: All services with valid API keys
 - Set MAX_NEWS_ARTICLES = 1000
+- Set MAX_TICKERS_TO_ANALYZE = 150
 - Set MIN_CONFIDENCE_THRESHOLD = 0.6
 - Set LLM_REQUEST_DELAY = 0.5
 
 ⚡ FAST TESTING SETUP:
 - Enable: FinBERT, Keywords only
 - Set MAX_NEWS_ARTICLES = 100
+- Set MAX_TICKERS_TO_ANALYZE = 50
 - Set MIN_CONFIDENCE_THRESHOLD = 0.5
 
 🛡️ CONSERVATIVE SETUP (High precision):
@@ -414,18 +437,24 @@ class Config:
 
 ⏱️ Processing too slow?
 - Reduce MAX_NEWS_ARTICLES to 500
+- Reduce MAX_TICKERS_TO_ANALYZE to 75
 - Disable expensive services (OpenAI, Claude)
 - Increase LLM_REQUEST_DELAY to avoid rate limits
 
 💸 API costs too high?
 - Disable OpenAI and Claude
 - Use only free tier services
-- Reduce MAX_NEWS_ARTICLES
+- Reduce MAX_NEWS_ARTICLES and MAX_TICKERS_TO_ANALYZE
 
 🔄 Missing news?
 - Increase MAX_NEWS_AGE_HOURS to 48
 - Add more NEWS_SOURCES
 - Check FMP API quotas
+
+📈 Want more price tracking coverage?
+- Increase MAX_TICKERS_TO_ANALYZE to capture more decisions
+- Lower MIN_CONFIDENCE_THRESHOLD to track more positions
+- Monitor 'tracking_statistics' in logs
 """
 
 # Create directories on import

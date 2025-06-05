@@ -1,5 +1,5 @@
 """
-Enhanced CSV logger for trading decisions - FIXED IMPORTS
+Enhanced CSV logger for trading decisions with price tracking - FIXED IMPORTS
 Python 3.13.3 compatible
 """
 import csv
@@ -13,13 +13,13 @@ from utils.simple_logger import log_info, log_error, log_debug
 
 
 class CSVLogger:
-    """CSV logger with fixed imports"""
+    """CSV logger with fixed imports and price tracking support"""
 
     def __init__(self, csv_path: Optional[Path] = None) -> None:
         """Initialize CSV logger"""
         self.csv_path: Path = csv_path or Config.CSV_OUTPUT_PATH
 
-        # Headers for regular trading decisions
+        # Headers for regular trading decisions with price tracking
         self.headers = [
             # Basic decision info
             'timestamp',
@@ -48,7 +48,21 @@ class CSVLogger:
             # Analysis metadata
             'analysis_method',
             'sources_used',  # If available from multi-source
-            'analysis_timestamp'
+            'analysis_timestamp',
+            
+            # Price tracking columns
+            'recommendation_price',
+            'recommendation_timestamp',
+            'price_45m',
+            'price_45m_timestamp',
+            'price_45m_change_pct',
+            'price_1hr',
+            'price_1hr_timestamp',
+            'price_1hr_change_pct',
+            'price_close',
+            'price_close_timestamp',
+            'price_close_change_pct',
+            'tracking_status'
         ]
 
         self._ensure_csv_exists()
@@ -154,43 +168,83 @@ class CSVLogger:
             log_error(f"Error in batch logging: {e}")
             return 0
 
+    def update_decision_prices(self, decision: TradingDecision) -> bool:
+        """Update price data for existing decision by appending new row"""
+        try:
+            # For now, we'll append a new row with updated price data
+            # This creates an audit trail of price updates
+            row_data = self._decision_to_row(decision)
+
+            with open(self.csv_path, 'a', newline='', encoding='utf-8') as file:
+                writer = csv.writer(file)
+                writer.writerow(row_data)
+
+            log_debug(f"Updated price data for {decision.ticker}")
+            return True
+
+        except Exception as e:
+            log_error(f"Error updating decision prices: {e}")
+            return False
+
     def _decision_to_row(self, decision: TradingDecision) -> List[str]:
-        """Convert TradingDecision to CSV row"""
+        """Convert TradingDecision to CSV row with price tracking data"""
 
         # Extract sources used if available (for multi-source analysis)
         sources_used_str = ""
         if hasattr(decision, 'sources_used') and decision.sources_used:
             sources_used_str = ",".join(decision.sources_used)
 
+        # Helper function to safely format floats
+        def format_float(value: Optional[float], decimals: int = 4) -> str:
+            return f"{value:.{decimals}f}" if value is not None else ''
+        
+        # Helper function to safely format timestamps
+        def format_timestamp(value: Optional[datetime]) -> str:
+            return value.isoformat() if value is not None else ''
+
         return [
             # Basic decision info
             decision.analysis_timestamp or datetime.now().isoformat(),
             decision.ticker,
             decision.decision,
-            f"{decision.confidence:.4f}",
+            format_float(decision.confidence),
             decision.reasoning[:300] if decision.reasoning else '',
             
             # Combined scores
-            f"{decision.news_score:.4f}",
-            f"{decision.technical_score:.4f}",
-            f"{decision.combined_score:.4f}",
+            format_float(decision.news_score),
+            format_float(decision.technical_score),
+            format_float(decision.combined_score),
             str(decision.article_count),
             
             # News analysis
             decision.news_prediction.direction if decision.news_prediction else '',
-            f"{decision.news_prediction.confidence:.4f}" if decision.news_prediction else '',
+            format_float(decision.news_prediction.confidence) if decision.news_prediction else '',
             decision.news_prediction.reasoning[:200] if decision.news_prediction and decision.news_prediction.reasoning else '',
             decision.news_prediction.source if decision.news_prediction else '',
             
             # Technical analysis
             decision.technical_signal.direction if decision.technical_signal else '',
-            f"{decision.technical_signal.strength:.4f}" if decision.technical_signal else '',
+            format_float(decision.technical_signal.strength) if decision.technical_signal else '',
             decision.technical_signal.reasoning[:200] if decision.technical_signal and decision.technical_signal.reasoning else '',
             
             # Analysis metadata
             "standard_analysis",
             sources_used_str,
-            decision.analysis_timestamp or datetime.now().isoformat()
+            decision.analysis_timestamp or datetime.now().isoformat(),
+            
+            # Price tracking data
+            format_float(decision.recommendation_price) if hasattr(decision, 'recommendation_price') else '',
+            format_timestamp(decision.recommendation_timestamp) if hasattr(decision, 'recommendation_timestamp') else '',
+            format_float(decision.price_45m) if hasattr(decision, 'price_45m') else '',
+            format_timestamp(decision.price_45m_timestamp) if hasattr(decision, 'price_45m_timestamp') else '',
+            format_float(decision.price_45m_change_pct, 2) if hasattr(decision, 'price_45m_change_pct') else '',
+            format_float(decision.price_1hr) if hasattr(decision, 'price_1hr') else '',
+            format_timestamp(decision.price_1hr_timestamp) if hasattr(decision, 'price_1hr_timestamp') else '',
+            format_float(decision.price_1hr_change_pct, 2) if hasattr(decision, 'price_1hr_change_pct') else '',
+            format_float(decision.price_close) if hasattr(decision, 'price_close') else '',
+            format_timestamp(decision.price_close_timestamp) if hasattr(decision, 'price_close_timestamp') else '',
+            format_float(decision.price_close_change_pct, 2) if hasattr(decision, 'price_close_change_pct') else '',
+            getattr(decision, 'tracking_status', 'pending')
         ]
 
     def get_csv_statistics(self) -> Dict[str, Any]:
@@ -204,6 +258,7 @@ class CSVLogger:
             # Count rows and analyze by categories
             row_count = 0
             decisions_by_type = {'LONG': 0, 'SHORT': 0, 'NONE': 0}
+            tracking_stats = {'pending': 0, 'completed': 0, 'partial': 0}
 
             with open(self.csv_path, 'r', encoding='utf-8') as file:
                 reader = csv.DictReader(file)
@@ -214,12 +269,17 @@ class CSVLogger:
                     # Decision type
                     decision_type = row.get('decision', 'NONE')
                     decisions_by_type[decision_type] = decisions_by_type.get(decision_type, 0) + 1
+                    
+                    # Tracking status
+                    tracking_status = row.get('tracking_status', 'pending')
+                    tracking_stats[tracking_status] = tracking_stats.get(tracking_status, 0) + 1
 
             return {
                 'exists': True,
                 'file_size_bytes': file_size,
                 'total_decisions': row_count,
                 'decisions_by_type': decisions_by_type,
+                'tracking_statistics': tracking_stats,
                 'file_path': str(self.csv_path)
             }
 

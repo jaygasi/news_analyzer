@@ -22,6 +22,9 @@ anthropic>=0.7.0
 # HTTP adapter for better connection handling
 urllib3>=2.0.0
 
+# Timezone handling for price tracking
+pytz>=2023.3
+
 # Built-in modules (no installation needed):
 # sqlite3 - for database
 # csv - for CSV logging
