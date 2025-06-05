@@ -1,10 +1,10 @@
 """
-Decision engine that combines news and technical analysis - Enhanced for better CSV logging
+Fixed decision engine that properly handles multi-source predictions and logs to CSV
 Python 3.13.3 compatible
 """
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
-from analysis.multi_llm_analyzer import DirectionalPrediction
+from analysis.multi_llm_analyzer import MultiLLMAnalyzer
 from analysis.technical_analyzer_simple import TechnicalSignal
 from config import Config
 from utils.simple_logger import log_debug, log_info, log_warning
@@ -12,14 +12,14 @@ from utils.simple_logger import log_debug, log_info, log_warning
 
 @dataclass
 class TradingDecision:
-    """Final trading decision with all supporting data"""
+    """Trading decision compatible with existing CSV logger"""
     ticker: str
     decision: str  # 'LONG', 'SHORT', 'NONE'
     confidence: float  # 0.0 to 1.0
     reasoning: str
     
     # Supporting analysis
-    news_prediction: Optional[DirectionalPrediction] = None
+    news_prediction: Optional[MultiSourcePrediction] = None
     technical_signal: Optional[TechnicalSignal] = None
     
     # Detailed scores
@@ -27,7 +27,7 @@ class TradingDecision:
     technical_score: float = 0.0
     combined_score: float = 0.0
     
-    # Multi-source specific data (if available)
+    # Multi-source specific data
     sources_used: List[str] = None
     source_weights: Dict[str, float] = None
     individual_predictions: List[Dict[str, Any]] = None
@@ -38,28 +38,28 @@ class TradingDecision:
     analysis_timestamp: str = ""
 
 
-class DecisionEngine:
-    """Enhanced decision engine with lowered thresholds for better CSV logging"""
+class FixedDecisionEngine:
+    """Fixed decision engine that properly logs high-confidence decisions"""
     
     def __init__(self) -> None:
-        """Initialize decision engine with more relaxed thresholds"""
-        # LOWERED THRESHOLDS FOR BETTER LOGGING
-        self.min_confidence = 0.6  # Lowered from 0.7
+        """Initialize decision engine with relaxed thresholds for testing"""
+        # TEMPORARILY LOWER THRESHOLDS FOR DEBUGGING
+        self.min_confidence = 0.6  # Lowered from 0.7 to see if this was the issue
         
         # Weights for combining signals
         self.news_weight = 0.7  # News is primary driver
         self.technical_weight = 0.3  # Technical provides confirmation
         
-        # Minimum scores required (also lowered)
+        # Minimum scores required (also lowered for debugging)
         self.min_news_confidence = 0.5  # Lowered from 0.6
         self.min_technical_strength = 0.4
         
-        log_info(f"Decision engine initialized with relaxed thresholds: min_confidence={self.min_confidence}, min_news_confidence={self.min_news_confidence}")
+        log_info(f"Decision engine initialized with min_confidence: {self.min_confidence}")
     
-    def make_decision(self, ticker: str, news_prediction: Optional[DirectionalPrediction], 
+    def make_decision(self, ticker: str, news_prediction: Optional[MultiSourcePrediction], 
                      technical_signal: Optional[TechnicalSignal], 
                      article_count: int = 0) -> TradingDecision:
-        """Make trading decision combining news and technical analysis"""
+        """Make trading decision with detailed debugging"""
         
         log_debug(f"Making decision for {ticker}: news={news_prediction is not None}, tech={technical_signal is not None}")
         
@@ -81,7 +81,7 @@ class DecisionEngine:
         
         log_debug(f"{ticker}: final_decision={decision}, confidence={confidence:.3f}")
         
-        # Extract multi-source data if available
+        # Extract multi-source data
         sources_used = []
         source_weights = {}
         individual_predictions = []
@@ -99,10 +99,10 @@ class DecisionEngine:
                         'raw_score': pred.raw_score
                     })
             
-            if hasattr(news_prediction, 'source_weights') and news_prediction.source_weights:
+            if news_prediction.source_weights:
                 source_weights = news_prediction.source_weights
             
-            if hasattr(news_prediction, 'weighted_scores') and news_prediction.weighted_scores:
+            if news_prediction.weighted_scores:
                 weighted_scores = news_prediction.weighted_scores
         
         return TradingDecision(
@@ -123,8 +123,8 @@ class DecisionEngine:
             analysis_timestamp=self._get_timestamp()
         )
     
-    def _calculate_news_score(self, news_prediction: Optional[DirectionalPrediction]) -> float:
-        """Calculate normalized news score (-1.0 to 1.0)"""
+    def _calculate_news_score(self, news_prediction: Optional[MultiSourcePrediction]) -> float:
+        """Calculate normalized news score (-1.0 to 1.0) from multi-source prediction"""
         if not news_prediction:
             log_debug("No news prediction available")
             return 0.0
@@ -172,7 +172,7 @@ class DecisionEngine:
         
         return final_combined
     
-    def _determine_final_decision(self, ticker: str, news_prediction: Optional[DirectionalPrediction],
+    def _determine_final_decision(self, ticker: str, news_prediction: Optional[MultiSourcePrediction],
                                 technical_signal: Optional[TechnicalSignal], news_score: float,
                                 technical_score: float, combined_score: float) -> tuple[str, float, str]:
         """Determine final trading decision with extensive debugging"""
@@ -196,14 +196,14 @@ class DecisionEngine:
                 log_warning(f"{ticker}: Conflict confidence too low: {conflict_confidence:.3f}")
                 return 'NONE', conflict_confidence, "News and technical analysis conflict"
         
-        # Determine direction based on combined score (LOWERED THRESHOLDS)
+        # Determine direction based on combined score
         log_debug(f"{ticker}: Determining direction from combined_score: {combined_score:.3f}")
         
-        if combined_score > 0.2:  # Lowered from 0.5
+        if combined_score > 0.2:  # Lowered threshold for debugging
             decision = 'LONG'
             confidence = min(abs(combined_score), 1.0)
             log_debug(f"{ticker}: LONG decision with confidence {confidence:.3f}")
-        elif combined_score < -0.2:  # Lowered from -0.5
+        elif combined_score < -0.2:  # Lowered threshold for debugging
             decision = 'SHORT'
             confidence = min(abs(combined_score), 1.0)
             log_debug(f"{ticker}: SHORT decision with confidence {confidence:.3f}")
@@ -232,12 +232,12 @@ class DecisionEngine:
             decision = 'NONE'
             reasoning = f"Combined confidence too low: {confidence:.2f}"
         else:
-            reasoning = self._create_reasoning(news_prediction, technical_signal, combined_score)
+            reasoning = self._create_enhanced_reasoning(news_prediction, technical_signal, combined_score)
             log_info(f"✅ {ticker}: {decision} decision with confidence {confidence:.3f} - SHOULD BE LOGGED")
         
         return decision, confidence, reasoning
     
-    def _signals_conflict(self, news_prediction: DirectionalPrediction, 
+    def _signals_conflict(self, news_prediction: MultiSourcePrediction, 
                          technical_signal: TechnicalSignal) -> bool:
         """Check if news and technical signals conflict"""
         news_direction = news_prediction.direction
@@ -254,16 +254,17 @@ class DecisionEngine:
         
         return is_conflict
     
-    def _create_reasoning(self, news_prediction: Optional[DirectionalPrediction],
-                         technical_signal: Optional[TechnicalSignal], 
-                         combined_score: float) -> str:
-        """Create human-readable reasoning for the decision"""
+    def _create_enhanced_reasoning(self, news_prediction: Optional[MultiSourcePrediction],
+                                  technical_signal: Optional[TechnicalSignal], 
+                                  combined_score: float) -> str:
+        """Create detailed reasoning including multi-source information"""
         reasoning_parts = []
         
         if news_prediction:
+            # Main prediction
             reasoning_parts.append(f"News: {news_prediction.direction} ({news_prediction.confidence:.2f} confidence)")
             
-            # Add multi-source details if available
+            # Multi-source details
             if hasattr(news_prediction, 'individual_predictions') and news_prediction.individual_predictions:
                 source_count = len(news_prediction.individual_predictions)
                 reasoning_parts.append(f"Sources: {source_count} services")
@@ -274,14 +275,11 @@ class DecisionEngine:
                                        key=lambda x: abs(x[1]), reverse=True)[:3]
                     source_info = ", ".join([f"{src}({score:.2f})" for src, score in top_sources])
                     reasoning_parts.append(f"Top contributors: {source_info}")
-            
-            if news_prediction.reasoning:
-                reasoning_parts.append(f"News reasoning: {news_prediction.reasoning[:100]}")
         
         if technical_signal:
             reasoning_parts.append(f"Technical: {technical_signal.direction} ({technical_signal.strength:.2f} strength)")
             if technical_signal.reasoning:
-                reasoning_parts.append(f"Technical reasoning: {technical_signal.reasoning[:100]}")
+                reasoning_parts.append(f"Tech details: {technical_signal.reasoning[:50]}")
         
         reasoning_parts.append(f"Combined score: {combined_score:.2f}")
         
@@ -332,7 +330,7 @@ class DecisionEngine:
         return high_confidence_decisions
     
     def get_decision_statistics(self, decisions: List[TradingDecision]) -> Dict[str, Any]:
-        """Get statistics about trading decisions"""
+        """Get enhanced statistics about trading decisions"""
         if not decisions:
             return {}
         

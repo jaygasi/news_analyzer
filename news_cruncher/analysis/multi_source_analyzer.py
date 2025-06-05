@@ -1,5 +1,5 @@
 """
-Multi-LLM analyzer with fallback chain for directional prediction - Enhanced with toggles
+Fixed multi-source analyzer with service toggles and proper CSV compatibility
 Python 3.13.3 compatible
 """
 import time
@@ -26,15 +26,25 @@ class DirectionalPrediction:
     reasoning: str
     source: str  # Which service provided the prediction
     raw_score: float = 0.0
+
+
+@dataclass
+class MultiSourcePrediction:
+    """Combined prediction from multiple sources - compatible with existing decision engine"""
+    direction: str  # 'BUY', 'SELL', 'NEUTRAL'
+    confidence: float  # 0.0 to 1.0
+    reasoning: str
+    source: str  # "multi_source"
+    raw_score: float = 0.0
     
     # Multi-source specific data
-    individual_predictions: List['DirectionalPrediction'] = None
+    individual_predictions: List[DirectionalPrediction] = None
     source_weights: Dict[str, float] = None
     weighted_scores: Dict[str, float] = None
 
 
-class MultiLLMAnalyzer:
-    """Enhanced analyzer with service toggles and multi-source support"""
+class FixedMultiSourceAnalyzer:
+    """Fixed multi-source analyzer with service toggles"""
 
     def __init__(self) -> None:
         """Initialize only enabled AI services"""
@@ -54,7 +64,7 @@ class MultiLLMAnalyzer:
         self._init_service_weights()
 
         enabled_count = len([s for s in self.services.values() if s.get('available')])
-        log_info(f"Initialized {enabled_count} enabled AI services for analysis")
+        log_info(f"Initialized {enabled_count} enabled AI services for multi-source analysis")
 
     def _init_enabled_services(self) -> None:
         """Initialize only enabled services based on config toggles"""
@@ -73,12 +83,12 @@ class MultiLLMAnalyzer:
         if Config.ENABLE_OPENAI:
             self._init_openai()
         else:
-            log_info("OpenAI disabled by config")
+            log_info("OpenAI disabled by config (quota exceeded)")
             
         if Config.ENABLE_CLAUDE:
             self._init_anthropic()
         else:
-            log_info("Claude disabled by config")
+            log_info("Claude disabled by config (invalid API key)")
 
         # Emergency services
         if Config.ENABLE_ALPHA_VANTAGE:
@@ -94,7 +104,7 @@ class MultiLLMAnalyzer:
         if Config.ENABLE_TIINGO:
             self._init_tiingo()
         else:
-            log_info("Tiingo disabled by config")
+            log_info("Tiingo disabled by config (403 Forbidden)")
 
     def _init_service_weights(self) -> None:
         """Initialize weights for combining different service predictions"""
@@ -337,10 +347,10 @@ class MultiLLMAnalyzer:
             }
             log_info("Tiingo emergency service initialized")
 
-    def analyze_news_direction(self, ticker: str, articles: List[Dict[str, Any]]) -> Optional[DirectionalPrediction]:
+    def analyze_news_direction(self, ticker: str, articles: List[Dict[str, Any]]) -> Optional[MultiSourcePrediction]:
         """
         Analyze news articles using enabled services and combine their predictions.
-        Enhanced to call multiple services and combine results.
+        Returns MultiSourcePrediction that's compatible with existing decision engine.
         """
         if not articles:
             return None
@@ -402,7 +412,7 @@ class MultiLLMAnalyzer:
             log_warning(f"No predictions available for {ticker}")
             return None
 
-    def _combine_predictions(self, predictions: List[DirectionalPrediction], sources_used: List[str]) -> DirectionalPrediction:
+    def _combine_predictions(self, predictions: List[DirectionalPrediction], sources_used: List[str]) -> MultiSourcePrediction:
         """Combine multiple predictions using weighted averaging"""
         if not predictions:
             return None
@@ -448,10 +458,10 @@ class MultiLLMAnalyzer:
             final_confidence = 0.0
 
         # Determine final direction
-        if final_score > 0.2:  # Lowered threshold
+        if final_score > 0.3:
             direction = 'BUY'
             confidence = min(abs(final_score), 1.0)
-        elif final_score < -0.2:  # Lowered threshold
+        elif final_score < -0.3:
             direction = 'SELL'
             confidence = min(abs(final_score), 1.0)
         else:
@@ -464,21 +474,16 @@ class MultiLLMAnalyzer:
 
         reasoning = f"Multi-source analysis ({len(predictions)} sources): {'; '.join(reasoning_parts[:5])}"
 
-        # Create enhanced prediction with multi-source data
-        combined_prediction = DirectionalPrediction(
+        return MultiSourcePrediction(
             direction=direction,
             confidence=confidence,
             reasoning=reasoning[:300],
             source="multi_source",
-            raw_score=final_score
+            raw_score=final_score,
+            individual_predictions=predictions,
+            source_weights=source_weights_used,
+            weighted_scores=weighted_scores
         )
-        
-        # Add multi-source data
-        combined_prediction.individual_predictions = predictions
-        combined_prediction.source_weights = source_weights_used
-        combined_prediction.weighted_scores = weighted_scores
-        
-        return combined_prediction
 
     def _combine_articles(self, articles: List[Dict[str, Any]]) -> str:
         """Combine multiple articles into single text for analysis"""

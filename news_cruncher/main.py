@@ -10,7 +10,6 @@ from typing import Dict, Any, List
 from config import Config
 from utils.simple_logger import log_info, log_error, log_warning, log_debug
 from database.article_tracker import ArticleTracker
-from database.run_tracker import RunTracker
 from data_loaders.news_fetcher import NewsFetcher
 from core.ticker_aggregator import TickerAggregator
 from analysis.multi_llm_analyzer import MultiLLMAnalyzer
@@ -39,7 +38,7 @@ class FinancialNewsAnalyzer:
         log_info("Financial News Analyzer initialized successfully")
     
     def _validate_configuration(self) -> None:
-        """Validate required configuration"""
+        """Validate required configuration with enhanced service status"""
         api_keys = Config.validate_api_keys()
         
         if not api_keys['fmp']:
@@ -49,16 +48,39 @@ class FinancialNewsAnalyzer:
         available_services = [key for key, available in api_keys.items() if available]
         log_info(f"Available API services: {', '.join(available_services)}")
         
-        if len(available_services) < 2:
-            log_warning("Limited API services available - consider adding more for redundancy")
+        # Show detailed service toggle status
+        log_info("🔧 Service toggle status:")
+        toggles = {
+            'finbert': Config.ENABLE_FINBERT,
+            'gemini': Config.ENABLE_GEMINI, 
+            'openai': Config.ENABLE_OPENAI,
+            'claude': Config.ENABLE_CLAUDE,
+            'alpha_vantage': Config.ENABLE_ALPHA_VANTAGE,
+            'polygon': Config.ENABLE_POLYGON,
+            'tiingo': Config.ENABLE_TIINGO,
+            'keyword_analysis': Config.ENABLE_KEYWORD_ANALYSIS
+        }
+        
+        enabled_count = 0
+        for service, enabled in toggles.items():
+            status = "✅ ENABLED" if enabled else "❌ DISABLED"
+            log_info(f"  {service}: {status}")
+            if enabled:
+                enabled_count += 1
+        
+        log_info(f"Total enabled services: {enabled_count}")
+        
+        if enabled_count < 2:
+            log_warning("⚠️ Only 1 service enabled - consider enabling more for better predictions")
+        elif enabled_count >= 4:
+            log_info("✅ Good service coverage for robust predictions")
     
     def _initialize_components(self) -> None:
         """Initialize all system components"""
         try:
             # Database components
             self.article_tracker = ArticleTracker()
-            self.run_tracker = RunTracker()  # New component for dynamic time tracking
-            
+                        
             # Data fetching
             self.news_fetcher = NewsFetcher(Config.FMP_API_KEY)
             
@@ -74,6 +96,16 @@ class FinancialNewsAnalyzer:
             
             # Output
             self.csv_logger = CSVLogger()
+            
+            # Log service initialization status
+            service_status = self.llm_analyzer.get_service_status()
+            log_info("🤖 AI Service initialization status:")
+            for service_name, status in service_status.items():
+                if status['available']:
+                    weight = status.get('weight', 0)
+                    log_info(f"  ✅ {service_name}: Available (weight: {weight:.3f})")
+                else:
+                    log_info(f"  ❌ {service_name}: Not available")
             
             log_info("All components initialized successfully")
             
@@ -277,6 +309,21 @@ class FinancialNewsAnalyzer:
                 self._print_decisions_summary(decisions)
             else:
                 log_info("📝 Step 7: No high-confidence decisions to log")
+                
+                # Debug: Show what decisions were generated but not logged
+                log_info("🔍 Debug: Checking all generated decisions...")
+                all_decisions = []
+                for ticker, analysis_data in ticker_analyses.items():
+                    news_prediction = analysis_data.get('news_prediction')
+                    technical_signal = analysis_data.get('technical_signal')
+                    article_count = analysis_data.get('article_count', 0)
+                    
+                    decision = self.decision_engine.make_decision(ticker, news_prediction, technical_signal, article_count)
+                    all_decisions.append(decision)
+                
+                log_info(f"Generated {len(all_decisions)} total decisions:")
+                for decision in all_decisions[:10]:  # Show first 10
+                    log_info(f"  {decision.ticker}: {decision.decision} (conf: {decision.confidence:.3f}) - {decision.reasoning[:100]}")
             
             # Step 8: Mark articles as processed
             log_info("✅ Step 8: Marking articles as processed...")
@@ -288,6 +335,16 @@ class FinancialNewsAnalyzer:
             # Cycle summary
             cycle_duration = (datetime.now() - cycle_start).total_seconds()
             log_info(f"🏁 Cycle #{self.cycle_count} completed in {cycle_duration:.1f} seconds")
+            log_info(f"📈 Results: {articles_fetched} fetched → {articles_processed} processed → {decisions_made} high-confidence decisions")
+            
+            # Show service usage statistics
+            service_status = self.llm_analyzer.get_service_status()
+            log_info("🤖 Service usage this cycle:")
+            for service_name, status in service_status.items():
+                if status['available']:
+                    requests = status.get('requests_today', 0)
+                    limit = status.get('daily_limit', 0)
+                    log_info(f"  {service_name}: {requests}/{limit} requests")
             
             # Cleanup old data periodically
             if self.cycle_count % 10 == 0:
@@ -311,7 +368,7 @@ class FinancialNewsAnalyzer:
                 
                 articles = ticker_buckets[ticker]
                 
-                # News analysis
+                # News analysis - now uses multi-source approach
                 news_prediction = self.llm_analyzer.analyze_news_direction(ticker, articles)
                 
                 # Technical analysis
@@ -368,11 +425,24 @@ class FinancialNewsAnalyzer:
         log_info(f"   SHORT positions: {stats['short_decisions']}")
         log_info(f"   Average confidence: {stats['avg_confidence']:.3f}")
         
+        # Show multi-source statistics if available
+        if 'avg_sources_per_decision' in stats:
+            log_info(f"   Average sources per decision: {stats['avg_sources_per_decision']:.1f}")
+        
+        if 'source_usage_frequency' in stats and stats['source_usage_frequency']:
+            log_info("   Service usage:")
+            for service, count in stats['source_usage_frequency'].items():
+                log_info(f"     {service}: {count} decisions")
+        
         # Show top decisions
         top_decisions = sorted(decisions, key=lambda x: x.confidence, reverse=True)[:5]
         log_info("   Top decisions:")
         for decision in top_decisions:
-            log_info(f"     {decision.ticker}: {decision.decision} (conf: {decision.confidence:.3f})")
+            # Show sources used if available
+            sources_info = ""
+            if hasattr(decision, 'sources_used') and decision.sources_used:
+                sources_info = f" (sources: {len(decision.sources_used)})"
+            log_info(f"     {decision.ticker}: {decision.decision} (conf: {decision.confidence:.3f}){sources_info}")
     
     def _periodic_cleanup(self) -> None:
         """Perform periodic cleanup tasks"""
