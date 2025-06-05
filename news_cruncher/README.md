@@ -1,203 +1,388 @@
-# Financial News Analyzer - Q&A Guide (Enhanced Version)
+# Financial News Analysis System - Architecture Diagrams
 
-## Original Questions & Answers
+## 1. System Overview & Main Flow
 
-### 1. **What is the application flow once it starts?**
-
-**Flow:** The application runs in continuous 5-minute cycles:
+```mermaid
+flowchart TD
+    Start([Start Application]) --> Init[Initialize Components]
+    Init --> Loop{Main Loop<br/>Every 5 Minutes}
+    
+    Loop --> Fetch[📰 Fetch News<br/>FMP API Sources]
+    Fetch --> Filter[🔍 Filter Processed Articles<br/>SQLite Deduplication]
+    Filter --> Limit[📊 Apply 1000 Article Limit]
+    Limit --> Group[🎯 Group by Ticker<br/>Prioritize by Quality]
+    
+    Group --> Analyze[🧠 Multi-Source Analysis<br/>News + Technical]
+    Analyze --> Decide[⚖️ Decision Engine<br/>Combine Scores]
+    Decide --> Log[📝 Log to CSV<br/>High-Confidence Only]
+    Log --> Mark[✅ Mark as Processed<br/>SQLite Database]
+    
+    Mark --> Wait[⏱️ Wait 5 Minutes]
+    Wait --> Loop
+    
+    style Fetch fill:#e1f5fe
+    style Analyze fill:#f3e5f5
+    style Decide fill:#fff3e0
+    style Log fill:#e8f5e8
 ```
-Start → Fetch All News → Filter Already Processed → Apply 1000 Limit → 
-Group by Ticker → Prioritize Tickers → Analyze (News + Technical) → 
-Make Decisions → Log to CSV → Mark as Processed → Wait 5 Minutes → Repeat
+
+## 2. Component Architecture
+
+```mermaid
+graph TB
+    subgraph "📊 Data Sources"
+        FMP[FMP API<br/>• Stock News<br/>• Press Releases<br/>• Earnings Calendar<br/>• Market News]
+    end
+    
+    subgraph "🧠 AI Analysis Services"
+        FinBERT[FinBERT<br/>Local ML Model<br/>Weight: 41%]
+        Gemini[Google Gemini<br/>LLM API<br/>Weight: 33%]
+        OpenAI[OpenAI GPT<br/>Optional<br/>Weight: 20%]
+        Claude[Anthropic Claude<br/>Optional<br/>Weight: 15%]
+        
+        subgraph "🚨 Emergency Services"
+            AlphaV[Alpha Vantage<br/>News Sentiment<br/>Weight: 13%]
+            Polygon[Polygon API<br/>News Analysis<br/>Weight: 10%]
+            Tiingo[Tiingo API<br/>News Analysis<br/>Weight: 4%]
+        end
+        
+        Keywords[Enhanced Keywords<br/>80+ Financial Terms<br/>Weight: 3%]
+    end
+    
+    subgraph "📈 Technical Analysis"
+        TA[Technical Analyzer<br/>• RSI, MACD<br/>• Bollinger Bands<br/>• Moving Averages<br/>Weight: 30%]
+    end
+    
+    subgraph "💾 Data Management"
+        SQLite[(SQLite DB<br/>Article Tracking)]
+        CSV[📋 CSV Output<br/>Trading Decisions]
+    end
+    
+    subgraph "🎯 Core Engine"
+        Aggregator[Ticker Aggregator<br/>Group & Prioritize]
+        MultiLLM[Multi-LLM Analyzer<br/>Combine Predictions]
+        DecisionEngine[Decision Engine<br/>News 70% + Tech 30%]
+    end
+    
+    FMP --> Aggregator
+    Aggregator --> MultiLLM
+    Aggregator --> TA
+    
+    FinBERT --> MultiLLM
+    Gemini --> MultiLLM
+    OpenAI --> MultiLLM
+    Claude --> MultiLLM
+    AlphaV --> MultiLLM
+    Polygon --> MultiLLM
+    Tiingo --> MultiLLM
+    Keywords --> MultiLLM
+    
+    MultiLLM --> DecisionEngine
+    TA --> DecisionEngine
+    
+    DecisionEngine --> CSV
+    DecisionEngine --> SQLite
+    
+    style FinBERT fill:#4caf50
+    style Gemini fill:#2196f3
+    style DecisionEngine fill:#ff9800
+    style CSV fill:#9c27b0
 ```
 
-### 2. **Which sources does it use to pull news?**
+## 3. Multi-Source Analysis Flow
 
-**Sources:** Uses **FMP (Financial Modeling Prep) APIs** exclusively:
-- **General Stock News** (`stock_news`) - 200 articles per cycle
-- **Press Releases** (`press-releases`) - 100 articles per cycle  
-- **Earnings Calendar** (`earning_calendar`) - 50 synthetic articles per cycle
-- **Market News** (`general-news`) - 50 articles per cycle
+```mermaid
+sequenceDiagram
+    participant TC as Ticker Aggregator
+    participant MLA as Multi-LLM Analyzer
+    participant FB as FinBERT
+    participant GM as Gemini
+    participant AV as Alpha Vantage
+    participant PG as Polygon
+    participant KW as Keywords
+    participant DE as Decision Engine
+    
+    TC->>MLA: Articles for AAPL
+    
+    par Parallel Analysis
+        MLA->>FB: Analyze sentiment
+        FB-->>MLA: BUY (0.85)
+        
+        MLA->>GM: Analyze with LLM
+        GM-->>MLA: BUY (0.78)
+        
+        MLA->>AV: News sentiment API
+        AV-->>MLA: BUY (0.72)
+        
+        MLA->>PG: News analysis
+        PG-->>MLA: BUY (0.68)
+        
+        MLA->>KW: Keyword analysis
+        KW-->>MLA: BUY (0.60)
+    end
+    
+    MLA->>MLA: Weight & Combine<br/>FB(41%) + GM(33%) + AV(13%)<br/>+ PG(10%) + KW(3%)
+    MLA->>DE: Combined: BUY (0.79)
+    DE->>DE: Add Technical Analysis<br/>News(70%) + Tech(30%)
+    DE-->>TC: Final Decision: BUY (0.82)
+```
 
-**Total potential:** ~400 raw articles per cycle before filtering
+## 4. Decision Engine Workflow
 
-### 3. **How are the news APIs configured? Will it pull latest news? Since when?**
+```mermaid
+flowchart TD
+    Input[📊 Ticker Analysis Input] --> NewsCheck{News Analysis<br/>Available?}
+    
+    NewsCheck -->|No| NoDecision[❌ NONE Decision<br/>No news analysis]
+    NewsCheck -->|Yes| ConfCheck{News Confidence<br/>≥ 0.5?}
+    
+    ConfCheck -->|No| LowConf[❌ NONE Decision<br/>Low confidence]
+    ConfCheck -->|Yes| TechCheck{Technical Analysis<br/>Available?}
+    
+    TechCheck -->|Yes| Conflict{Signals<br/>Conflict?}
+    TechCheck -->|No| NewsOnly[📰 News-Only Analysis<br/>Weight: 100%]
+    
+    Conflict -->|Yes| ConflictCheck{Conflict Confidence<br/>≥ 0.6?}
+    Conflict -->|No| Combine[⚖️ Combine Scores<br/>News: 70% + Tech: 30%]
+    
+    ConflictCheck -->|No| ConflictDecision[❌ NONE Decision<br/>Conflicting signals]
+    ConflictCheck -->|Yes| Combine
+    
+    NewsOnly --> ScoreCalc[📊 Calculate Final Score]
+    Combine --> ScoreCalc
+    
+    ScoreCalc --> Direction{Combined Score}
+    Direction -->|> 0.2| Long[📈 LONG Decision]
+    Direction -->|< -0.2| Short[📉 SHORT Decision]
+    Direction -->|-0.2 to 0.2| Neutral[➡️ NEUTRAL Decision]
+    
+    Long --> FinalCheck{Final Confidence<br/>≥ 0.6?}
+    Short --> FinalCheck
+    Neutral --> FinalCheck
+    
+    FinalCheck -->|Yes| LogDecision[✅ Log to CSV]
+    FinalCheck -->|No| SkipLogging[❌ Skip Logging<br/>Low final confidence]
+    
+    style NewsCheck fill:#e3f2fd
+    style Combine fill:#fff3e0
+    style LogDecision fill:#e8f5e8
+    style NoDecision fill:#ffebee
+    style LowConf fill:#ffebee
+    style ConflictDecision fill:#ffebee
+```
 
-**Configuration:**
-- **Frequency:** Every 5 minutes automatically
-- **Time Range:** Only news from **last 24 hours** (`MAX_NEWS_AGE_HOURS: 24`)
-- **Auto-filtering:** Removes articles older than 24 hours
-- **Continuous:** Always pulls the "latest" news available from FMP
+## 5. Data Processing Pipeline
 
-### 4. **How far back will it get news each time it runs? How does it prevent already processed news?**
+```mermaid
+graph LR
+    subgraph "📥 Input Stage"
+        API1[Stock News<br/>~20 articles]
+        API2[Press Releases<br/>~100 articles]
+        API3[Earnings Calendar<br/>~450 articles]
+        API4[Market News<br/>~50 articles]
+    end
+    
+    subgraph "🔍 Filtering Stage"
+        Raw[📊 Raw Articles<br/>~620 total]
+        Dedup[🔄 Deduplicate<br/>Remove duplicates]
+        TimeFilter[⏰ Time Filter<br/>Last 24-72 hours]
+        ProcessedFilter[✅ Processed Filter<br/>SQLite lookup]
+        Limited[📋 Limited Set<br/>≤1000 articles]
+    end
+    
+    subgraph "🎯 Analysis Stage"
+        Group[📊 Group by Ticker<br/>~100 buckets]
+        Priority[🏆 Prioritize<br/>Quality scoring]
+        Analyze[🧠 Multi-Source Analysis<br/>Top 50 tickers]
+    end
+    
+    subgraph "📈 Output Stage"
+        Decisions[⚖️ Trading Decisions<br/>~5-15 high-confidence]
+        CSV[📋 CSV Log<br/>Permanent record]
+        DB[💾 SQLite Update<br/>Mark processed]
+    end
+    
+    API1 --> Raw
+    API2 --> Raw
+    API3 --> Raw
+    API4 --> Raw
+    
+    Raw --> Dedup
+    Dedup --> TimeFilter
+    TimeFilter --> ProcessedFilter
+    ProcessedFilter --> Limited
+    
+    Limited --> Group
+    Group --> Priority
+    Priority --> Analyze
+    
+    Analyze --> Decisions
+    Decisions --> CSV
+    Decisions --> DB
+    
+    style Raw fill:#e1f5fe
+    style Limited fill:#f3e5f5
+    style Decisions fill:#e8f5e8
+    style CSV fill:#fff3e0
+```
 
-**Time Range:** 24 hours maximum lookback
+## 6. Service Integration & Fallback Chain
 
-**Reprocessing Prevention:**
-- **SQLite Database:** `processed_articles.db` tracks all seen articles
-- **Unique Hashing:** Creates SHA256 hash from `ticker + title + url`
-- **Filter Step:** `filter_unprocessed_articles()` removes already-seen articles before analysis
-- **Efficiency:** Only processes truly new articles each cycle
+```mermaid
+graph TD
+    subgraph "🎯 Primary Services"
+        FB[FinBERT<br/>✅ Always Available<br/>Local Model]
+        GM[Gemini<br/>✅ 1000 req/day<br/>Google API]
+    end
+    
+    subgraph "🔄 Optional Services"
+        OAI[OpenAI<br/>❓ 500 req/day<br/>Quota dependent]
+        CL[Claude<br/>❓ 300 req/day<br/>Key dependent]
+    end
+    
+    subgraph "🚨 Emergency Fallbacks"
+        AV[Alpha Vantage<br/>✅ 500 req/day<br/>Sentiment API]
+        PG[Polygon<br/>✅ 500 req/day<br/>News Analysis]
+        TG[Tiingo<br/>❓ 1000 req/day<br/>403 error prone]
+    end
+    
+    subgraph "🔤 Always Available"
+        KW[Enhanced Keywords<br/>✅ 80+ Terms<br/>No API limits]
+    end
+    
+    Start[🎯 Ticker Analysis] --> FB
+    Start --> GM
+    Start --> OAI
+    Start --> CL
+    Start --> AV
+    Start --> PG
+    Start --> TG
+    Start --> KW
+    
+    FB --> Combine[⚖️ Weighted Combination]
+    GM --> Combine
+    OAI --> Combine
+    CL --> Combine
+    AV --> Combine
+    PG --> Combine
+    TG --> Combine
+    KW --> Combine
+    
+    Combine --> Result[📊 Final Prediction<br/>Direction + Confidence]
+    
+    style FB fill:#4caf50
+    style GM fill:#2196f3
+    style AV fill:#ff9800
+    style PG fill:#ff9800
+    style KW fill:#9c27b0
+    style Result fill:#e8f5e8
+```
 
-### 5. **How does it decipher which stock companies the news are about? Is there keyword analysis?**
+## 7. Configuration & Service Toggles
 
-**Stock Identification:**
-- **Primary Method:** FMP API provides pre-tagged `symbol` field in articles
-- **No keyword analysis** for ticker extraction from content
-- **Intelligent Market News Assignment:** ✅ **Enhanced** - Now uses content analysis:
-  - Fed news → TLT (Treasury bonds)
-  - Tech news → QQQ (NASDAQ)  
-  - Energy news → XLE (Energy ETF)
-  - Gold news → GLD (Gold ETF)
-  - Unclear content → Skipped (not forced to SPY)
+```mermaid
+flowchart LR
+    subgraph "⚙️ Environment Configuration"
+        ENV[.env File<br/>API Keys & Toggles]
+    end
+    
+    subgraph "🔧 Service Controls"
+        FINBERT[ENABLE_FINBERT=true]
+        GEMINI[ENABLE_GEMINI=true]
+        OPENAI[ENABLE_OPENAI=false]
+        CLAUDE[ENABLE_CLAUDE=false]
+        ALPHAV[ENABLE_ALPHA_VANTAGE=true]
+        POLYGON[ENABLE_POLYGON=true]
+        TIINGO[ENABLE_TIINGO=false]
+        KEYWORDS[ENABLE_KEYWORD_ANALYSIS=true]
+    end
+    
+    subgraph "📊 Current Active Services"
+        Active1[✅ FinBERT - 41% weight]
+        Active2[✅ Gemini - 33% weight]
+        Active3[✅ Alpha Vantage - 13% weight]
+        Active4[✅ Polygon - 10% weight]
+        Active5[✅ Keywords - 3% weight]
+    end
+    
+    subgraph "❌ Disabled Services"
+        Disabled1[❌ OpenAI - Quota issues]
+        Disabled2[❌ Claude - Invalid key]
+        Disabled3[❌ Tiingo - 403 errors]
+    end
+    
+    ENV --> FINBERT
+    ENV --> GEMINI
+    ENV --> OPENAI
+    ENV --> CLAUDE
+    ENV --> ALPHAV
+    ENV --> POLYGON
+    ENV --> TIINGO
+    ENV --> KEYWORDS
+    
+    FINBERT --> Active1
+    GEMINI --> Active2
+    ALPHAV --> Active3
+    POLYGON --> Active4
+    KEYWORDS --> Active5
+    
+    OPENAI --> Disabled1
+    CLAUDE --> Disabled2
+    TIINGO --> Disabled3
+    
+    style Active1 fill:#4caf50
+    style Active2 fill:#4caf50
+    style Active3 fill:#4caf50
+    style Active4 fill:#4caf50
+    style Active5 fill:#4caf50
+    style Disabled1 fill:#f44336
+    style Disabled2 fill:#f44336
+    style Disabled3 fill:#f44336
+```
 
-### 6. **Are the news grouped into company buckets?**
+## 8. CSV Output Schema
 
-**Yes, comprehensive bucketing:**
-- **Grouping:** `ticker_aggregator.py` groups all articles by ticker symbol
-- **Prioritization:** Ranks tickers by article count + content quality
-- **Quality Scoring:** Looks for high-value keywords (earnings, FDA, mergers, etc.)
-- **Processing Order:** Analyzes highest-priority tickers first
-
-### 7. **What APIs or methodologies does it use to evaluate news for Long/Short decisions?**
-
-**Multi-layered Analysis Chain:**
-
-**News Analysis (70% weight):**
-1. **FinBERT** (Local ML model for financial sentiment)
-2. **Gemini API** (Google's LLM) 
-3. **OpenAI API** (GPT models)
-4. **Claude API** (Anthropic)
-5. **Enhanced Keyword Analysis** ✅ **New** - Robust fallback with 80+ keywords
-
-**Technical Analysis (30% weight):**
-- RSI, MACD, Bollinger Bands, Moving Averages
-- Uses FMP historical price data
-
-### 8. **How is the overall score decided if there's more than one evaluation?**
-
-**Weighted Combination (`decision_engine.py`):**
-- **News Analysis:** 70% weight
-- **Technical Analysis:** 30% weight  
-- **Minimum Thresholds:** News confidence ≥ 0.6, Technical strength ≥ 0.4
-- **Decision Logic:**
-  - Combined score > 0.5 → LONG
-  - Combined score < -0.5 → SHORT  
-  - Confidence < 0.7 → NONE (no decision)
-
-### 9. **Is there any mechanism to prevent the same ticker getting alerted as buy/sell signal on the same run?**
-
-**Partial Prevention:**
-- **Within Cycle:** Each ticker analyzed only once per 5-minute cycle
-- **Across Cycles:** ✅ **SQLite deduplication prevents same news triggering multiple decisions**
-- **Limitation:** If different news sources report same event, could theoretically generate multiple signals (rare)
-
-### 10. **Is there anything getting faked out instead of dynamically calculated?**
-
-**✅ Fixed - Removed Fake Elements:**
-- **~~Emergency APIs Removed~~:** No longer pretends to use Alpha Vantage/Polygon/Tiingo
-- **Enhanced Keywords:** ✅ **Upgraded** from 23 to 80+ keywords with industry-specific terms
-- **Honest Fallback:** Now clearly labeled as "enhanced_keyword_analysis"
-
-**Remaining Static Elements:**
-- Ticker exclusions: Only `VIX` (volatility index)
-- Technical analysis thresholds (industry standard)
-- Confidence thresholds (configurable)
+```mermaid
+erDiagram
+    TRADING_DECISIONS {
+        string timestamp
+        string ticker
+        string decision "LONG|SHORT|NONE"
+        float confidence "0.0-1.0"
+        string reasoning "Combined analysis"
+        float news_score "-1.0 to 1.0"
+        float technical_score "-1.0 to 1.0"
+        float combined_score "-1.0 to 1.0"
+        int article_count "Articles analyzed"
+        string news_direction "BUY|SELL|NEUTRAL"
+        float news_confidence "0.0-1.0"
+        string news_reasoning "Service details"
+        string news_source "Service name or multi_source"
+        string technical_direction "BUY|SELL|NEUTRAL"
+        float technical_strength "0.0-1.0"
+        string technical_reasoning "Indicator details"
+        string analysis_method "standard_analysis"
+        string sources_used "finbert,gemini,alpha_vantage..."
+        string analysis_timestamp "ISO timestamp"
+    }
+```
 
 ---
 
-## Follow-up Questions & Answers
+## Usage Instructions
 
-### 11. **When does the 1000 news limit get enforced? Before or after pre-processed news have been discarded?**
+1. **Copy any diagram** you want to your README.md
+2. **Mermaid renders automatically** on GitHub, GitLab, and most modern markdown viewers
+3. **Customize as needed** - modify colors, add/remove components
+4. **Live preview** available at [Mermaid Live Editor](https://mermaid.live/)
 
-**✅ FIXED - Now Applied After Filtering:**
+## Diagram Highlights
 
-**Previous Flow (Inefficient):**
-```
-Fetch → Dedupe → Time Filter → 1000 Limit → Filter Processed Articles
-```
+- **📊 System Overview**: Perfect for explaining the main flow to users
+- **🧠 Component Architecture**: Shows how all pieces fit together  
+- **⚖️ Decision Engine**: Explains the scoring and threshold logic
+- **🔄 Multi-Source Analysis**: Demonstrates the AI service integration
+- **📈 Data Pipeline**: Shows data transformation stages
+- **⚙️ Configuration**: Explains service toggles and weights
 
-**New Flow (Efficient):**
-```
-Fetch → Dedupe → Time Filter → Filter Processed Articles → 1000 Limit
-```
-
-**Result:** Now processes up to 1000 **NEW** articles per cycle instead of wasting cycles on already-seen articles.
-
-### 12. **What exactly does "market news gets forced to SPY" mean?**
-
-**✅ FIXED - Intelligent Assignment Now:**
-
-**Previous Behavior:**
-```python
-item['symbol'] = 'SPY'  # All market news forced to SPY
-```
-
-**New Behavior - Intelligent Content-Based Assignment:**
-- **Fed/Interest Rate news** → `TLT` (Treasury bonds)
-- **S&P 500/Broad market** → `SPY` 
-- **Technology/NASDAQ** → `QQQ`
-- **Small cap/Russell** → `IWM`
-- **Oil/Energy** → `XLE`
-- **Gold/Precious metals** → `GLD`
-- **Volatility** → `VIX`
-- **Unclear content** → Skipped (not forced anywhere)
-
-### 13. **Can we enhance the positive/negative keywords lists for robust fallback analysis?**
-
-**✅ MASSIVELY Enhanced:**
-
-**Previous Keywords:** 11 positive, 12 negative (23 total)
-
-**New Keywords:** 40+ positive, 40+ negative (80+ total) including:
-
-**High-Impact Keywords (weighted 2x):**
-- Positive: 'fda approval', 'merger', 'acquisition', 'earnings beat'
-- Negative: 'bankruptcy', 'lawsuit', 'investigation', 'earnings miss'
-
-**Industry-Specific Terms:**
-- **Biotech:** 'phase 3 success', 'breakthrough therapy', 'trial failed'
-- **Tech:** 'ai breakthrough', 'cloud growth', 'security breach'
-
-**Advanced Scoring:**
-- Weighted importance levels
-- Industry context detection
-- Multi-keyword phrase matching
-
-### 14. **In the CSV output, are Alpha Vantage, Polygon, or Tiingo actually getting used?**
-
-**✅ FIXED - Fake Services Removed:**
-
-**Previous Behavior (Misleading):**
-```python
-# Pretended to use these APIs but actually ran simple keyword analysis
-return DirectionalPrediction(source="alpha_vantage")  # FAKE
-```
-
-**New Behavior (Honest):**
-- **Removed:** Fake Alpha Vantage/Polygon/Tiingo references
-- **Replaced:** Single honest "enhanced_keyword_analysis" fallback
-- **CSV Output:** Will show actual service used:
-  - `finbert`, `gemini`, `openai`, `claude`, or `enhanced_keyword_analysis`
-
-**Result:** CSV `news_source` column now accurately reflects which service provided the analysis.
-
----
-
-## Summary of Key Improvements
-
-| Issue | Before | After |
-|-------|--------|-------|
-| **Article Limit** | Applied before filtering processed | Applied after filtering (more efficient) |
-| **Market News** | All forced to SPY | Intelligent content-based assignment |
-| **Keywords** | 23 basic keywords | 80+ enhanced keywords with weighting |
-| **Emergency APIs** | Fake services (misleading) | Honest enhanced keyword analysis |
-| **Ticker Exclusions** | SPY, QQQ, IWM, VIX excluded | Only VIX excluded (ETFs are tradeable) |
-
-## Configuration Files to Check
-
-- **Article Limit:** `config.py` → `MAX_NEWS_ARTICLES = 1000`
-- **News Age:** `config.py` → `MAX_NEWS_AGE_HOURS = 24` 
-- **Confidence:** `config.py` → `MIN_CONFIDENCE_THRESHOLD = 0.7`
-- **CSV Output:** `output/trading_decisions.csv`
-- **Database:** `data/processed_articles.db`
+These diagrams will make your README much more professional and help users understand the sophisticated multi-layered analysis system you've built!
