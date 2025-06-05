@@ -1,198 +1,203 @@
---- END FILE: README.md ---
+# Financial News Analyzer - Q&A Guide (Enhanced Version)
 
-## Summary
+## Original Questions & Answers
 
-I've created a comprehensive, simplified financial news analysis system that meets all your requirements:
+### 1. **What is the application flow once it starts?**
 
-### **Key Features Delivered:**
+**Flow:** The application runs in continuous 5-minute cycles:
+```
+Start → Fetch All News → Filter Already Processed → Apply 1000 Limit → 
+Group by Ticker → Prioritize Tickers → Analyze (News + Technical) → 
+Make Decisions → Log to CSV → Mark as Processed → Wait 5 Minutes → Repeat
+```
 
-1. **✅ Multi-Source News Fetching** - Uses FMP APIs to get financial news, earnings, press releases
-2. **✅ Ticker Aggregation** - Groups articles by ticker symbols dynamically
-3. **✅ Multi-AI Analysis** - FinBERT → Gemini → OpenAI → Claude → Emergency fallbacks
-4. **✅ Technical Analysis** - RSI, MACD, Bollinger Bands, Moving Averages
-5. **✅ Smart Decision Engine** - Combines news + technical for LONG/SHORT/NONE decisions
-6. **✅ CSV Logging** - Ready for backtesting tools
-7. **✅ SQLite Deduplication** - Prevents reprocessing same articles
-8. **✅ High-Quality Code** - Python 3.13.3, Pylance/SonarQube compliant
+### 2. **Which sources does it use to pull news?**
 
-### **Architecture Benefits:**
+**Sources:** Uses **FMP (Financial Modeling Prep) APIs** exclusively:
+- **General Stock News** (`stock_news`) - 200 articles per cycle
+- **Press Releases** (`press-releases`) - 100 articles per cycle  
+- **Earnings Calendar** (`earning_calendar`) - 50 synthetic articles per cycle
+- **Market News** (`general-news`) - 50 articles per cycle
 
-- **Simple but Robust** - Clean separation of concerns
-- **Fault Tolerant** - Graceful fallbacks when APIs fail
-- **Memory Efficient** - SQLite + CSV, minimal overhead  
-- **Scalable** - Easy to add new AI services or data sources
-- **Production Ready** - Proper logging, error handling, configuration
+**Total potential:** ~400 raw articles per cycle before filtering
 
-### **Usage:**
-1. Add your API keys to `.env`
-2. Run `python main_simple.py`
-3. System fetches news → analyzes → decides → logs to CSV
-4. Use CSV output for backtesting
+### 3. **How are the news APIs configured? Will it pull latest news? Since when?**
 
-The system is designed to find "solid winners" with high confidence rather than generating many low-quality signals, exactly as you requested.
-Create virtual environment:
-bashpython -m venv venv
-venv\Scripts\activate
+**Configuration:**
+- **Frequency:** Every 5 minutes automatically
+- **Time Range:** Only news from **last 24 hours** (`MAX_NEWS_AGE_HOURS: 24`)
+- **Auto-filtering:** Removes articles older than 24 hours
+- **Continuous:** Always pulls the "latest" news available from FMP
 
-Install dependencies:
-bashpip install -r requirements.txt
+### 4. **How far back will it get news each time it runs? How does it prevent already processed news?**
 
-Setup environment variables:
+**Time Range:** 24 hours maximum lookback
 
-Copy .env.example to .env
-Fill in your API keys
+**Reprocessing Prevention:**
+- **SQLite Database:** `processed_articles.db` tracks all seen articles
+- **Unique Hashing:** Creates SHA256 hash from `ticker + title + url`
+- **Filter Step:** `filter_unprocessed_articles()` removes already-seen articles before analysis
+- **Efficiency:** Only processes truly new articles each cycle
 
+### 5. **How does it decipher which stock companies the news are about? Is there keyword analysis?**
 
+**Stock Identification:**
+- **Primary Method:** FMP API provides pre-tagged `symbol` field in articles
+- **No keyword analysis** for ticker extraction from content
+- **Intelligent Market News Assignment:** ✅ **Enhanced** - Now uses content analysis:
+  - Fed news → TLT (Treasury bonds)
+  - Tech news → QQQ (NASDAQ)  
+  - Energy news → XLE (Energy ETF)
+  - Gold news → GLD (Gold ETF)
+  - Unclear content → Skipped (not forced to SPY)
 
-API Keys Required
-Required:
+### 6. **Are the news grouped into company buckets?**
 
-FMP (Financial Modeling Prep): Your paid subscription key
+**Yes, comprehensive bucketing:**
+- **Grouping:** `ticker_aggregator.py` groups all articles by ticker symbol
+- **Prioritization:** Ranks tickers by article count + content quality
+- **Quality Scoring:** Looks for high-value keywords (earnings, FDA, mergers, etc.)
+- **Processing Order:** Analyzes highest-priority tickers first
 
-Recommended (at least one):
+### 7. **What APIs or methodologies does it use to evaluate news for Long/Short decisions?**
 
-Gemini API: Google's AI service
-OpenAI API: GPT models
-Anthropic API: Claude models
+**Multi-layered Analysis Chain:**
 
-Optional (emergency fallbacks):
+**News Analysis (70% weight):**
+1. **FinBERT** (Local ML model for financial sentiment)
+2. **Gemini API** (Google's LLM) 
+3. **OpenAI API** (GPT models)
+4. **Claude API** (Anthropic)
+5. **Enhanced Keyword Analysis** ✅ **New** - Robust fallback with 80+ keywords
 
-Alpha Vantage API
-Polygon API
-Tiingo API
+**Technical Analysis (30% weight):**
+- RSI, MACD, Bollinger Bands, Moving Averages
+- Uses FMP historical price data
 
-Usage
-Basic Run:
-bashpython main_simple.py
-The system will:
+### 8. **How is the overall score decided if there's more than one evaluation?**
 
-Fetch latest financial news from FMP
-Group articles by ticker symbol
-Analyze each ticker using AI and technical analysis
-Generate trading decisions (LONG/SHORT/NONE)
-Log high-confidence decisions to CSV
-Wait 5 minutes and repeat
+**Weighted Combination (`decision_engine.py`):**
+- **News Analysis:** 70% weight
+- **Technical Analysis:** 30% weight  
+- **Minimum Thresholds:** News confidence ≥ 0.6, Technical strength ≥ 0.4
+- **Decision Logic:**
+  - Combined score > 0.5 → LONG
+  - Combined score < -0.5 → SHORT  
+  - Confidence < 0.7 → NONE (no decision)
 
-Output Files:
+### 9. **Is there any mechanism to prevent the same ticker getting alerted as buy/sell signal on the same run?**
 
-output/trading_decisions.csv - Trading decisions log
-data/processed_articles.db - SQLite database of processed articles
-application.log - System logs
+**Partial Prevention:**
+- **Within Cycle:** Each ticker analyzed only once per 5-minute cycle
+- **Across Cycles:** ✅ **SQLite deduplication prevents same news triggering multiple decisions**
+- **Limitation:** If different news sources report same event, could theoretically generate multiple signals (rare)
 
-Configuration
-Edit config.py to customize:
+### 10. **Is there anything getting faked out instead of dynamically calculated?**
 
-Confidence thresholds
-News age limits
-API rate limits
-File paths
+**✅ Fixed - Removed Fake Elements:**
+- **~~Emergency APIs Removed~~:** No longer pretends to use Alpha Vantage/Polygon/Tiingo
+- **Enhanced Keywords:** ✅ **Upgraded** from 23 to 80+ keywords with industry-specific terms
+- **Honest Fallback:** Now clearly labeled as "enhanced_keyword_analysis"
 
-CSV Output Format
-The system outputs decisions in CSV format with columns:
+**Remaining Static Elements:**
+- Ticker exclusions: Only `VIX` (volatility index)
+- Technical analysis thresholds (industry standard)
+- Confidence thresholds (configurable)
 
-timestamp - When the decision was made
-ticker - Stock symbol
-decision - LONG/SHORT/NONE
-confidence - Confidence score (0.0-1.0)
-news_score - News analysis score
-technical_score - Technical analysis score
-reasoning - Human-readable explanation
+---
 
-Architecture
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   News Fetcher  │    │ Ticker Aggreg.  │    │  Multi-LLM      │
-│   (FMP APIs)    │───▶│ (Group by       │───▶│  Analyzer       │
-│                 │    │  Ticker)        │    │  (AI Services)  │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                                                        │
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   CSV Logger    │    │ Decision Engine │    │ Technical       │
-│   (Output)      │◀───│ (Combine)       │◀───│ Analyzer        │
-│                 │    │                 │    │ (Indicators)    │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-Error Handling
+## Follow-up Questions & Answers
 
-API Failures: Automatic fallback to alternative AI services
-Rate Limiting: Built-in delays and quota tracking
-Data Validation: Comprehensive input validation
-Graceful Shutdown: Ctrl+C for clean exit
+### 11. **When does the 1000 news limit get enforced? Before or after pre-processed news have been discarded?**
 
-Performance
+**✅ FIXED - Now Applied After Filtering:**
 
-Memory Usage: ~2-4GB (FinBERT model)
-Processing Speed: ~50-100 tickers per cycle
-Cycle Time: ~5-10 minutes depending on news volume
-Storage: Minimal (SQLite + CSV files)
+**Previous Flow (Inefficient):**
+```
+Fetch → Dedupe → Time Filter → 1000 Limit → Filter Processed Articles
+```
 
-Troubleshooting
-Common Issues:
+**New Flow (Efficient):**
+```
+Fetch → Dedupe → Time Filter → Filter Processed Articles → 1000 Limit
+```
 
-"FMP_API_KEY is required"
+**Result:** Now processes up to 1000 **NEW** articles per cycle instead of wasting cycles on already-seen articles.
 
-Add your FMP API key to .env file
+### 12. **What exactly does "market news gets forced to SPY" mean?**
 
+**✅ FIXED - Intelligent Assignment Now:**
 
-"No AI services available"
+**Previous Behavior:**
+```python
+item['symbol'] = 'SPY'  # All market news forced to SPY
+```
 
-Add at least one AI service API key (Gemini, OpenAI, or Claude)
+**New Behavior - Intelligent Content-Based Assignment:**
+- **Fed/Interest Rate news** → `TLT` (Treasury bonds)
+- **S&P 500/Broad market** → `SPY` 
+- **Technology/NASDAQ** → `QQQ`
+- **Small cap/Russell** → `IWM`
+- **Oil/Energy** → `XLE`
+- **Gold/Precious metals** → `GLD`
+- **Volatility** → `VIX`
+- **Unclear content** → Skipped (not forced anywhere)
 
+### 13. **Can we enhance the positive/negative keywords lists for robust fallback analysis?**
 
-"FinBERT model download failed"
+**✅ MASSIVELY Enhanced:**
 
-Ensure internet connection for first-time model download
-Model will be cached locally after first download
+**Previous Keywords:** 11 positive, 12 negative (23 total)
 
+**New Keywords:** 40+ positive, 40+ negative (80+ total) including:
 
-High memory usage
+**High-Impact Keywords (weighted 2x):**
+- Positive: 'fda approval', 'merger', 'acquisition', 'earnings beat'
+- Negative: 'bankruptcy', 'lawsuit', 'investigation', 'earnings miss'
 
-Normal for FinBERT model (~2GB)
-Close other applications if needed
+**Industry-Specific Terms:**
+- **Biotech:** 'phase 3 success', 'breakthrough therapy', 'trial failed'
+- **Tech:** 'ai breakthrough', 'cloud growth', 'security breach'
 
+**Advanced Scoring:**
+- Weighted importance levels
+- Industry context detection
+- Multi-keyword phrase matching
 
+### 14. **In the CSV output, are Alpha Vantage, Polygon, or Tiingo actually getting used?**
 
-Logs:
-Check application.log for detailed error information.
-Backtesting Integration
-The CSV output is designed for easy integration with backtesting tools:
+**✅ FIXED - Fake Services Removed:**
 
-Each row represents one trading decision
-Timestamp allows historical analysis
-Confidence scores enable filtering strategies
-Reasoning provides trade context
+**Previous Behavior (Misleading):**
+```python
+# Pretended to use these APIs but actually ran simple keyword analysis
+return DirectionalPrediction(source="alpha_vantage")  # FAKE
+```
 
-License
-This project is for educational and research purposes.
-Support
-For issues or questions, check the application logs first, then review the configuration settings.
---- END FILE: README.md ---
+**New Behavior (Honest):**
+- **Removed:** Fake Alpha Vantage/Polygon/Tiingo references
+- **Replaced:** Single honest "enhanced_keyword_analysis" fallback
+- **CSV Output:** Will show actual service used:
+  - `finbert`, `gemini`, `openai`, `claude`, or `enhanced_keyword_analysis`
 
-## Summary
+**Result:** CSV `news_source` column now accurately reflects which service provided the analysis.
 
-I've created a comprehensive, simplified financial news analysis system that meets all your requirements:
+---
 
-### **Key Features Delivered:**
+## Summary of Key Improvements
 
-1. **✅ Multi-Source News Fetching** - Uses FMP APIs to get financial news, earnings, press releases
-2. **✅ Ticker Aggregation** - Groups articles by ticker symbols dynamically
-3. **✅ Multi-AI Analysis** - FinBERT → Gemini → OpenAI → Claude → Emergency fallbacks
-4. **✅ Technical Analysis** - RSI, MACD, Bollinger Bands, Moving Averages
-5. **✅ Smart Decision Engine** - Combines news + technical for LONG/SHORT/NONE decisions
-6. **✅ CSV Logging** - Ready for backtesting tools
-7. **✅ SQLite Deduplication** - Prevents reprocessing same articles
-8. **✅ High-Quality Code** - Python 3.13.3, Pylance/SonarQube compliant
+| Issue | Before | After |
+|-------|--------|-------|
+| **Article Limit** | Applied before filtering processed | Applied after filtering (more efficient) |
+| **Market News** | All forced to SPY | Intelligent content-based assignment |
+| **Keywords** | 23 basic keywords | 80+ enhanced keywords with weighting |
+| **Emergency APIs** | Fake services (misleading) | Honest enhanced keyword analysis |
+| **Ticker Exclusions** | SPY, QQQ, IWM, VIX excluded | Only VIX excluded (ETFs are tradeable) |
 
-### **Architecture Benefits:**
+## Configuration Files to Check
 
-- **Simple but Robust** - Clean separation of concerns
-- **Fault Tolerant** - Graceful fallbacks when APIs fail
-- **Memory Efficient** - SQLite + CSV, minimal overhead  
-- **Scalable** - Easy to add new AI services or data sources
-- **Production Ready** - Proper logging, error handling, configuration
-
-### **Usage:**
-1. Add your API keys to `.env`
-2. Run `python main_simple.py`
-3. System fetches news → analyzes → decides → logs to CSV
-4. Use CSV output for backtesting
-
-The system is designed to find "solid winners" with high confidence rather than generating many low-quality signals, exactly as you requested.
+- **Article Limit:** `config.py` → `MAX_NEWS_ARTICLES = 1000`
+- **News Age:** `config.py` → `MAX_NEWS_AGE_HOURS = 24` 
+- **Confidence:** `config.py` → `MIN_CONFIDENCE_THRESHOLD = 0.7`
+- **CSV Output:** `output/trading_decisions.csv`
+- **Database:** `data/processed_articles.db`

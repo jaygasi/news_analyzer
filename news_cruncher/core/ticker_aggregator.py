@@ -5,7 +5,7 @@ Python 3.13.3 compatible
 from typing import Dict, List, Any
 from collections import defaultdict
 import re
-from utils.simple_logger import log_info, log_debug
+from utils.simple_logger import log_info, log_debug, log_warning
 
 
 class TickerAggregator:
@@ -14,24 +14,40 @@ class TickerAggregator:
     def __init__(self) -> None:
         """Initialize ticker aggregator"""
         self.ticker_pattern = re.compile(r'^[A-Z]{1,5}$')
-        self.excluded_tickers = {'SPY', 'QQQ', 'IWM', 'VIX'}  # Broad market symbols
+        # Updated to allow market ETFs but still exclude VIX for trading decisions
+        self.excluded_tickers = {'VIX'}  # Only exclude volatility index
     
     def aggregate_by_ticker(self, articles: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
-        """Group articles by ticker symbol"""
+        """Group articles by ticker symbol with detailed logging"""
         if not articles:
             return {}
         
         ticker_buckets = defaultdict(list)
+        dropped_count = 0
+        drop_reasons = defaultdict(int)
         
         for article in articles:
-            ticker = self._normalize_ticker(article.get('symbol', ''))
+            original_ticker = article.get('symbol', '')
+            ticker = self._normalize_ticker(original_ticker)
             
             if self._is_valid_ticker(ticker):
                 ticker_buckets[ticker].append(article)
+            else:
+                dropped_count += 1
+                if not original_ticker:
+                    drop_reasons['empty_symbol'] += 1
+                elif not ticker:
+                    drop_reasons['normalization_failed'] += 1
+                elif not self.ticker_pattern.match(ticker):
+                    drop_reasons['invalid_format'] += 1
+                elif ticker in self.excluded_tickers:
+                    drop_reasons['excluded_ticker'] += 1
+                else:
+                    drop_reasons['other'] += 1
         
         # Convert to regular dict and log statistics
         result = dict(ticker_buckets)
-        self._log_aggregation_stats(result)
+        self._log_aggregation_stats(result, dropped_count, drop_reasons)
         
         return result
     
@@ -61,14 +77,15 @@ class TickerAggregator:
         if not self.ticker_pattern.match(ticker):
             return False
         
-        # Exclude broad market symbols unless specifically targeting them
+        # Only exclude VIX now - allow SPY, QQQ, IWM as they are tradeable
         if ticker in self.excluded_tickers:
             return False
         
         return True
     
-    def _log_aggregation_stats(self, ticker_buckets: Dict[str, List[Dict[str, Any]]]) -> None:
-        """Log aggregation statistics"""
+    def _log_aggregation_stats(self, ticker_buckets: Dict[str, List[Dict[str, Any]]], 
+                              dropped_count: int, drop_reasons: Dict[str, int]) -> None:
+        """Log aggregation statistics with drop analysis"""
         if not ticker_buckets:
             log_info("No valid ticker buckets created")
             return
@@ -76,14 +93,19 @@ class TickerAggregator:
         total_articles = sum(len(articles) for articles in ticker_buckets.values())
         unique_tickers = len(ticker_buckets)
         
+        log_info(f"Created {unique_tickers} ticker buckets with {total_articles} total articles")
+        
+        if dropped_count > 0:
+            log_warning(f"⚠️ Dropped {dropped_count} articles during ticker aggregation:")
+            for reason, count in drop_reasons.items():
+                log_warning(f"   {reason}: {count} articles")
+        
         # Find tickers with most articles
         top_tickers = sorted(
             ticker_buckets.items(),
             key=lambda x: len(x[1]),
             reverse=True
         )[:10]
-        
-        log_info(f"Created {unique_tickers} ticker buckets with {total_articles} total articles")
         
         # Log top tickers
         for ticker, articles in top_tickers:

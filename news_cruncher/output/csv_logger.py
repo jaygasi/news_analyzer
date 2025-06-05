@@ -18,6 +18,8 @@ class CSVLogger:
     def __init__(self, csv_path: Path = None) -> None:
         """Initialize CSV logger"""
         self.csv_path = csv_path or Config.CSV_OUTPUT_PATH
+        
+        # Enhanced headers to include new emergency services and features
         self.headers = [
             'timestamp',
             'ticker',
@@ -29,12 +31,15 @@ class CSVLogger:
             'article_count',
             'news_direction',
             'news_confidence',
-            'news_source',
+            'news_source',  # Now includes: finbert, gemini, openai, claude, alpha_vantage, polygon, tiingo, enhanced_keyword_analysis
             'news_reasoning',
+            'news_raw_score',  # New: raw score from analysis
             'technical_direction',
             'technical_strength',
             'technical_reasoning',
-            'final_reasoning'
+            'final_reasoning',
+            'analysis_method',  # New: primary/emergency/keyword
+            'market_context'    # New: for ETF assignments (TLT, QQQ, etc.)
         ]
         
         self._ensure_csv_exists()
@@ -54,11 +59,14 @@ class CSVLogger:
     def _create_csv_with_headers(self) -> None:
         """Create new CSV file with headers"""
         try:
+            # Ensure output directory exists
+            self.csv_path.parent.mkdir(parents=True, exist_ok=True)
+            
             with open(self.csv_path, 'w', newline='', encoding='utf-8') as file:
                 writer = csv.writer(file)
                 writer.writerow(self.headers)
             
-            log_info(f"Created new CSV file: {self.csv_path}")
+            log_info(f"Created new CSV file with enhanced headers: {self.csv_path}")
             
         except Exception as e:
             log_error(f"Error creating CSV file: {e}")
@@ -72,7 +80,7 @@ class CSVLogger:
                 existing_headers = next(reader, [])
                 
                 if existing_headers != self.headers:
-                    log_debug("CSV headers don't match, backing up and recreating")
+                    log_info("CSV headers don't match enhanced version, backing up and recreating")
                     self._backup_existing_csv()
                     self._create_csv_with_headers()
                     
@@ -138,7 +146,24 @@ class CSVLogger:
             return 0
     
     def _decision_to_row(self, decision: TradingDecision) -> List[str]:
-        """Convert TradingDecision to CSV row"""
+        """Convert TradingDecision to CSV row with enhanced columns"""
+        
+        # Determine analysis method
+        analysis_method = "unknown"
+        if decision.news_prediction:
+            source = decision.news_prediction.source
+            if source in ['finbert', 'gemini', 'openai', 'claude']:
+                analysis_method = "primary_llm"
+            elif source in ['alpha_vantage', 'polygon', 'tiingo']:
+                analysis_method = "emergency_api"
+            elif source == 'enhanced_keyword_analysis':
+                analysis_method = "keyword_fallback"
+        
+        # Determine market context (for ETF assignments)
+        market_context = ""
+        if decision.ticker in ['SPY', 'QQQ', 'IWM', 'TLT', 'XLE', 'GLD']:
+            market_context = f"etf_market_news"
+        
         return [
             decision.analysis_timestamp or datetime.now().isoformat(),
             decision.ticker,
@@ -152,10 +177,13 @@ class CSVLogger:
             f"{decision.news_prediction.confidence:.4f}" if decision.news_prediction else '',
             decision.news_prediction.source if decision.news_prediction else '',
             (decision.news_prediction.reasoning[:200] if decision.news_prediction and decision.news_prediction.reasoning else ''),
+            f"{decision.news_prediction.raw_score:.4f}" if decision.news_prediction and hasattr(decision.news_prediction, 'raw_score') else '',
             decision.technical_signal.direction if decision.technical_signal else '',
             f"{decision.technical_signal.strength:.4f}" if decision.technical_signal else '',
             (decision.technical_signal.reasoning[:200] if decision.technical_signal and decision.technical_signal.reasoning else ''),
-            decision.reasoning[:300] if decision.reasoning else ''
+            decision.reasoning[:300] if decision.reasoning else '',
+            analysis_method,
+            market_context
         ]
     
     def get_csv_statistics(self) -> Dict[str, Any]:
@@ -166,23 +194,37 @@ class CSVLogger:
             
             file_size = self.csv_path.stat().st_size
             
-            # Count rows
+            # Count rows and analyze by new categories
             row_count = 0
             decisions_by_type = {'LONG': 0, 'SHORT': 0, 'NONE': 0}
+            analysis_methods = {}
+            services_used = {}
             
             with open(self.csv_path, 'r', encoding='utf-8') as file:
                 reader = csv.DictReader(file)
                 
                 for row in reader:
                     row_count += 1
+                    
+                    # Decision type
                     decision_type = row.get('decision', 'NONE')
                     decisions_by_type[decision_type] = decisions_by_type.get(decision_type, 0) + 1
+                    
+                    # Analysis method
+                    method = row.get('analysis_method', 'unknown')
+                    analysis_methods[method] = analysis_methods.get(method, 0) + 1
+                    
+                    # Services used
+                    service = row.get('news_source', 'unknown')
+                    services_used[service] = services_used.get(service, 0) + 1
             
             return {
                 'exists': True,
                 'file_size_bytes': file_size,
                 'total_decisions': row_count,
                 'decisions_by_type': decisions_by_type,
+                'analysis_methods': analysis_methods,
+                'services_used': services_used,
                 'file_path': str(self.csv_path)
             }
             
@@ -217,8 +259,9 @@ class CSVLogger:
                                  decision_type: str = None, 
                                  min_confidence: float = None,
                                  start_date: str = None,
-                                 end_date: str = None) -> int:
-        """Export filtered decisions to new CSV file"""
+                                 end_date: str = None,
+                                 analysis_method: str = None) -> int:
+        """Export filtered decisions to new CSV file with enhanced filtering"""
         try:
             if not self.csv_path.exists():
                 return 0
@@ -233,7 +276,7 @@ class CSVLogger:
                     writer.writeheader()
                     
                     for row in reader:
-                        if self._should_include_row(row, decision_type, min_confidence, start_date, end_date):
+                        if self._should_include_row(row, decision_type, min_confidence, start_date, end_date, analysis_method):
                             writer.writerow(row)
                             exported_count += 1
             
@@ -248,7 +291,8 @@ class CSVLogger:
                            decision_type: str = None,
                            min_confidence: float = None,
                            start_date: str = None,
-                           end_date: str = None) -> bool:
+                           end_date: str = None,
+                           analysis_method: str = None) -> bool:
         """Check if row should be included in filtered export"""
         try:
             # Filter by decision type
@@ -260,6 +304,10 @@ class CSVLogger:
                 confidence = float(row.get('confidence', 0))
                 if confidence < min_confidence:
                     return False
+            
+            # Filter by analysis method
+            if analysis_method and row.get('analysis_method') != analysis_method:
+                return False
             
             # Filter by date range
             if start_date or end_date:

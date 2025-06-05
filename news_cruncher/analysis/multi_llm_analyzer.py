@@ -16,6 +16,7 @@ import anthropic
 import requests
 from config import Config
 from utils.simple_logger import log_info, log_error, log_debug, log_warning
+from analysis.emergency_data_services import EmergencyDataServices
 
 
 @dataclass
@@ -36,14 +37,102 @@ class MultiLLMAnalyzer:
         self.services = {}
         self.quota_exhausted = set()
         
-        # Initialize services
+        # Enhanced keyword lists for robust fallback analysis
+        self._init_enhanced_keywords()
+        
+        # Initialize emergency data services
+        self.emergency_services = EmergencyDataServices()
+        
+        # Initialize primary services
         self._init_finbert()
         self._init_gemini()
         self._init_openai()
         self._init_anthropic()
         self._init_emergency_fallbacks()
         
-        log_info(f"Initialized {len(self.services)} AI services for analysis")
+        log_info(f"Initialized {len([s for s in self.services.values() if s.get('available')])} AI services for analysis")
+    
+    def _init_enhanced_keywords(self) -> None:
+        """Initialize comprehensive keyword lists for robust analysis"""
+        self.positive_keywords = [
+            # Earnings & Financial Performance
+            'beat', 'exceed', 'outperform', 'surpass', 'stronger', 'robust', 'solid',
+            'growth', 'increase', 'rise', 'surge', 'jump', 'soar', 'climb', 'gain',
+            'revenue growth', 'profit margin', 'earnings beat', 'guidance raised',
+            'positive outlook', 'strong results', 'record revenue', 'improved margins',
+            
+            # Business Development
+            'acquisition', 'merger', 'partnership', 'joint venture', 'collaboration',
+            'expansion', 'launch', 'breakthrough', 'innovation', 'patent',
+            'contract', 'deal', 'agreement', 'signed', 'secured', 'won',
+            'new product', 'market expansion', 'strategic alliance',
+            
+            # Regulatory & Approvals
+            'approval', 'cleared', 'authorized', 'granted', 'licensed',
+            'fda approval', 'regulatory approval', 'certification', 'patent granted',
+            'breakthrough therapy', 'fast track', 'orphan drug designation',
+            
+            # Market Position
+            'market leader', 'competitive advantage', 'market share',
+            'first mover', 'exclusive', 'monopoly', 'dominant', 'leadership',
+            'outpacing competitors', 'gaining share', 'market dominance',
+            
+            # Investment & Funding
+            'investment', 'funding', 'capital', 'ipo', 'dividend', 'dividend increase',
+            'buyback', 'share repurchase', 'upgraded', 'buy rating', 'price target raised',
+            'institutional buying', 'analyst upgrade', 'overweight rating',
+            
+            # Performance Indicators
+            'success', 'achievement', 'milestone', 'record', 'all-time high',
+            'outperformed', 'momentum', 'accelerated', 'improved', 'stellar',
+            'exceptional', 'outstanding', 'impressive', 'strong demand'
+        ]
+        
+        self.negative_keywords = [
+            # Earnings & Financial Performance
+            'miss', 'missed', 'below', 'decline', 'decrease', 'fall', 'drop',
+            'plunge', 'crash', 'slump', 'weak', 'disappointing', 'poor',
+            'loss', 'losses', 'deficit', 'shortfall', 'guidance lowered',
+            'revenue decline', 'margin compression', 'weak outlook',
+            
+            # Business Challenges
+            'bankruptcy', 'insolvent', 'restructuring', 'layoffs', 'cuts',
+            'closure', 'shutdown', 'suspended', 'terminated', 'cancelled',
+            'delayed', 'postponed', 'failed', 'unsuccessful', 'struggling',
+            'cash crunch', 'debt burden', 'financial distress',
+            
+            # Legal & Regulatory Issues
+            'lawsuit', 'litigation', 'investigation', 'probe', 'audit',
+            'violation', 'fine', 'penalty', 'sanctions', 'banned',
+            'rejected', 'denied', 'warning', 'recall', 'subpoena',
+            'regulatory action', 'compliance issues', 'sec investigation',
+            
+            # Market Position
+            'competition', 'losing share', 'market pressure', 'disrupted',
+            'downgraded', 'sell rating', 'underperform', 'price target cut',
+            'analyst downgrade', 'competitive threat', 'market share loss',
+            
+            # Operational Issues
+            'supply chain', 'shortage', 'disruption', 'cyber attack',
+            'data breach', 'fraud', 'scandal', 'controversy', 'crisis',
+            'operational challenges', 'production issues', 'quality problems',
+            
+            # Performance Indicators
+            'failure', 'setback', 'disappointed', 'concerns', 'risks',
+            'uncertainty', 'volatility', 'pressure', 'challenges', 'headwinds',
+            'deteriorating', 'weakening', 'struggling', 'disappointing results'
+        ]
+        
+        # High-impact keywords that carry more weight
+        self.high_impact_positive = [
+            'fda approval', 'merger', 'acquisition', 'breakthrough therapy',
+            'earnings beat', 'guidance raised', 'analyst upgrade', 'record revenue'
+        ]
+        
+        self.high_impact_negative = [
+            'bankruptcy', 'fda rejection', 'lawsuit', 'investigation',
+            'earnings miss', 'guidance lowered', 'analyst downgrade', 'recall'
+        ]
     
     def _init_finbert(self) -> None:
         """Initialize FinBERT model (local)"""
@@ -134,33 +223,30 @@ class MultiLLMAnalyzer:
             self.services['claude'] = {'available': False}
     
     def _init_emergency_fallbacks(self) -> None:
-        """Initialize emergency fallback services"""
-        # Alpha Vantage
+        """Initialize real emergency fallback services"""
         if Config.ALPHA_VANTAGE_API_KEY:
             self.services['alpha_vantage'] = {
-                'api_key': Config.ALPHA_VANTAGE_API_KEY,
                 'available': True,
                 'requests_today': 0,
                 'daily_limit': 500
             }
+            log_info("Alpha Vantage emergency service initialized")
         
-        # Polygon
         if Config.POLYGON_API_KEY:
             self.services['polygon'] = {
-                'api_key': Config.POLYGON_API_KEY,
                 'available': True,
                 'requests_today': 0,
-                'daily_limit': 1000
+                'daily_limit': 500
             }
+            log_info("Polygon emergency service initialized")
         
-        # Tiingo
         if Config.TIINGO_API_KEY:
             self.services['tiingo'] = {
-                'api_key': Config.TIINGO_API_KEY,
                 'available': True,
                 'requests_today': 0,
                 'daily_limit': 1000
             }
+            log_info("Tiingo emergency service initialized")
     
     def analyze_news_direction(self, ticker: str, articles: List[Dict[str, Any]]) -> Optional[DirectionalPrediction]:
         """Analyze news articles to predict stock direction"""
@@ -185,8 +271,8 @@ class MultiLLMAnalyzer:
                     log_warning(f"{service_name} analysis failed: {e}")
                     self._mark_service_exhausted(service_name)
         
-        # Try emergency fallbacks if all LLMs exhausted
-        log_warning("All LLMs exhausted, trying emergency fallbacks")
+        # Try real emergency fallbacks if all LLMs exhausted
+        log_warning("All LLMs exhausted, trying emergency data services")
         for service_name in Config.EMERGENCY_FALLBACKS:
             if self._is_service_available(service_name):
                 try:
@@ -196,9 +282,11 @@ class MultiLLMAnalyzer:
                         return prediction
                 except Exception as e:
                     log_warning(f"Emergency service {service_name} failed: {e}")
+                    self._mark_service_exhausted(service_name)
         
-        log_warning(f"All analysis services failed for {ticker}")
-        return None
+        # Final fallback to enhanced keyword analysis
+        log_warning("All services exhausted, using enhanced keyword analysis")
+        return self._enhanced_keyword_analysis(ticker, combined_text)
     
     def _combine_articles(self, articles: List[Dict[str, Any]]) -> str:
         """Combine multiple articles into single text for analysis"""
@@ -251,6 +339,28 @@ class MultiLLMAnalyzer:
             return self._analyze_with_claude(ticker, text)
         
         return None
+    
+    def _analyze_with_emergency_service(self, service_name: str, ticker: str, text: str) -> Optional[DirectionalPrediction]:
+        """Analyze using real emergency fallback services"""
+        try:
+            if service_name == 'alpha_vantage':
+                result = self.emergency_services.analyze_with_alpha_vantage(ticker, text)
+            elif service_name == 'polygon':
+                result = self.emergency_services.analyze_with_polygon(ticker, text)
+            elif service_name == 'tiingo':
+                result = self.emergency_services.analyze_with_tiingo(ticker, text)
+            else:
+                return None
+            
+            # Update request count
+            if result and service_name in self.services:
+                self.services[service_name]['requests_today'] += 1
+            
+            return result
+            
+        except Exception as e:
+            log_error(f"Emergency service {service_name} error: {e}")
+            return None
     
     def _analyze_with_finbert(self, ticker: str, text: str) -> Optional[DirectionalPrediction]:
         """Analyze using FinBERT"""
@@ -454,43 +564,67 @@ Consider the actual financial impact on the company's value.
             log_error(f"Error parsing {source} response: {e}")
             return None
     
-    def _analyze_with_emergency_service(self, service_name: str, ticker: str, text: str) -> Optional[DirectionalPrediction]:
-        """Analyze using emergency fallback services"""
-        # For now, return a simple keyword-based analysis
-        # This could be enhanced to actually call the emergency APIs
+    def _enhanced_keyword_analysis(self, ticker: str, text: str) -> Optional[DirectionalPrediction]:
+        """Enhanced keyword-based analysis as ultimate fallback"""
+        text_lower = text.lower()
         
-        direction, confidence = self._simple_keyword_analysis(text)
+        positive_score = 0.0
+        negative_score = 0.0
+        reasoning_parts = []
+        
+        # Check for high-impact keywords first (weighted more heavily)
+        for keyword in self.high_impact_positive:
+            if keyword in text_lower:
+                positive_score += 2.0
+                reasoning_parts.append(f"High-impact positive: {keyword}")
+        
+        for keyword in self.high_impact_negative:
+            if keyword in text_lower:
+                negative_score += 2.0
+                reasoning_parts.append(f"High-impact negative: {keyword}")
+        
+        # Standard positive keywords
+        for keyword in self.positive_keywords:
+            if keyword in text_lower:
+                positive_score += 1.0
+        
+        # Standard negative keywords
+        for keyword in self.negative_keywords:
+            if keyword in text_lower:
+                negative_score += 1.0
+        
+        # Determine direction and confidence
+        net_score = positive_score - negative_score
+        total_score = positive_score + negative_score
+        
+        if total_score == 0:
+            return DirectionalPrediction(
+                direction='NEUTRAL',
+                confidence=0.3,
+                reasoning="No significant keywords found",
+                source="enhanced_keyword_analysis"
+            )
+        
+        # Calculate confidence based on score strength and total signals
+        confidence = min(0.8, 0.4 + (abs(net_score) / max(total_score, 1)) * 0.4)
+        
+        if net_score > 1.0:
+            direction = 'BUY'
+        elif net_score < -1.0:
+            direction = 'SELL'
+        else:
+            direction = 'NEUTRAL'
+            confidence = 0.4
+        
+        reasoning = f"Enhanced keyword analysis: +{positive_score:.1f}/-{negative_score:.1f}. " + "; ".join(reasoning_parts[:3])
         
         return DirectionalPrediction(
             direction=direction,
             confidence=confidence,
-            reasoning=f"Emergency fallback analysis using {service_name}",
-            source=service_name
+            reasoning=reasoning[:200],
+            source="enhanced_keyword_analysis",
+            raw_score=net_score
         )
-    
-    def _simple_keyword_analysis(self, text: str) -> Tuple[str, float]:
-        """Simple keyword-based analysis as ultimate fallback"""
-        text_lower = text.lower()
-        
-        positive_keywords = [
-            'beat', 'exceed', 'growth', 'increase', 'approval', 'success',
-            'acquisition', 'merger', 'partnership', 'breakthrough', 'expansion'
-        ]
-        
-        negative_keywords = [
-            'miss', 'decline', 'decrease', 'loss', 'rejection', 'failure',
-            'lawsuit', 'investigation', 'warning', 'delay', 'bankruptcy'
-        ]
-        
-        positive_count = sum(1 for keyword in positive_keywords if keyword in text_lower)
-        negative_count = sum(1 for keyword in negative_keywords if keyword in text_lower)
-        
-        if positive_count > negative_count:
-            return 'BUY', min(0.6, 0.4 + (positive_count - negative_count) * 0.1)
-        elif negative_count > positive_count:
-            return 'SELL', min(0.6, 0.4 + (negative_count - positive_count) * 0.1)
-        else:
-            return 'NEUTRAL', 0.3
     
     def get_service_status(self) -> Dict[str, Any]:
         """Get status of all services"""

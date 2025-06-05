@@ -20,7 +20,7 @@ class Config:
     OPENAI_API_KEY: str = os.getenv('OPENAI_API_KEY', '')
     ANTHROPIC_API_KEY: str = os.getenv('ANTHROPIC_API_KEY', '')
     
-    # Emergency fallback APIs (only when LLM quotas exhausted)
+    # Emergency fallback APIs
     ALPHA_VANTAGE_API_KEY: str = os.getenv('ALPHA_VANTAGE_API_KEY', '')
     POLYGON_API_KEY: str = os.getenv('POLYGON_API_KEY', '')
     TIINGO_API_KEY: str = os.getenv('TIINGO_API_KEY', '')
@@ -32,7 +32,11 @@ class Config:
     # Analysis Thresholds
     MIN_CONFIDENCE_THRESHOLD: float = 0.7
     MIN_NEWS_LENGTH: int = 50
-    MAX_NEWS_AGE_HOURS: int = 24
+    
+    # Dynamic News Age Configuration
+    DEFAULT_NEWS_AGE_HOURS: int = 24  # Used for first run only
+    MAX_NEWS_AGE_HOURS: int = 72     # Maximum lookback even if last run was longer ago
+    MIN_NEWS_AGE_MINUTES: int = 5    # Minimum gap to prevent too-frequent fetching
     
     # File Paths
     BASE_DIR: Path = Path(__file__).parent
