@@ -4,7 +4,7 @@ Python 3.13.3 compatible
 """
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
-from analysis.multi_source_analyzer import MultiSourcePrediction  # FIXED: Added missing import
+from analysis.multi_llm_analyzer import DirectionalPrediction  # FIXED: Correct import
 from analysis.technical_analyzer_simple import TechnicalSignal
 from config import Config
 from utils.simple_logger import log_debug, log_info, log_warning
@@ -19,7 +19,7 @@ class TradingDecision:
     reasoning: str
     
     # Supporting analysis
-    news_prediction: Optional[MultiSourcePrediction] = None
+    news_prediction: Optional[DirectionalPrediction] = None  # FIXED: Use DirectionalPrediction
     technical_signal: Optional[TechnicalSignal] = None
     
     # Detailed scores
@@ -56,7 +56,7 @@ class FixedDecisionEngine:
         
         log_info(f"Decision engine initialized with min_confidence: {self.min_confidence}")
     
-    def make_decision(self, ticker: str, news_prediction: Optional[MultiSourcePrediction], 
+    def make_decision(self, ticker: str, news_prediction: Optional[DirectionalPrediction], 
                      technical_signal: Optional[TechnicalSignal], 
                      article_count: int = 0) -> TradingDecision:
         """Make trading decision with detailed debugging"""
@@ -123,7 +123,7 @@ class FixedDecisionEngine:
             analysis_timestamp=self._get_timestamp()
         )
     
-    def _calculate_news_score(self, news_prediction: Optional[MultiSourcePrediction]) -> float:
+    def _calculate_news_score(self, news_prediction: Optional[DirectionalPrediction]) -> float:
         """Calculate normalized news score (-1.0 to 1.0) from multi-source prediction"""
         if not news_prediction:
             log_debug("No news prediction available")
@@ -172,7 +172,7 @@ class FixedDecisionEngine:
         
         return final_combined
     
-    def _determine_final_decision(self, ticker: str, news_prediction: Optional[MultiSourcePrediction],
+    def _determine_final_decision(self, ticker: str, news_prediction: Optional[DirectionalPrediction],
                                 technical_signal: Optional[TechnicalSignal], news_score: float,
                                 technical_score: float, combined_score: float) -> tuple[str, float, str]:
         """Determine final trading decision with extensive debugging"""
@@ -237,7 +237,7 @@ class FixedDecisionEngine:
         
         return decision, confidence, reasoning
     
-    def _signals_conflict(self, news_prediction: MultiSourcePrediction, 
+    def _signals_conflict(self, news_prediction: DirectionalPrediction, 
                          technical_signal: TechnicalSignal) -> bool:
         """Check if news and technical signals conflict"""
         news_direction = news_prediction.direction
@@ -254,7 +254,7 @@ class FixedDecisionEngine:
         
         return is_conflict
     
-    def _create_enhanced_reasoning(self, news_prediction: Optional[MultiSourcePrediction],
+    def _create_enhanced_reasoning(self, news_prediction: Optional[DirectionalPrediction],
                                   technical_signal: Optional[TechnicalSignal], 
                                   combined_score: float) -> str:
         """Create detailed reasoning including multi-source information"""

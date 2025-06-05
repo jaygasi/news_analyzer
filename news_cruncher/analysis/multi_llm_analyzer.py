@@ -6,15 +6,44 @@ import time
 import json
 import re
 from typing import Dict, Any, Optional, List, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-import torch
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-import google.generativeai as genai
-import openai
-import anthropic
+
+# Core imports that should always work
 from config import Config
 from utils.simple_logger import log_info, log_error, log_debug, log_warning
+
+# Optional imports with error handling
+try:
+    import torch
+    from transformers import AutoTokenizer, AutoModelForSequenceClassification
+    TORCH_AVAILABLE = True
+except ImportError:
+    log_warning("PyTorch/Transformers not available - FinBERT will be disabled")
+    TORCH_AVAILABLE = False
+
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    log_warning("Google Generative AI not available - Gemini will be disabled")
+    GEMINI_AVAILABLE = False
+
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+except ImportError:
+    log_warning("OpenAI not available - GPT models will be disabled")
+    OPENAI_AVAILABLE = False
+
+try:
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    log_warning("Anthropic not available - Claude will be disabled")
+    ANTHROPIC_AVAILABLE = False
+
+# Import emergency services
 from analysis.emergency_data_services import EmergencyDataServices, DirectionalPrediction as EDSDirectionalPrediction
 
 
@@ -28,9 +57,9 @@ class DirectionalPrediction:
     raw_score: float = 0.0
     
     # Multi-source specific data
-    individual_predictions: List['DirectionalPrediction'] = None
-    source_weights: Dict[str, float] = None
-    weighted_scores: Dict[str, float] = None
+    individual_predictions: List['DirectionalPrediction'] = field(default_factory=list)
+    source_weights: Dict[str, float] = field(default_factory=dict)
+    weighted_scores: Dict[str, float] = field(default_factory=dict)
 
 
 class MultiLLMAnalyzer:
@@ -60,25 +89,25 @@ class MultiLLMAnalyzer:
         """Initialize only enabled services based on config toggles"""
         
         # Primary services
-        if Config.ENABLE_FINBERT:
+        if Config.ENABLE_FINBERT and TORCH_AVAILABLE:
             self._init_finbert()
         else:
-            log_info("FinBERT disabled by config")
+            log_info("FinBERT disabled by config or missing dependencies")
             
-        if Config.ENABLE_GEMINI:
+        if Config.ENABLE_GEMINI and GEMINI_AVAILABLE:
             self._init_gemini()
         else:
-            log_info("Gemini disabled by config")
+            log_info("Gemini disabled by config or missing dependencies")
             
-        if Config.ENABLE_OPENAI:
+        if Config.ENABLE_OPENAI and OPENAI_AVAILABLE:
             self._init_openai()
         else:
-            log_info("OpenAI disabled by config")
+            log_info("OpenAI disabled by config or missing dependencies")
             
-        if Config.ENABLE_CLAUDE:
+        if Config.ENABLE_CLAUDE and ANTHROPIC_AVAILABLE:
             self._init_anthropic()
         else:
-            log_info("Claude disabled by config")
+            log_info("Claude disabled by config or missing dependencies")
 
         # Emergency services
         if Config.ENABLE_ALPHA_VANTAGE:
@@ -221,6 +250,10 @@ class MultiLLMAnalyzer:
 
     def _init_finbert(self) -> None:
         """Initialize FinBERT model (local)"""
+        if not TORCH_AVAILABLE:
+            self.services['finbert'] = {'available': False}
+            return
+            
         try:
             model_name = "ProsusAI/finbert"
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -245,6 +278,10 @@ class MultiLLMAnalyzer:
 
     def _init_gemini(self) -> None:
         """Initialize Gemini API"""
+        if not GEMINI_AVAILABLE:
+            self.services['gemini'] = {'available': False}
+            return
+            
         try:
             if Config.GEMINI_API_KEY:
                 genai.configure(api_key=Config.GEMINI_API_KEY)
@@ -267,10 +304,12 @@ class MultiLLMAnalyzer:
 
     def _init_openai(self) -> None:
         """Initialize OpenAI API"""
+        if not OPENAI_AVAILABLE:
+            self.services['openai'] = {'available': False}
+            return
+            
         try:
             if Config.OPENAI_API_KEY:
-                openai.api_key = Config.OPENAI_API_KEY
-
                 self.services['openai'] = {
                     'client': openai.OpenAI(api_key=Config.OPENAI_API_KEY),
                     'available': True,
@@ -288,6 +327,10 @@ class MultiLLMAnalyzer:
 
     def _init_anthropic(self) -> None:
         """Initialize Anthropic Claude API"""
+        if not ANTHROPIC_AVAILABLE:
+            self.services['claude'] = {'available': False}
+            return
+            
         try:
             if Config.ANTHROPIC_API_KEY:
                 client = anthropic.Anthropic(api_key=Config.ANTHROPIC_API_KEY)
@@ -566,6 +609,9 @@ class MultiLLMAnalyzer:
 
     def _analyze_with_finbert(self, ticker: str, text: str) -> Optional[DirectionalPrediction]:
         """Analyze using FinBERT"""
+        if not TORCH_AVAILABLE:
+            return None
+            
         try:
             service = self.services['finbert']
             tokenizer = service['tokenizer']
@@ -617,6 +663,9 @@ class MultiLLMAnalyzer:
 
     def _analyze_with_gemini(self, ticker: str, text: str) -> Optional[DirectionalPrediction]:
         """Analyze using Gemini"""
+        if not GEMINI_AVAILABLE:
+            return None
+            
         try:
             service = self.services['gemini']
             model = service['model']
@@ -638,6 +687,9 @@ class MultiLLMAnalyzer:
 
     def _analyze_with_openai(self, ticker: str, text: str) -> Optional[DirectionalPrediction]:
         """Analyze using OpenAI"""
+        if not OPENAI_AVAILABLE:
+            return None
+            
         try:
             service = self.services['openai']
             client = service['client']
@@ -664,6 +716,9 @@ class MultiLLMAnalyzer:
 
     def _analyze_with_claude(self, ticker: str, text: str) -> Optional[DirectionalPrediction]:
         """Analyze using Anthropic Claude"""
+        if not ANTHROPIC_AVAILABLE:
+            return None
+            
         try:
             service = self.services['claude']
             client = service['client']
