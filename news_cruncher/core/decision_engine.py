@@ -1,5 +1,5 @@
 """
-Decision engine that combines news and technical analysis - Enhanced for better CSV logging
+Decision engine that combines news and technical analysis - Enhanced with dynamic price fields
 Python 3.13.3 compatible
 """
 from typing import Dict, List, Optional, Any
@@ -13,7 +13,7 @@ from utils.simple_logger import log_debug, log_info, log_warning
 
 @dataclass
 class TradingDecision:
-    """Final trading decision with all supporting data including price tracking"""
+    """Final trading decision with all supporting data including configurable price tracking"""
     ticker: str
     decision: str  # 'LONG', 'SHORT', 'NONE'
     confidence: float  # 0.0 to 1.0
@@ -38,29 +38,113 @@ class TradingDecision:
     article_count: int = 0
     analysis_timestamp: str = ""
     
-    # Price tracking fields
+    # Entry price tracking
     recommendation_price: Optional[float] = None
     recommendation_timestamp: Optional[datetime] = None
     
-    price_45m: Optional[float] = None
-    price_45m_timestamp: Optional[datetime] = None
-    price_45m_change_pct: Optional[float] = None
-    
-    price_1hr: Optional[float] = None
-    price_1hr_timestamp: Optional[datetime] = None
-    price_1hr_change_pct: Optional[float] = None
-    
-    price_close: Optional[float] = None
-    price_close_timestamp: Optional[datetime] = None
-    price_close_change_pct: Optional[float] = None
+    # Dynamic price tracking fields based on configuration
+    # These will be set dynamically based on Config.PRICE_CHECK_1_MINUTES, etc.
+    price_tracking_data: Dict[str, Any] = field(default_factory=dict)
     
     tracking_schedule: List[datetime] = field(default_factory=list)
     tracking_completed: bool = False
     tracking_status: str = "pending"
+    
+    def __post_init__(self):
+        """Initialize dynamic price tracking fields based on configuration"""
+        if not self.price_tracking_data:
+            self.price_tracking_data = {}
+            
+            # Initialize dynamic price fields based on current configuration
+            checkpoint_info = Config.get_checkpoint_info()
+            
+            for checkpoint in checkpoint_info:
+                field_prefix = checkpoint['field_prefix']
+                
+                # Initialize price, timestamp, and change_pct for each checkpoint
+                self.price_tracking_data[field_prefix] = None
+                self.price_tracking_data[f"{field_prefix}_timestamp"] = None
+                self.price_tracking_data[f"{field_prefix}_change_pct"] = None
+    
+    def get_checkpoint_price(self, checkpoint_index: int) -> Optional[float]:
+        """Get price for a specific checkpoint index"""
+        checkpoint_info = Config.get_checkpoint_info()
+        if 0 <= checkpoint_index < len(checkpoint_info):
+            field_prefix = checkpoint_info[checkpoint_index]['field_prefix']
+            return self.price_tracking_data.get(field_prefix)
+        return None
+    
+    def set_checkpoint_price(self, checkpoint_index: int, price: float, 
+                           timestamp: datetime, change_pct: float) -> None:
+        """Set price data for a specific checkpoint index"""
+        checkpoint_info = Config.get_checkpoint_info()
+        if 0 <= checkpoint_index < len(checkpoint_info):
+            field_prefix = checkpoint_info[checkpoint_index]['field_prefix']
+            
+            self.price_tracking_data[field_prefix] = price
+            self.price_tracking_data[f"{field_prefix}_timestamp"] = timestamp
+            self.price_tracking_data[f"{field_prefix}_change_pct"] = change_pct
+    
+    def get_checkpoint_change_pct(self, checkpoint_index: int) -> Optional[float]:
+        """Get percentage change for a specific checkpoint index"""
+        checkpoint_info = Config.get_checkpoint_info()
+        if 0 <= checkpoint_index < len(checkpoint_info):
+            field_prefix = checkpoint_info[checkpoint_index]['field_prefix']
+            return self.price_tracking_data.get(f"{field_prefix}_change_pct")
+        return None
+    
+    def get_all_checkpoint_data(self) -> Dict[str, Any]:
+        """Get all checkpoint data in a structured format"""
+        result = {}
+        checkpoint_info = Config.get_checkpoint_info()
+        
+        for i, checkpoint in enumerate(checkpoint_info):
+            field_prefix = checkpoint['field_prefix']
+            label = checkpoint['label']
+            
+            result[label] = {
+                'price': self.price_tracking_data.get(field_prefix),
+                'timestamp': self.price_tracking_data.get(f"{field_prefix}_timestamp"),
+                'change_pct': self.price_tracking_data.get(f"{field_prefix}_change_pct"),
+                'field_prefix': field_prefix
+            }
+        
+        return result
+    
+    # Legacy property methods for backward compatibility with existing code
+    @property
+    def price_check1(self) -> Optional[float]:
+        """Get first checkpoint price (dynamic based on config)"""
+        return self.get_checkpoint_price(0)
+    
+    @property 
+    def price_check2(self) -> Optional[float]:
+        """Get second checkpoint price (dynamic based on config)"""
+        return self.get_checkpoint_price(1)
+    
+    @property
+    def price_close(self) -> Optional[float]:
+        """Get close price"""
+        return self.get_checkpoint_price(2)
+    
+    @property
+    def price_check1_change_pct(self) -> Optional[float]:
+        """Get first checkpoint change percentage"""
+        return self.get_checkpoint_change_pct(0)
+    
+    @property
+    def price_check2_change_pct(self) -> Optional[float]:
+        """Get second checkpoint change percentage"""
+        return self.get_checkpoint_change_pct(1)
+    
+    @property
+    def price_close_change_pct(self) -> Optional[float]:
+        """Get close price change percentage"""
+        return self.get_checkpoint_change_pct(2)
 
 
 class DecisionEngine:
-    """Enhanced decision engine with lowered thresholds for better CSV logging"""
+    """Enhanced decision engine with configurable price tracking field support"""
     
     def __init__(self) -> None:
         """Initialize decision engine with more relaxed thresholds"""
@@ -75,7 +159,12 @@ class DecisionEngine:
         self.min_news_confidence = 0.5  # Lowered from 0.6
         self.min_technical_strength = 0.4
         
+        # Log the current configuration for dynamic price tracking
+        checkpoint_info = Config.get_checkpoint_info()
+        intervals = [f"{info['label']}" for info in checkpoint_info]
+        
         log_info(f"Decision engine initialized with relaxed thresholds: min_confidence={self.min_confidence}, min_news_confidence={self.min_news_confidence}")
+        log_info(f"Price tracking intervals: {', '.join(intervals)}")
     
     def make_decision(self, ticker: str, news_prediction: Optional[DirectionalPrediction], 
                      technical_signal: Optional[TechnicalSignal], 

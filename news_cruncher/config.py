@@ -270,10 +270,10 @@ class Config:
     ]
     
     # ================================================================
-    # 📈 PRICE TRACKING CONFIGURATION
+    # 📈 CONFIGURABLE PRICE TRACKING CONFIGURATION
     # ================================================================
 
-    # 🕐 Price Check Intervals
+    # 🕐 Price Check Intervals (CONFIGURABLE)
     # EFFECT: When to check prices after making a recommendation
     # EXAMPLE: PRICE_CHECK_1 = 30 means check price 30 minutes after recommendation
     PRICE_CHECK_1_MINUTES: int = int(os.getenv('PRICE_CHECK_1_MINUTES', '45'))
@@ -291,8 +291,9 @@ class Config:
     # RANGE: 1-10 minutes recommended
     # EXAMPLE: 5 = check every 5 minutes, 1 = check every minute (more responsive)
     PRICE_TRACKER_CHECK_INTERVAL: int = int(os.getenv('PRICE_TRACKER_CHECK_INTERVAL', '5'))
+    
     # ================================================================
-    # 🛠️ UTILITY METHODS
+    # 🛠️ UTILITY METHODS - ENHANCED WITH DYNAMIC LABELING
     # ================================================================
     
     @classmethod
@@ -393,8 +394,86 @@ class Config:
             'max_tickers': cls.MAX_TICKERS_TO_ANALYZE,
             'news_age_range': f"{cls.MIN_NEWS_AGE_MINUTES}min - {cls.MAX_NEWS_AGE_HOURS}h",
             'output_file': str(cls.CSV_OUTPUT_PATH),
-            'has_finbert_deps': cls.has_finbert_dependencies()
+            'has_finbert_deps': cls.has_finbert_dependencies(),
+            'price_check_intervals': f"{cls.PRICE_CHECK_1_MINUTES}m, {cls.PRICE_CHECK_2_MINUTES}m",
+            'close_time': f"{cls.CLOSE_PRICE_HOUR:02d}:{cls.CLOSE_PRICE_MINUTE:02d} EST",
+            'generic_field_names': ['price_checkpoint1', 'price_checkpoint2', 'price_close']
         }
+    
+    # ================================================================
+    # 🆕 NEW: DYNAMIC LABELING METHODS FOR CONFIGURABLE INTERVALS
+    # ================================================================
+    
+    @classmethod
+    def get_price_check_labels(cls) -> List[str]:
+        """Get dynamic labels for price checks showing actual intervals"""
+        checkpoint_info = cls.get_checkpoint_info()
+        return [checkpoint['short_label'] for checkpoint in checkpoint_info]
+    
+    @classmethod
+    def get_csv_price_headers(cls) -> List[str]:
+        """Get generic CSV headers for price tracking (never change)"""
+        return [
+            # Entry price
+            'recommendation_price',
+            'recommendation_timestamp',
+            
+            # Checkpoint 1 (generic names)
+            'price_checkpoint1',
+            'price_checkpoint1_timestamp',
+            'price_checkpoint1_change_pct',
+            
+            # Checkpoint 2 (generic names) 
+            'price_checkpoint2',
+            'price_checkpoint2_timestamp',
+            'price_checkpoint2_change_pct',
+            
+            # Close price
+            'price_close',
+            'price_close_timestamp',
+            'price_close_change_pct',
+            
+            # Status
+            'tracking_status'
+        ]
+    
+    @classmethod
+    def get_checkpoint_info(cls) -> List[Dict[str, Any]]:
+        """Get checkpoint information with generic field names and dynamic labels"""
+        return [
+            {
+                'label': f"checkpoint1 ({cls.PRICE_CHECK_1_MINUTES}m)",
+                'short_label': f"{cls.PRICE_CHECK_1_MINUTES}m",
+                'minutes': cls.PRICE_CHECK_1_MINUTES,
+                'field_prefix': "price_checkpoint1",  # Generic field name
+                'checkpoint_index': 0
+            },
+            {
+                'label': f"checkpoint2 ({cls.PRICE_CHECK_2_MINUTES}m)", 
+                'short_label': f"{cls.PRICE_CHECK_2_MINUTES}m",
+                'minutes': cls.PRICE_CHECK_2_MINUTES,
+                'field_prefix': "price_checkpoint2",  # Generic field name
+                'checkpoint_index': 1
+            },
+            {
+                'label': f"close ({cls.CLOSE_PRICE_HOUR:02d}:{cls.CLOSE_PRICE_MINUTE:02d})",
+                'short_label': "close",
+                'minutes': None,  # Special case - uses CLOSE_PRICE_HOUR/MINUTE
+                'field_prefix': "price_close",  # This stays the same
+                'checkpoint_index': 2
+            }
+        ]
+    
+    @classmethod
+    def format_price_checkpoint_log(cls, ticker: str, checkpoint_index: int, 
+                                  price: float, change_pct: float) -> str:
+        """Format log message for price checkpoint with actual intervals shown"""
+        checkpoint_info = cls.get_checkpoint_info()
+        if 0 <= checkpoint_index < len(checkpoint_info):
+            label = checkpoint_info[checkpoint_index]['label']  # e.g. "checkpoint1 (45m)"
+            return f"📈 {label}: {ticker} ${price:.2f} ({change_pct:+.2f}%)"
+        else:
+            return f"📈 checkpoint_{checkpoint_index}: {ticker} ${price:.2f} ({change_pct:+.2f}%)"
 
 
 # ================================================================
@@ -455,6 +534,13 @@ class Config:
 - Increase MAX_TICKERS_TO_ANALYZE to capture more decisions
 - Lower MIN_CONFIDENCE_THRESHOLD to track more positions
 - Monitor 'tracking_statistics' in logs
+
+🕐 Customize price tracking intervals:
+- Set PRICE_CHECK_1_MINUTES=30 for 30-minute checkpoint1
+- Set PRICE_CHECK_2_MINUTES=120 for 120-minute checkpoint2
+- Set CLOSE_PRICE_HOUR=15, CLOSE_PRICE_MINUTE=45 for 3:45 PM close
+- CSV columns stay generic: price_checkpoint1, price_checkpoint2, price_close
+- Logs show actual intervals: "checkpoint1 (30m): AAPL $151.30 (+0.70%)"
 """
 
 # Create directories on import

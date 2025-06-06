@@ -1,5 +1,5 @@
 """
-Main application for simplified financial news analysis system with price tracking - FIXED ENTRY PRICES
+Main application for simplified financial news analysis system with configurable price tracking
 Python 3.13.3 compatible
 """
 import asyncio
@@ -20,7 +20,7 @@ from output.csv_logger import CSVLogger
 
 
 class FinancialNewsAnalyzer:
-    """Main application class for financial news analysis with price tracking"""
+    """Main application class for financial news analysis with configurable price tracking"""
     
     def __init__(self) -> None:
         """Initialize the financial news analyzer"""
@@ -39,7 +39,7 @@ class FinancialNewsAnalyzer:
         # Setup signal handlers
         self._setup_signal_handlers()
         
-        log_info("Financial News Analyzer with price tracking initialized successfully")
+        log_info("Financial News Analyzer with configurable price tracking initialized successfully")
     
     def _validate_configuration(self) -> None:
         """Validate required configuration with enhanced service status"""
@@ -78,9 +78,16 @@ class FinancialNewsAnalyzer:
             log_warning("⚠️ Only 1 service enabled - consider enabling more for better predictions")
         elif enabled_count >= 4:
             log_info("✅ Good service coverage for robust predictions")
+        
+        # Log configurable price tracking intervals
+        intervals = Config.get_price_check_labels()
+        log_info(f"📈 Configurable price tracking intervals: {', '.join(intervals)}")
+        log_info(f"   Check 1: {Config.PRICE_CHECK_1_MINUTES} minutes")
+        log_info(f"   Check 2: {Config.PRICE_CHECK_2_MINUTES} minutes") 
+        log_info(f"   Close time: {Config.CLOSE_PRICE_HOUR:02d}:{Config.CLOSE_PRICE_MINUTE:02d} EST")
     
     def _initialize_components(self) -> None:
-        """Initialize all system components including price tracking"""
+        """Initialize all system components including configurable price tracking"""
         try:
             # Database components
             self.article_tracker = ArticleTracker()
@@ -98,10 +105,10 @@ class FinancialNewsAnalyzer:
             # Decision making
             self.decision_engine = DecisionEngine()
             
-            # Output
+            # Output with dynamic headers
             self.csv_logger = CSVLogger()
             
-            # Price tracking components
+            # Price tracking components with configurable intervals
             self.price_tracker = PriceTracker(self.news_fetcher)
             self.tracking_scheduler = TrackingScheduler(self.price_tracker, self.csv_logger)
             
@@ -115,7 +122,16 @@ class FinancialNewsAnalyzer:
                 else:
                     log_info(f"  ❌ {service_name}: Not available")
             
-            log_info("All components including price tracking initialized successfully")
+            # Log price tracking configuration
+            checkpoint_info = Config.get_checkpoint_info()
+            log_info(f"📊 Price tracking configured with {len(checkpoint_info)} checkpoints:")
+            for checkpoint in checkpoint_info:
+                if checkpoint.get('minutes'):
+                    log_info(f"  📈 {checkpoint['label']}: {checkpoint['minutes']} minutes after entry")
+                else:
+                    log_info(f"  📈 {checkpoint['label']}: {Config.CLOSE_PRICE_HOUR:02d}:{Config.CLOSE_PRICE_MINUTE:02d} EST")
+            
+            log_info("All components including configurable price tracking initialized successfully")
             
         except Exception as e:
             log_error(f"Failed to initialize components: {e}")
@@ -131,8 +147,8 @@ class FinancialNewsAnalyzer:
         signal.signal(signal.SIGTERM, signal_handler)
     
     async def run(self) -> None:
-        """Main application loop with price tracking"""
-        log_info("🚀 Starting Financial News Analysis System with Price Tracking")
+        """Main application loop with configurable price tracking"""
+        log_info("🚀 Starting Financial News Analysis System with Configurable Price Tracking")
         self._print_startup_info()
         
         # Start price tracking scheduler as background task
@@ -159,12 +175,12 @@ class FinancialNewsAnalyzer:
             await self._shutdown()
     
     def _print_startup_info(self) -> None:
-        """Print startup information"""
+        """Print startup information with configurable intervals"""
         # Get last run info for dynamic time display
         time_since_last = datetime.now(timezone.utc) - self.last_successful_run
         
         log_info("=" * 60)
-        log_info("📊 FINANCIAL NEWS ANALYSIS SYSTEM WITH PRICE TRACKING")
+        log_info("📊 FINANCIAL NEWS ANALYSIS SYSTEM WITH CONFIGURABLE PRICE TRACKING")
         log_info("=" * 60)
         log_info(f"🔑 Configuration:")
         log_info(f"   Min confidence threshold: {Config.MIN_CONFIDENCE_THRESHOLD}")
@@ -184,7 +200,11 @@ class FinancialNewsAnalyzer:
         service_status = self.llm_analyzer.get_service_status()
         available_services = [name for name, status in service_status.items() if status['available']]
         log_info(f"🤖 Available AI services: {', '.join(available_services)}")
-        log_info(f"📈 Price tracking: ENABLED")
+        
+        # Configurable price tracking info
+        intervals = Config.get_price_check_labels()
+        log_info(f"📈 Price tracking intervals: {', '.join(intervals)}")
+        log_info(f"   Tracker check frequency: Every {Config.PRICE_TRACKER_CHECK_INTERVAL} minutes")
         
         log_info("=" * 60)
     
@@ -226,7 +246,7 @@ class FinancialNewsAnalyzer:
         return cutoff_time
     
     async def _process_cycle(self) -> None:
-        """Process one complete analysis cycle with FIXED entry price capture"""
+        """Process one complete analysis cycle with configurable price tracking"""
         self.cycle_count += 1
         cycle_start = datetime.now()
         
@@ -284,9 +304,7 @@ class FinancialNewsAnalyzer:
             decisions = self.decision_engine.batch_process_decisions(ticker_analyses)
             decisions_made = len(decisions)
             
-            # ======================================================================
-            # FIXED STEP 6.5: ADD ENTRY PRICES BEFORE CSV LOGGING
-            # ======================================================================
+            # Step 6.5: ADD ENTRY PRICES BEFORE CSV LOGGING (with configurable intervals)
             if decisions:
                 log_info("💰 Step 6.5: Adding entry prices to all trading decisions...")
                 await self._add_entry_prices_to_decisions(decisions)
@@ -296,7 +314,7 @@ class FinancialNewsAnalyzer:
                 log_info(f"📝 Step 7: Logging {decisions_made} trading decisions with entry prices...")
                 logged_count = self.csv_logger.log_decisions_batch(decisions)
                 
-                # Add price tracking for LONG/SHORT decisions (entry prices already captured)
+                # Add configurable price tracking for LONG/SHORT decisions
                 tracking_added = 0
                 for decision in decisions:
                     if decision.decision in ['LONG', 'SHORT']:
@@ -308,9 +326,9 @@ class FinancialNewsAnalyzer:
                             log_warning(f"Skipping price tracking for {decision.ticker} - no entry price available")
                 
                 log_info(f"✅ Successfully logged {logged_count} decisions with entry prices")
-                log_info(f"📊 Added price tracking for {tracking_added} LONG/SHORT positions")
+                log_info(f"📊 Added configurable price tracking for {tracking_added} LONG/SHORT positions")
                 
-                # Print summary of decisions
+                # Print summary of decisions with configurable intervals
                 self._print_decisions_summary(decisions)
             else:
                 log_info("📝 Step 7: No high-confidence decisions to log")
@@ -337,7 +355,7 @@ class FinancialNewsAnalyzer:
             # Update last successful run time
             self.last_successful_run = datetime.now(timezone.utc)
             
-            # Cycle summary
+            # Cycle summary with configurable tracking info
             cycle_duration = (datetime.now() - cycle_start).total_seconds()
             log_info(f"🏁 Cycle #{self.cycle_count} completed in {cycle_duration:.1f} seconds")
             log_info(f"📈 Results: {articles_fetched} fetched → {articles_processed} processed → {decisions_made} high-confidence decisions")
@@ -351,10 +369,12 @@ class FinancialNewsAnalyzer:
                     limit = status.get('daily_limit', 0)
                     log_info(f"  {service_name}: {requests}/{limit} requests")
             
-            # Show price tracking statistics
-            pending_tracks = len(self.tracking_scheduler.pending_tracks)
+            # Show configurable price tracking statistics
+            tracking_summary = self.tracking_scheduler.get_tracking_summary()
+            pending_tracks = tracking_summary['total_pending_tracks']
             if pending_tracks > 0:
-                log_info(f"📊 Active price tracking: {pending_tracks} positions being monitored")
+                intervals = ", ".join(tracking_summary['configuration']['check_intervals'])
+                log_info(f"📊 Active price tracking: {pending_tracks} positions being monitored across intervals: {intervals}")
             
             # Cleanup old data periodically
             if self.cycle_count % 10 == 0:
@@ -367,7 +387,7 @@ class FinancialNewsAnalyzer:
                 self._mark_articles_processed(unprocessed_articles)
     
     async def _add_entry_prices_to_decisions(self, decisions: List) -> None:
-        """Add entry prices to all decisions before CSV logging - NEW METHOD"""
+        """Add entry prices to all decisions before CSV logging"""
         current_time = datetime.now(timezone.utc)
         prices_added = 0
         prices_failed = 0
@@ -467,7 +487,7 @@ class FinancialNewsAnalyzer:
             log_error(f"Error marking articles as processed: {e}")
     
     def _print_decisions_summary(self, decisions: List) -> None:
-        """Print summary of trading decisions"""
+        """Print summary of trading decisions with configurable interval info"""
         if not decisions:
             return
         
@@ -488,8 +508,9 @@ class FinancialNewsAnalyzer:
             for service, count in stats['source_usage_frequency'].items():
                 log_info(f"     {service}: {count} decisions")
         
-        # Show top decisions with entry prices
+        # Show top decisions with entry prices and configurable intervals
         top_decisions = sorted(decisions, key=lambda x: x.confidence, reverse=True)[:5]
+        intervals = Config.get_price_check_labels()
         log_info("   Top decisions:")
         for decision in top_decisions:
             # Show sources used if available
@@ -502,7 +523,12 @@ class FinancialNewsAnalyzer:
             if hasattr(decision, 'recommendation_price') and decision.recommendation_price:
                 price_info = f" @ ${decision.recommendation_price:.2f}"
             
-            log_info(f"     {decision.ticker}: {decision.decision} (conf: {decision.confidence:.3f}){price_info}{sources_info}")
+            # Show which intervals will be tracked
+            tracking_info = ""
+            if decision.decision in ['LONG', 'SHORT']:
+                tracking_info = f" [tracking: {', '.join(intervals)}]"
+            
+            log_info(f"     {decision.ticker}: {decision.decision} (conf: {decision.confidence:.3f}){price_info}{sources_info}{tracking_info}")
     
     def _periodic_cleanup(self) -> None:
         """Perform periodic cleanup tasks"""
@@ -522,16 +548,20 @@ class FinancialNewsAnalyzer:
             log_info(f"   Database: {db_stats.get('total_articles', 0)} articles, {db_stats.get('unique_tickers', 0)} tickers")
             log_info(f"   CSV: {csv_stats.get('total_decisions', 0)} decisions logged")
             
-            # Price tracking statistics
+            # Enhanced price tracking statistics with configurable intervals
             if 'tracking_statistics' in csv_stats:
                 tracking_stats = csv_stats['tracking_statistics']
                 log_info(f"   Price tracking: {tracking_stats.get('completed', 0)} completed, {tracking_stats.get('pending', 0)} pending")
+            
+            if 'interval_configuration' in csv_stats:
+                interval_config = csv_stats['interval_configuration']
+                log_info(f"   Current intervals: {', '.join(interval_config.get('configured_intervals', []))}")
             
         except Exception as e:
             log_error(f"Error in periodic cleanup: {e}")
     
     async def _shutdown(self) -> None:
-        """Graceful shutdown"""
+        """Graceful shutdown with configurable interval statistics"""
         log_info("🛑 Initiating graceful shutdown...")
         
         try:
@@ -546,10 +576,18 @@ class FinancialNewsAnalyzer:
             log_info(f"   Decisions logged: {csv_stats.get('total_decisions', 0)}")
             log_info(f"   Unique tickers analyzed: {db_stats.get('unique_tickers', 0)}")
             
-            # Price tracking final stats
-            pending_tracks = len(self.tracking_scheduler.pending_tracks)
+            # Enhanced price tracking final stats with configurable intervals
+            tracking_summary = self.tracking_scheduler.get_tracking_summary()
+            pending_tracks = tracking_summary['total_pending_tracks']
             if pending_tracks > 0:
-                log_info(f"   Price tracking: {pending_tracks} positions still being monitored")
+                intervals = ", ".join(tracking_summary['configuration']['check_intervals'])
+                log_info(f"   Price tracking: {pending_tracks} positions still being monitored across intervals: {intervals}")
+                
+                # Show details of pending positions
+                for position in tracking_summary['active_positions'][:5]:  # Show first 5
+                    completed_checkpoints = len(position['checkpoints_completed'])
+                    total_checkpoints = len(Config.get_checkpoint_info())
+                    log_info(f"     {position['ticker']}: {completed_checkpoints}/{total_checkpoints} checkpoints completed")
             
             # Service usage
             for service_name, status in service_status.items():
@@ -557,6 +595,10 @@ class FinancialNewsAnalyzer:
                     requests = status.get('requests_today', 0)
                     limit = status.get('daily_limit', 0)
                     log_info(f"   {service_name}: {requests}/{limit} requests used")
+            
+            # Final configuration summary
+            config_summary = Config.get_config_summary()
+            log_info(f"   Final configuration: {config_summary.get('price_check_intervals', 'N/A')} intervals")
             
             log_info("✅ Shutdown completed successfully")
             

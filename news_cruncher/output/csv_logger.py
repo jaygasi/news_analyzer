@@ -1,5 +1,5 @@
 """
-Enhanced CSV logger for trading decisions with price tracking - IMPROVED price handling
+Enhanced CSV logger for trading decisions with configurable price tracking intervals
 Python 3.13.3 compatible
 """
 import csv
@@ -13,14 +13,25 @@ from utils.simple_logger import log_info, log_error, log_debug, log_warning
 
 
 class CSVLogger:
-    """Enhanced CSV logger with better price tracking and debugging"""
+    """Enhanced CSV logger with dynamic headers based on configurable price intervals"""
 
     def __init__(self, csv_path: Optional[Path] = None) -> None:
-        """Initialize CSV logger"""
+        """Initialize CSV logger with dynamic headers"""
         self.csv_path: Path = csv_path or Config.CSV_OUTPUT_PATH
 
-        # Headers for regular trading decisions with price tracking
-        self.headers = [
+        # Generate dynamic headers based on current configuration
+        self.headers = self._generate_dynamic_headers()
+
+        self._ensure_csv_exists()
+        
+        # Log the configuration for debugging
+        intervals = Config.get_price_check_labels()
+        log_info(f"CSV Logger initialized with dynamic intervals: {', '.join(intervals)}")
+
+    def _generate_dynamic_headers(self) -> List[str]:
+        """Generate CSV headers with dynamic price tracking columns"""
+        # Base headers (always the same)
+        base_headers = [
             # Basic decision info
             'timestamp',
             'ticker',
@@ -47,25 +58,14 @@ class CSVLogger:
             
             # Analysis metadata
             'analysis_method',
-            'sources_used',  # If available from multi-source
-            'analysis_timestamp',
-            
-            # Price tracking columns
-            'recommendation_price',
-            'recommendation_timestamp',
-            'price_45m',
-            'price_45m_timestamp',
-            'price_45m_change_pct',
-            'price_1hr',
-            'price_1hr_timestamp',
-            'price_1hr_change_pct',
-            'price_close',
-            'price_close_timestamp',
-            'price_close_change_pct',
-            'tracking_status'
+            'sources_used',
+            'analysis_timestamp'
         ]
-
-        self._ensure_csv_exists()
+        
+        # Dynamic price tracking headers based on configuration
+        price_headers = Config.get_csv_price_headers()
+        
+        return base_headers + price_headers
 
     def _ensure_csv_exists(self) -> None:
         """Ensure CSV file exists with proper headers"""
@@ -80,7 +80,7 @@ class CSVLogger:
             raise
 
     def _create_csv_with_headers(self) -> None:
-        """Create new CSV file with headers"""
+        """Create new CSV file with dynamic headers"""
         try:
             # Ensure output directory exists
             self.csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -89,7 +89,8 @@ class CSVLogger:
                 writer = csv.writer(file)
                 writer.writerow(self.headers)
 
-            log_info(f"Created new CSV file: {self.csv_path}")
+            log_info(f"Created new CSV file with dynamic headers: {self.csv_path}")
+            log_debug(f"Dynamic price headers: {Config.get_csv_price_headers()}")
 
         except Exception as e:
             log_error(f"Error creating CSV file: {e}")
@@ -103,7 +104,9 @@ class CSVLogger:
                 existing_headers = next(reader, [])
 
                 if existing_headers != self.headers:
-                    log_warning("CSV headers don't match current format, backing up and recreating")
+                    log_warning("CSV headers don't match current configuration, backing up and recreating")
+                    log_debug(f"Expected: {self.headers}")
+                    log_debug(f"Found: {existing_headers}")
                     self._backup_existing_csv()
                     self._create_csv_with_headers()
                 else:
@@ -187,11 +190,10 @@ class CSVLogger:
             return 0
 
     def update_decision_prices(self, decision: TradingDecision) -> bool:
-        """Update price data for existing decision - ENHANCED with in-place updates"""
+        """Update price data for existing decision with dynamic field support"""
         try:
             # For now, we'll append a new row with updated price data
             # This creates an audit trail of price updates
-            # In the future, this could be enhanced to update existing rows in-place
             
             row_data = self._decision_to_row(decision)
 
@@ -199,14 +201,17 @@ class CSVLogger:
                 writer = csv.writer(file)
                 writer.writerow(row_data)
 
-            # Log the price update with details
+            # Log the price update with dynamic labels
             updates = []
-            if hasattr(decision, 'price_45m') and decision.price_45m:
-                updates.append(f"45m: {decision.price_45m_change_pct:+.2f}%")
-            if hasattr(decision, 'price_1hr') and decision.price_1hr:
-                updates.append(f"1hr: {decision.price_1hr_change_pct:+.2f}%")
-            if hasattr(decision, 'price_close') and decision.price_close:
-                updates.append(f"close: {decision.price_close_change_pct:+.2f}%")
+            checkpoint_info = Config.get_checkpoint_info()
+            
+            for i, checkpoint in enumerate(checkpoint_info):
+                price = decision.get_checkpoint_price(i)
+                change_pct = decision.get_checkpoint_change_pct(i)
+                
+                if price is not None and change_pct is not None:
+                    label = checkpoint['label']
+                    updates.append(f"{label}: {change_pct:+.2f}%")
             
             update_info = " | ".join(updates) if updates else "baseline only"
             log_debug(f"📊 Updated price data for {decision.ticker}: {update_info}")
@@ -218,7 +223,7 @@ class CSVLogger:
             return False
 
     def _decision_to_row(self, decision: TradingDecision) -> List[str]:
-        """Convert TradingDecision to CSV row with enhanced price tracking data"""
+        """Convert TradingDecision to CSV row with dynamic price tracking data"""
 
         # Extract sources used if available (for multi-source analysis)
         sources_used_str = ""
@@ -254,7 +259,8 @@ class CSVLogger:
                     return ''
             return ''
 
-        return [
+        # Base row data (always the same structure)
+        base_data = [
             # Basic decision info
             decision.analysis_timestamp or datetime.now().isoformat(),
             decision.ticker,
@@ -282,22 +288,39 @@ class CSVLogger:
             # Analysis metadata
             "standard_analysis",
             sources_used_str,
-            decision.analysis_timestamp or datetime.now().isoformat(),
-            
-            # Price tracking data with enhanced error handling
-            format_float(getattr(decision, 'recommendation_price', None), 2),
-            format_timestamp(getattr(decision, 'recommendation_timestamp', None)),
-            format_float(getattr(decision, 'price_45m', None), 2),
-            format_timestamp(getattr(decision, 'price_45m_timestamp', None)),
-            format_percentage(getattr(decision, 'price_45m_change_pct', None)),
-            format_float(getattr(decision, 'price_1hr', None), 2),
-            format_timestamp(getattr(decision, 'price_1hr_timestamp', None)),
-            format_percentage(getattr(decision, 'price_1hr_change_pct', None)),
-            format_float(getattr(decision, 'price_close', None), 2),
-            format_timestamp(getattr(decision, 'price_close_timestamp', None)),
-            format_percentage(getattr(decision, 'price_close_change_pct', None)),
-            getattr(decision, 'tracking_status', 'pending')
+            decision.analysis_timestamp or datetime.now().isoformat()
         ]
+
+        # Dynamic price tracking data
+        price_data = []
+        
+        # Entry price and timestamp
+        price_data.extend([
+            format_float(getattr(decision, 'recommendation_price', None), 2),
+            format_timestamp(getattr(decision, 'recommendation_timestamp', None))
+        ])
+        
+        # Dynamic checkpoint data based on configuration
+        checkpoint_info = Config.get_checkpoint_info()
+        
+        for checkpoint in checkpoint_info:
+            field_prefix = checkpoint['field_prefix']
+            
+            # Get values from the dynamic price tracking data
+            price = decision.price_tracking_data.get(field_prefix)
+            timestamp = decision.price_tracking_data.get(f"{field_prefix}_timestamp")
+            change_pct = decision.price_tracking_data.get(f"{field_prefix}_change_pct")
+            
+            price_data.extend([
+                format_float(price, 2),
+                format_timestamp(timestamp),
+                format_percentage(change_pct)
+            ])
+        
+        # Tracking status
+        price_data.append(getattr(decision, 'tracking_status', 'pending'))
+        
+        return base_data + price_data
 
     def get_csv_statistics(self) -> Dict[str, Any]:
         """Get enhanced statistics about the CSV file"""
@@ -336,6 +359,14 @@ class CSVLogger:
                     else:
                         price_stats['without_entry_price'] += 1
 
+            # Dynamic interval statistics
+            interval_info = {
+                'configured_intervals': Config.get_price_check_labels(),
+                'check1_minutes': Config.PRICE_CHECK_1_MINUTES,
+                'check2_minutes': Config.PRICE_CHECK_2_MINUTES,
+                'close_time': f"{Config.CLOSE_PRICE_HOUR:02d}:{Config.CLOSE_PRICE_MINUTE:02d} EST"
+            }
+
             return {
                 'exists': True,
                 'file_size_bytes': file_size,
@@ -343,7 +374,9 @@ class CSVLogger:
                 'decisions_by_type': decisions_by_type,
                 'tracking_statistics': tracking_stats,
                 'price_statistics': price_stats,
-                'file_path': str(self.csv_path)
+                'interval_configuration': interval_info,
+                'file_path': str(self.csv_path),
+                'headers_count': len(self.headers)
             }
 
         except Exception as e:
@@ -372,13 +405,13 @@ class CSVLogger:
             return []
 
     def debug_csv_content(self, num_rows: int = 5) -> None:
-        """Debug method to inspect CSV content"""
+        """Debug method to inspect CSV content with dynamic field names"""
         try:
             if not self.csv_path.exists():
                 log_warning("CSV file does not exist")
                 return
 
-            log_info(f"🔍 CSV Debug - Last {num_rows} entries:")
+            log_info(f"🔍 CSV Debug - Last {num_rows} entries (dynamic intervals: {', '.join(Config.get_price_check_labels())}):")
             
             with open(self.csv_path, 'r', encoding='utf-8') as file:
                 reader = csv.DictReader(file)
@@ -396,13 +429,24 @@ class CSVLogger:
                     entry_price = row.get('recommendation_price', 'MISSING')
                     tracking_status = row.get('tracking_status', 'MISSING')
                     
-                    log_info(f"  {i}. {ticker} {decision} @ ${entry_price} (status: {tracking_status})")
+                    # Show dynamic checkpoint prices
+                    checkpoint_prices = []
+                    checkpoint_info = Config.get_checkpoint_info()
+                    for checkpoint in checkpoint_info:
+                        field_prefix = checkpoint['field_prefix']
+                        price = row.get(field_prefix, '')
+                        if price:
+                            checkpoint_prices.append(f"{checkpoint['label']}:${price}")
+                    
+                    price_info = f" [{', '.join(checkpoint_prices)}]" if checkpoint_prices else ""
+                    
+                    log_info(f"  {i}. {ticker} {decision} @ ${entry_price} (status: {tracking_status}){price_info}")
 
         except Exception as e:
             log_error(f"Error debugging CSV content: {e}")
 
     def validate_price_data_integrity(self) -> Dict[str, Any]:
-        """Validate the integrity of price data in CSV"""
+        """Validate the integrity of price data in CSV with dynamic field support"""
         try:
             if not self.csv_path.exists():
                 return {'error': 'CSV file does not exist'}
@@ -413,8 +457,15 @@ class CSVLogger:
                 'decisions_with_entry_price': 0,
                 'decisions_with_tracking': 0,
                 'completed_tracking': 0,
-                'issues': []
+                'issues': [],
+                'dynamic_configuration': {
+                    'intervals': Config.get_price_check_labels(),
+                    'check1_minutes': Config.PRICE_CHECK_1_MINUTES,
+                    'check2_minutes': Config.PRICE_CHECK_2_MINUTES
+                }
             }
+
+            checkpoint_info = Config.get_checkpoint_info()
 
             with open(self.csv_path, 'r', encoding='utf-8') as file:
                 reader = csv.DictReader(file)
@@ -442,24 +493,59 @@ class CSVLogger:
                         elif tracking_status in ['pending', 'partial']:
                             validation_results['decisions_with_tracking'] += 1
                         
-                        # Check for price consistency
-                        if entry_price and row.get('price_45m'):
+                        # Validate dynamic checkpoint prices
+                        if entry_price:
                             try:
                                 entry = float(entry_price)
-                                price_45m = float(row.get('price_45m'))
-                                change_pct = float(row.get('price_45m_change_pct', 0))
                                 
-                                calculated_change = ((price_45m - entry) / entry) * 100
-                                if abs(calculated_change - change_pct) > 0.1:  # Allow 0.1% tolerance
-                                    validation_results['issues'].append(
-                                        f"Row {row_num}: {ticker} 45m price change mismatch "
-                                        f"(calculated: {calculated_change:.2f}%, stored: {change_pct:.2f}%)"
-                                    )
+                                for checkpoint in checkpoint_info:
+                                    field_prefix = checkpoint['field_prefix']
+                                    price_field = field_prefix
+                                    change_field = f"{field_prefix}_change_pct"
+                                    
+                                    price_value = row.get(price_field)
+                                    change_value = row.get(change_field)
+                                    
+                                    if price_value and change_value:
+                                        try:
+                                            price = float(price_value)
+                                            change_pct = float(change_value)
+                                            
+                                            calculated_change = ((price - entry) / entry) * 100
+                                            if abs(calculated_change - change_pct) > 0.1:  # Allow 0.1% tolerance
+                                                validation_results['issues'].append(
+                                                    f"Row {row_num}: {ticker} {checkpoint['label']} price change mismatch "
+                                                    f"(calculated: {calculated_change:.2f}%, stored: {change_pct:.2f}%)"
+                                                )
+                                        except (ValueError, ZeroDivisionError):
+                                            validation_results['issues'].append(
+                                                f"Row {row_num}: {ticker} invalid {checkpoint['label']} price data"
+                                            )
                             except (ValueError, ZeroDivisionError):
-                                validation_results['issues'].append(f"Row {row_num}: {ticker} invalid price data")
+                                validation_results['issues'].append(f"Row {row_num}: {ticker} invalid entry price")
 
             return validation_results
 
         except Exception as e:
             log_error(f"Error validating price data integrity: {e}")
             return {'error': str(e)}
+
+    def get_dynamic_field_mapping(self) -> Dict[str, str]:
+        """Get mapping of dynamic field names to their configured intervals"""
+        mapping = {
+            'recommendation_price': 'Entry price',
+            'recommendation_timestamp': 'Entry timestamp'
+        }
+        
+        checkpoint_info = Config.get_checkpoint_info()
+        for checkpoint in checkpoint_info:
+            field_prefix = checkpoint['field_prefix']
+            label = checkpoint['label']
+            
+            mapping[field_prefix] = f"{label} price"
+            mapping[f"{field_prefix}_timestamp"] = f"{label} timestamp"
+            mapping[f"{field_prefix}_change_pct"] = f"{label} change %"
+        
+        mapping['tracking_status'] = 'Tracking status'
+        
+        return mapping
