@@ -1,5 +1,5 @@
 """
-Main application for simplified financial news analysis system with price tracking - FIXED IMPORTS
+Main application for simplified financial news analysis system with price tracking - FIXED ENTRY PRICES
 Python 3.13.3 compatible
 """
 import asyncio
@@ -226,7 +226,7 @@ class FinancialNewsAnalyzer:
         return cutoff_time
     
     async def _process_cycle(self) -> None:
-        """Process one complete analysis cycle with price tracking"""
+        """Process one complete analysis cycle with FIXED entry price capture"""
         self.cycle_count += 1
         cycle_start = datetime.now()
         
@@ -284,17 +284,31 @@ class FinancialNewsAnalyzer:
             decisions = self.decision_engine.batch_process_decisions(ticker_analyses)
             decisions_made = len(decisions)
             
-            # Step 7: Log decisions and start price tracking
+            # ======================================================================
+            # FIXED STEP 6.5: ADD ENTRY PRICES BEFORE CSV LOGGING
+            # ======================================================================
             if decisions:
-                log_info(f"📝 Step 7: Logging {decisions_made} trading decisions...")
+                log_info("💰 Step 6.5: Adding entry prices to all trading decisions...")
+                await self._add_entry_prices_to_decisions(decisions)
+            
+            # Step 7: Log decisions with entry prices already included
+            if decisions:
+                log_info(f"📝 Step 7: Logging {decisions_made} trading decisions with entry prices...")
                 logged_count = self.csv_logger.log_decisions_batch(decisions)
                 
-                # Add price tracking for LONG/SHORT decisions
+                # Add price tracking for LONG/SHORT decisions (entry prices already captured)
+                tracking_added = 0
                 for decision in decisions:
                     if decision.decision in ['LONG', 'SHORT']:
-                        self.tracking_scheduler.add_tracking(decision)
+                        # Check if we have a valid entry price before adding tracking
+                        if hasattr(decision, 'recommendation_price') and decision.recommendation_price:
+                            self.tracking_scheduler.add_tracking(decision)
+                            tracking_added += 1
+                        else:
+                            log_warning(f"Skipping price tracking for {decision.ticker} - no entry price available")
                 
-                log_info(f"✅ Successfully logged {logged_count} decisions with price tracking enabled")
+                log_info(f"✅ Successfully logged {logged_count} decisions with entry prices")
+                log_info(f"📊 Added price tracking for {tracking_added} LONG/SHORT positions")
                 
                 # Print summary of decisions
                 self._print_decisions_summary(decisions)
@@ -351,6 +365,47 @@ class FinancialNewsAnalyzer:
             # Still mark articles as processed to avoid reprocessing
             if 'unprocessed_articles' in locals():
                 self._mark_articles_processed(unprocessed_articles)
+    
+    async def _add_entry_prices_to_decisions(self, decisions: List) -> None:
+        """Add entry prices to all decisions before CSV logging - NEW METHOD"""
+        current_time = datetime.now(timezone.utc)
+        prices_added = 0
+        prices_failed = 0
+        
+        # Test API connection first
+        log_debug("Testing price API connection...")
+        test_price = self.price_tracker.get_current_price('AAPL')
+        if test_price:
+            log_debug(f"Price API test successful: AAPL = ${test_price:.2f}")
+        else:
+            log_warning("Price API test failed - price tracking may not work properly")
+        
+        for decision in decisions:
+            try:
+                # Get current price for ALL decisions (not just LONG/SHORT)
+                current_price = self.price_tracker.get_current_price(decision.ticker)
+                
+                if current_price and current_price > 0:
+                    decision.recommendation_price = current_price
+                    decision.recommendation_timestamp = current_time
+                    prices_added += 1
+                    log_debug(f"✅ Added entry price ${current_price:.2f} to {decision.ticker} {decision.decision}")
+                else:
+                    log_warning(f"❌ Could not get valid entry price for {decision.ticker} (got: {current_price})")
+                    decision.recommendation_price = None
+                    decision.recommendation_timestamp = None
+                    prices_failed += 1
+                    
+            except Exception as e:
+                log_error(f"Error getting entry price for {decision.ticker}: {e}")
+                decision.recommendation_price = None
+                decision.recommendation_timestamp = None
+                prices_failed += 1
+                
+        log_info(f"💰 Entry price capture: {prices_added} successful, {prices_failed} failed")
+        
+        if prices_failed > 0:
+            log_warning(f"⚠️ {prices_failed} decisions will be logged without entry prices")
     
     async def _analyze_tickers(self, prioritized_tickers: List[str], 
                               ticker_buckets: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Dict[str, Any]]:
@@ -433,7 +488,7 @@ class FinancialNewsAnalyzer:
             for service, count in stats['source_usage_frequency'].items():
                 log_info(f"     {service}: {count} decisions")
         
-        # Show top decisions
+        # Show top decisions with entry prices
         top_decisions = sorted(decisions, key=lambda x: x.confidence, reverse=True)[:5]
         log_info("   Top decisions:")
         for decision in top_decisions:
@@ -441,7 +496,13 @@ class FinancialNewsAnalyzer:
             sources_info = ""
             if hasattr(decision, 'sources_used') and decision.sources_used:
                 sources_info = f" (sources: {len(decision.sources_used)})"
-            log_info(f"     {decision.ticker}: {decision.decision} (conf: {decision.confidence:.3f}){sources_info}")
+            
+            # Show entry price if available
+            price_info = ""
+            if hasattr(decision, 'recommendation_price') and decision.recommendation_price:
+                price_info = f" @ ${decision.recommendation_price:.2f}"
+            
+            log_info(f"     {decision.ticker}: {decision.decision} (conf: {decision.confidence:.3f}){price_info}{sources_info}")
     
     def _periodic_cleanup(self) -> None:
         """Perform periodic cleanup tasks"""
