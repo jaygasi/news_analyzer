@@ -1,6 +1,6 @@
 """
 Historical price fetcher and backfill utilities with configurable interval support
-Python 3.13.3 compatible
+Python 3.13.3 compatible - COMPLETE FIXED VERSION
 """
 import pandas as pd
 import csv
@@ -128,15 +128,17 @@ class HistoricalPriceFetcher:
                         log_warning(f"❌ Could not get historical {label} price for {ticker}")
                         
                 else:
-                    # Close time checkpoint
+                    # Close time checkpoint - FIXED TIMEZONE HANDLING
                     if is_market_hours:
-                        # Same day close
-                        close_time = rec_time_est.replace(
+                        # Same day close - use EST timezone properly
+                        close_time_est = rec_time_est.replace(
                             hour=Config.CLOSE_PRICE_HOUR,
                             minute=Config.CLOSE_PRICE_MINUTE,
                             second=0,
                             microsecond=0
-                        ).astimezone(self.utc_tz)
+                        )
+                        close_time = close_time_est.astimezone(self.utc_tz)
+                        log_debug(f"Same day close time: {close_time_est.strftime('%H:%M EST')} -> {close_time.strftime('%H:%M UTC')}")
                     else:
                         # Next trading day close
                         close_time = self._get_next_trading_day_close(rec_time_est)
@@ -277,7 +279,7 @@ class HistoricalPriceFetcher:
     
     def _find_closest_price(self, historical_prices: List[HistoricalPrice], 
                            target_timestamp: datetime) -> Optional[HistoricalPrice]:
-        """Find the historical price closest to target timestamp with flexible tolerance"""
+        """Find the historical price closest to target timestamp with IMPROVED flexible tolerance"""
         if not historical_prices:
             return None
         
@@ -292,15 +294,15 @@ class HistoricalPriceFetcher:
                 min_time_diff = time_diff
                 closest_price = price
         
-        # Use more flexible time windows based on market conditions
+        # IMPROVED: More flexible time windows based on market conditions
         target_est = target_timestamp.astimezone(self.est_tz)
         
-        # During market hours: stricter tolerance (30 minutes)
+        # During market hours: stricter tolerance (45 minutes)
         if 9.5 <= target_est.hour + target_est.minute/60 <= 16:
-            max_tolerance = 1800  # 30 minutes during market hours
+            max_tolerance = 2700  # 45 minutes during market hours
         else:
-            # After hours or pre-market: more lenient (60 minutes)
-            max_tolerance = 3600  # 60 minutes outside market hours
+            # After hours or pre-market: much more lenient (2 hours)
+            max_tolerance = 7200  # 2 hours outside market hours
         
         if min_time_diff <= max_tolerance:
             log_debug(f"Found price {min_time_diff/60:.1f} minutes from target (tolerance: {max_tolerance/60:.0f}m)")
@@ -347,7 +349,7 @@ class CSVBackfillUtility:
         # Log current configuration for reference
         checkpoint_info = Config.get_checkpoint_info()
         log_info(f"CSV Backfill utility initialized for intervals: {[info['label'] for info in checkpoint_info]}")
-        
+    
     def analyze_missing_prices(self) -> Dict[str, Any]:
         """Analyze how many entries are missing price data with configurable interval awareness"""
         try:
@@ -355,6 +357,7 @@ class CSVBackfillUtility:
             
             analysis = {
                 'total_rows': 0,
+                'trading_decisions': 0,
                 'missing_entry_prices': 0,
                 'missing_price_updates': 0,
                 'completed_tracking': 0,
@@ -379,22 +382,33 @@ class CSVBackfillUtility:
                     tracking_status = row.get('tracking_status', '')
                     timestamp = row.get('recommendation_timestamp', '')
                     
-                    # Count missing entry prices
-                    if not entry_price and decision in ['LONG', 'SHORT']:
-                        analysis['missing_entry_prices'] += 1
+                    # Count trading decisions
+                    if decision in ['LONG', 'SHORT']:
+                        analysis['trading_decisions'] += 1
                         
-                        if timestamp:  # Can potentially backfill
-                            analysis['backfill_candidates'].append({
-                                'ticker': ticker,
-                                'decision': decision,
-                                'timestamp': timestamp
-                            })
-                    
-                    # Count tracking completion
-                    if tracking_status == 'completed':
-                        analysis['completed_tracking'] += 1
-                    elif not self._has_any_checkpoint_price(row) and entry_price:
-                        analysis['missing_price_updates'] += 1
+                        # Count missing entry prices
+                        if not entry_price:
+                            analysis['missing_entry_prices'] += 1
+                            
+                            if timestamp:  # Can potentially backfill
+                                analysis['backfill_candidates'].append({
+                                    'ticker': ticker,
+                                    'decision': decision,
+                                    'timestamp': timestamp
+                                })
+                        else:
+                            # Has entry price, check for missing checkpoints
+                            if tracking_status == 'completed':
+                                analysis['completed_tracking'] += 1
+                            elif not self._has_any_checkpoint_price(row):
+                                analysis['missing_price_updates'] += 1
+            
+            log_info(f"📊 Analysis Summary:")
+            log_info(f"   Total rows: {analysis['total_rows']}")
+            log_info(f"   Trading decisions (LONG/SHORT): {analysis['trading_decisions']}")
+            log_info(f"   Missing entry prices: {analysis['missing_entry_prices']}")
+            log_info(f"   Missing checkpoint updates: {analysis['missing_price_updates']}")
+            log_info(f"   Completed tracking: {analysis['completed_tracking']}")
             
             return analysis
             
@@ -414,7 +428,7 @@ class CSVBackfillUtility:
         return False
     
     def backfill_missing_entry_prices(self, dry_run: bool = True) -> Dict[str, Any]:
-        """Backfill missing entry prices using historical data"""
+        """Backfill missing entry prices using historical data - UPDATES EXISTING ROWS ONLY"""
         
         log_info("🔄 Starting entry price backfill process with configurable intervals...")
         
@@ -442,16 +456,27 @@ class CSVBackfillUtility:
             
             headers = rows[0].keys() if rows else []
             
-            # Process each row
+            # Find entries missing entry prices
+            missing_entry_price_rows = []
             for i, row in enumerate(rows):
                 ticker = row.get('ticker', '')
                 decision = row.get('decision', '')
                 entry_price = row.get('recommendation_price', '')
                 timestamp_str = row.get('recommendation_timestamp', '')
                 
-                # Skip if already has entry price or not a trading decision
-                if entry_price or decision not in ['LONG', 'SHORT'] or not timestamp_str:
-                    continue
+                if decision in ['LONG', 'SHORT'] and not entry_price and timestamp_str:
+                    missing_entry_price_rows.append((i, row))
+            
+            log_info(f"Found {len(missing_entry_price_rows)} entries missing entry prices")
+            
+            if not missing_entry_price_rows:
+                log_info("No entries need entry price backfilling")
+                return results
+            
+            # Process each row missing entry price
+            for row_index, row in missing_entry_price_rows:
+                ticker = row.get('ticker', '')
+                timestamp_str = row.get('recommendation_timestamp', '')
                 
                 results['processed'] += 1
                 
@@ -468,7 +493,8 @@ class CSVBackfillUtility:
                     
                     if historical_price:
                         if not dry_run:
-                            row['recommendation_price'] = f"{historical_price:.2f}"
+                            # UPDATE EXISTING ROW ONLY
+                            rows[row_index]['recommendation_price'] = f"{historical_price:.2f}"
                         
                         results['successful_backfills'] += 1
                         results['backfilled_entries'].append({
@@ -486,7 +512,7 @@ class CSVBackfillUtility:
                     results['failed_backfills'] += 1
                     log_error(f"Error backfilling {ticker}: {e}")
             
-            # Write updated CSV (if not dry run)
+            # Write updated CSV (OVERWRITES with same rows, just updated)
             if not dry_run and results['successful_backfills'] > 0:
                 backup_path = f"{self.csv_path}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                 
@@ -495,13 +521,15 @@ class CSVBackfillUtility:
                 shutil.copy2(self.csv_path, backup_path)
                 log_info(f"Created backup: {backup_path}")
                 
-                # Write updated file
+                # Write updated file (same rows, just filled in missing data)
                 with open(self.csv_path, 'w', newline='', encoding='utf-8') as file:
                     writer = csv.DictWriter(file, fieldnames=headers)
                     writer.writeheader()
-                    writer.writerows(rows)
+                    writer.writerows(rows)  # Same number of rows, just updated
                 
                 log_info(f"✅ Updated CSV with {results['successful_backfills']} backfilled prices")
+            elif dry_run and results['successful_backfills'] > 0:
+                log_info(f"DRY RUN: Would backfill {results['successful_backfills']} entry prices")
             
             return results
             
@@ -510,7 +538,7 @@ class CSVBackfillUtility:
             return results
     
     def backfill_missing_checkpoint_prices(self, dry_run: bool = True) -> Dict[str, Any]:
-        """Backfill missing checkpoint prices using historical data with configurable intervals"""
+        """Backfill missing checkpoint prices using historical data - UPDATES EXISTING ROWS ONLY"""
         
         checkpoint_info = Config.get_checkpoint_info()
         intervals_summary = ", ".join([info['label'] for info in checkpoint_info])
@@ -541,8 +569,25 @@ class CSVBackfillUtility:
             
             headers = rows[0].keys() if rows else []
             
-            # Process each row
+            # Group rows by ticker and timestamp to avoid duplicates
+            unique_decisions = {}
             for i, row in enumerate(rows):
+                ticker = row.get('ticker', '')
+                timestamp = row.get('recommendation_timestamp', '')
+                decision = row.get('decision', '')
+                
+                if decision in ['LONG', 'SHORT'] and timestamp:
+                    key = f"{ticker}_{timestamp}"
+                    # Keep the latest row for each unique decision
+                    unique_decisions[key] = {'index': i, 'row': row}
+            
+            log_info(f"Found {len(unique_decisions)} unique trading decisions to potentially backfill")
+            
+            # Process unique decisions only
+            for key, decision_data in unique_decisions.items():
+                row = decision_data['row']
+                row_index = decision_data['index']
+                
                 ticker = row.get('ticker', '')
                 decision = row.get('decision', '')
                 entry_price = row.get('recommendation_price', '')
@@ -565,17 +610,18 @@ class CSVBackfillUtility:
                     
                     backfilled_any = False
                     for field_prefix, price in checkpoint_prices.items():
-                        # Only backfill if missing
+                        # Only backfill if missing and we have a valid price
                         if not row.get(field_prefix) and price is not None:
                             if not dry_run:
-                                row[field_prefix] = f"{price:.2f}"
+                                # UPDATE EXISTING ROW ONLY
+                                rows[row_index][field_prefix] = f"{price:.2f}"
                                 
                                 # Calculate and set change percentage
                                 change_pct = ((price - float(entry_price)) / float(entry_price)) * 100
-                                row[f"{field_prefix}_change_pct"] = f"{change_pct:.2f}"
+                                rows[row_index][f"{field_prefix}_change_pct"] = f"{change_pct:.2f}"
                                 
                                 # Set timestamp
-                                row[f"{field_prefix}_timestamp"] = target_timestamp.isoformat()
+                                rows[row_index][f"{field_prefix}_timestamp"] = target_timestamp.isoformat()
                             
                             backfilled_any = True
                             
@@ -602,7 +648,7 @@ class CSVBackfillUtility:
                     results['failed_backfills'] += 1
                     log_error(f"Error backfilling checkpoints for {ticker}: {e}")
             
-            # Write updated CSV (if not dry run)
+            # Write updated CSV (OVERWRITES with same rows, just updated)
             if not dry_run and results['successful_backfills'] > 0:
                 backup_path = f"{self.csv_path}.backup_checkpoints_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                 
@@ -611,13 +657,15 @@ class CSVBackfillUtility:
                 shutil.copy2(self.csv_path, backup_path)
                 log_info(f"Created backup: {backup_path}")
                 
-                # Write updated file
+                # Write updated file (same rows, just filled in missing data)
                 with open(self.csv_path, 'w', newline='', encoding='utf-8') as file:
                     writer = csv.DictWriter(file, fieldnames=headers)
                     writer.writeheader()
-                    writer.writerows(rows)
+                    writer.writerows(rows)  # Same number of rows, just updated
                 
                 log_info(f"✅ Updated CSV with checkpoint prices for {results['successful_backfills']} decisions")
+            elif dry_run and results['successful_backfills'] > 0:
+                log_info(f"DRY RUN: Would update {results['successful_backfills']} decisions with checkpoint prices")
             
             return results
             
@@ -728,7 +776,7 @@ class HistoricalPerformanceAnalyzer:
         log_info(f"Performance analyzer initialized for intervals: {[info['label'] for info in checkpoint_info]}")
     
     def calculate_performance_metrics(self, days_to_analyze: int = 30) -> Dict[str, Any]:
-        """Calculate performance metrics for completed trades with configurable interval analysis"""
+        """Calculate performance metrics for completed trades with FIXED configurable interval analysis"""
         
         checkpoint_info = Config.get_checkpoint_info()
         
@@ -821,30 +869,6 @@ class HistoricalPerformanceAnalyzer:
                                     else:  # SHORT
                                         return_pct = ((entry_price - exit_price) / entry_price) * 100
                                     
-                                    # Track overall metrics (use close price as primary)
-                                    if field_prefix == 'price_close':
-                                        metrics['total_trades'] += 1
-                                        metrics['total_return_pct'] += return_pct
-                                        
-                                        if return_pct > 0:
-                                            metrics['winning_trades'] += 1
-                                            metrics['avg_win_pct'] += return_pct
-                                            metrics['best_trade_pct'] = max(metrics['best_trade_pct'], return_pct)
-                                        else:
-                                            metrics['losing_trades'] += 1
-                                            metrics['avg_loss_pct'] += abs(return_pct)
-                                            metrics['worst_trade_pct'] = min(metrics['worst_trade_pct'], return_pct)
-                                        
-                                        metrics['trade_details'].append({
-                                            'ticker': ticker,
-                                            'decision': decision,
-                                            'entry_price': entry_price,
-                                            'exit_price': exit_price,
-                                            'return_pct': return_pct,
-                                            'timestamp': timestamp_str,
-                                            'checkpoint': label
-                                        })
-                                    
                                     # Track checkpoint-specific performance
                                     checkpoint_metrics = metrics['checkpoint_performance'][label]
                                     checkpoint_metrics['total_trades'] += 1
@@ -862,6 +886,46 @@ class HistoricalPerformanceAnalyzer:
                                     
                                 except (ValueError, ZeroDivisionError) as e:
                                     log_warning(f"Error calculating performance for {ticker} at {label}: {e}")
+                
+                # FIXED: Track the trade for overall metrics ONLY if we have a close price
+                if 'price_close' in [checkpoint['field_prefix'] for checkpoint in checkpoint_info]:
+                    # Only count for overall metrics if we have the close price
+                    close_price_str = row.get('price_close')
+                    if close_price_str:
+                        try:
+                            exit_price = float(close_price_str)
+                            
+                            # Calculate return based on position direction
+                            if decision == 'LONG':
+                                return_pct = ((exit_price - entry_price) / entry_price) * 100
+                            else:  # SHORT
+                                return_pct = ((entry_price - exit_price) / entry_price) * 100
+                            
+                            # Now update overall metrics
+                            metrics['total_trades'] += 1
+                            metrics['total_return_pct'] += return_pct
+                            
+                            if return_pct > 0:
+                                metrics['winning_trades'] += 1
+                                metrics['avg_win_pct'] += return_pct
+                                metrics['best_trade_pct'] = max(metrics['best_trade_pct'], return_pct)
+                            else:
+                                metrics['losing_trades'] += 1
+                                metrics['avg_loss_pct'] += abs(return_pct)
+                                metrics['worst_trade_pct'] = min(metrics['worst_trade_pct'], return_pct)
+                            
+                            metrics['trade_details'].append({
+                                'ticker': ticker,
+                                'decision': decision,
+                                'entry_price': entry_price,
+                                'exit_price': exit_price,
+                                'return_pct': return_pct,
+                                'timestamp': timestamp_str,
+                                'checkpoint': 'close'
+                            })
+                            
+                        except (ValueError, ZeroDivisionError) as e:
+                            log_warning(f"Error calculating overall performance for {ticker}: {e}")
             
             # Calculate final metrics
             if metrics['total_trades'] > 0:
@@ -1026,7 +1090,7 @@ def diagnose_missing_prices(csv_path: str, fmp_api_key: str, limit: int = 10):
 
 
 if __name__ == "__main__":
-    """Example usage with enhanced diagnostic tools"""
+    """Example usage with enhanced diagnostic tools and improved error handling"""
     import sys
     from pathlib import Path
     
@@ -1040,20 +1104,67 @@ if __name__ == "__main__":
     
     csv_path = "output/trading_decisions.csv"
     
-    print("🔄 Enhanced Historical Price Utilities with Diagnostic Tools")
+    print("🔄 Enhanced Historical Price Utilities with Improved Error Handling")
     print(f"Current configuration: {Config.get_price_check_labels()}")
+    print(f"Tolerance: Market hours = 45min, After hours = 2 hours")
+    print()
     
-    print("\n1. Analyzing missing prices...")
-    analysis = backfill_missing_prices(csv_path, Config.FMP_API_KEY, dry_run=True)
-    
-    print("\n2. Diagnosing market timing issues...")
-    diagnose_missing_prices(csv_path, Config.FMP_API_KEY, limit=5)
-    
-    print("\n3. Backfilling missing checkpoint prices...")
-    checkpoint_results = backfill_checkpoint_prices(csv_path, Config.FMP_API_KEY, dry_run=True)
-    
-    print("\n4. Validating existing prices...")
-    validation = validate_price_accuracy(csv_path, Config.FMP_API_KEY, sample_size=5)
-    
-    print("\n5. Analyzing performance...")
-    performance = analyze_trading_performance(csv_path, Config.FMP_API_KEY, days=30)
+    try:
+        print("1. Analyzing missing prices...")
+        analysis = backfill_missing_prices(csv_path, Config.FMP_API_KEY, dry_run=True)
+        print()
+        
+        if analysis and analysis.get('missing_entry_prices', 0) > 0:
+            print(f"2. Backfilling {analysis['missing_entry_prices']} missing entry prices...")
+            backfill_results = backfill_missing_prices(csv_path, Config.FMP_API_KEY, dry_run=False)
+            print(f"   ✅ Successfully backfilled {backfill_results.get('successful_backfills', 0)} entry prices")
+            print()
+        else:
+            print("2. No entry prices need backfilling.")
+            print()
+        
+        print("3. Diagnosing market timing issues...")
+        diagnose_missing_prices(csv_path, Config.FMP_API_KEY, limit=3)
+        print()
+        
+        print("4. Backfilling missing checkpoint prices (dry run)...")
+        checkpoint_results = backfill_checkpoint_prices(csv_path, Config.FMP_API_KEY, dry_run=True)
+        print(f"   Would backfill {checkpoint_results.get('successful_backfills', 0)} checkpoint sets")
+        print()
+        
+        # Ask user if they want to proceed with checkpoint backfill
+        if checkpoint_results.get('successful_backfills', 0) > 0:
+            proceed = input("Proceed with checkpoint backfill? (y/N): ").lower().strip()
+            if proceed == 'y':
+                print("5. Performing checkpoint backfill...")
+                final_results = backfill_checkpoint_prices(csv_path, Config.FMP_API_KEY, dry_run=False)
+                print(f"   ✅ Successfully backfilled {final_results.get('successful_backfills', 0)} checkpoint sets")
+            else:
+                print("5. Skipped checkpoint backfill.")
+        else:
+            print("5. No checkpoint prices need backfilling.")
+        print()
+        
+        print("6. Validating existing prices...")
+        validation = validate_price_accuracy(csv_path, Config.FMP_API_KEY, sample_size=5)
+        if validation:
+            accuracy = validation.get('accurate', 0) / max(validation.get('validated', 1), 1)
+            print(f"   Accuracy: {accuracy:.1%} ({validation.get('accurate', 0)}/{validation.get('validated', 0)} validated)")
+        print()
+        
+        print("7. Analyzing performance...")
+        performance = analyze_trading_performance(csv_path, Config.FMP_API_KEY, days=30)
+        if performance and performance.get('total_trades', 0) > 0:
+            print(f"   Total trades: {performance['total_trades']}")
+            print(f"   Win rate: {performance['win_rate']:.1%}")
+            print(f"   Avg return: {performance['total_return_pct']/performance['total_trades']:.2f}%")
+        else:
+            print("   No completed trades found for performance analysis")
+        
+        print()
+        print("✅ Historical price analysis complete!")
+        
+    except Exception as e:
+        print(f"❌ Error during analysis: {e}")
+        import traceback
+        traceback.print_exc()
