@@ -317,6 +317,10 @@ class EnhancedFinancialNewsAnalyzer:
             log_info("✅ Step 8: Marking articles as processed...")
             self._mark_articles_processed(unprocessed_articles, decisions)
             
+            # NEW: Step 9: Cache maintenance
+            log_debug("🧹 Step 9: Performing cache maintenance...")
+            self.news_fetcher.periodic_cache_maintenance()
+            
             # Record successful completion
             self.last_successful_run = datetime.now(timezone.utc)
             

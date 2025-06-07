@@ -185,6 +185,12 @@ class Config:
     FMP_MIN_REQUEST_INTERVAL = 0.2  # Minimum seconds between FMP API requests (5 per second max)
     FMP_RETRY_DELAY = 60  # Seconds to wait after 429 error before retry
     
+    # Failed ticker caching (prevents repeated API calls to bad tickers)
+    ENABLE_FAILED_TICKER_CACHE = True          # Enable/disable the cache
+    FAILED_TICKER_CACHE_DAYS = 30              # Days to cache failed tickers
+    FAILED_TICKER_MAX_RETRIES = 3              # How many failures before caching
+    FAILED_TICKER_CACHE_DB = "data/failed_tickers_cache.db"  # Cache database file
+    
     # 🧠 Enhanced Neural Analysis - HIGHEST ACCURACY
     # CURRENT: ENABLED (94-96% accuracy)
     # EFFECT: Uses RoBERTa+LSTM+CNN for superior sentiment analysis
