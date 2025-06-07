@@ -292,10 +292,38 @@ class Config:
     # EXAMPLE: 5 = check every 5 minutes, 1 = check every minute (more responsive)
     PRICE_TRACKER_CHECK_INTERVAL: int = int(os.getenv('PRICE_TRACKER_CHECK_INTERVAL', '5'))
     
+    # ⏱️ Buffer for future price fetches
+    # EFFECT: How many minutes into the future to allow price fetching. Requests further than this are skipped.
+    # This prevents unnecessary API calls for future timestamps that won't have data yet.
+    PRICE_FETCH_FUTURE_BUFFER_MINUTES: int = int(os.getenv('PRICE_FETCH_FUTURE_BUFFER_MINUTES', '5'))
+
+     # Price Fetching Tolerance (used by _find_closest_price)
+    # How much deviation (in minutes) from the target timestamp is acceptable for a price point.
+    PRICE_FETCH_MARKET_TOLERANCE_MINUTES: int = int(os.getenv('PRICE_FETCH_MARKET_TOLERANCE_MINUTES', '45')) # 45 minutes for market hours
+    PRICE_FETCH_AFTER_HOURS_TOLERANCE_HOURS: int = int(os.getenv('PRICE_FETCH_AFTER_HOURS_TOLERANCE_HOURS', '2')) # 2 hours for pre/post market
+    PRICE_FETCH_WEEKEND_TOLERANCE_HOURS: int = int(os.getenv('PRICE_FETCH_WEEKEND_TOLERANCE_HOURS', '48')) # 48 hours for weekends (broader)
+    
+    # 📈 CONFIGURABLE PRICE TRACKING CONFIGURATION
+    # ...
+    PRICE_TRACKER_CHECK_INTERVAL: int = int(os.getenv('PRICE_TRACKER_CHECK_INTERVAL', '5'))
+
+    # 🔄 Trade Monitor Check Frequency  
+    # EFFECT: How often the TradeMonitor checks for due price reads and updates.
+    # RANGE: 1-60 minutes recommended. Too frequent = more resource usage.
+    TRADE_MONITOR_INTERVAL_MINUTES: int = int(os.getenv('TRADE_MONITOR_INTERVAL_MINUTES', '10')) # ADD THIS LINE
+
     # ================================================================
     # 🛠️ UTILITY METHODS - ENHANCED WITH DYNAMIC LABELING
     # ================================================================
     
+    @classmethod
+    def _get_tolerance_settings(cls): # New helper method to return tolerance for cleaner use
+        return {
+            'market_minutes': cls.PRICE_FETCH_MARKET_TOLERANCE_MINUTES,
+            'after_hours_hours': cls.PRICE_FETCH_AFTER_HOURS_TOLERANCE_HOURS,
+            'weekend_hours': cls.PRICE_FETCH_WEEKEND_TOLERANCE_HOURS
+        }
+        
     @classmethod
     def get_enabled_llm_services(cls) -> List[str]:
         """
