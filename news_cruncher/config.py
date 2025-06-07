@@ -171,6 +171,7 @@ class Config:
     # COST: Free tier available, paid tiers for higher limits
     # GET KEY: https://financialmodelingprep.com/developer/docs
     FMP_API_KEY: str = os.getenv('FMP_API_KEY', '')
+    FMP_REQUESTS_PER_MINUTE: int = int(os.getenv('FMP_REQUESTS_PER_MINUTE', '10'))
     
     # 🧠 Enhanced Neural Analysis - HIGHEST ACCURACY
     # CURRENT: ENABLED (94-96% accuracy)

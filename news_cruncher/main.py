@@ -403,7 +403,7 @@ class EnhancedFinancialNewsAnalyzer:
             for article in articles:
                 try:
                     # Create unique article identifier
-                    article_id = self.article_tracker._create_article_id(article)
+                    #article_id = self.article_tracker._create_article_id(article)
                     
                     # Determine decision info
                     ticker = article.get('symbol', 'UNKNOWN')
@@ -538,20 +538,20 @@ class EnhancedFinancialNewsAnalyzer:
             log_debug(f"Could not load last successful run time: {e}")
             # Keep the initialization value from __init__
             
-            while True:
-                try:
-                    await self._process_cycle()
-                    log_info(f"✅ Enhanced cycle completed, waiting {Config.CYCLE_INTERVAL_MINUTES} minutes before next run...")
-                    await asyncio.sleep(Config.CYCLE_INTERVAL_MINUTES * 60)
+        while True:
+            try:
+                await self._process_cycle()
+                log_info(f"✅ Enhanced cycle completed, waiting {Config.CYCLE_INTERVAL_MINUTES} minutes before next run...")
+                await asyncio.sleep(Config.CYCLE_INTERVAL_MINUTES * 60)
                     
-                except KeyboardInterrupt:
-                    log_info("🛑 Enhanced analyzer interrupted by user")
-                    break
-                except Exception as e:
-                    log_error(f"💥 Enhanced cycle failed: {e}")
-                    traceback.print_exc()
-                    log_info(f"⏳ Waiting {Config.CYCLE_INTERVAL_MINUTES} minutes before retry...")
-                    await asyncio.sleep(Config.CYCLE_INTERVAL_MINUTES * 60)
+            except KeyboardInterrupt:
+                log_info("🛑 Enhanced analyzer interrupted by user")
+                break
+            except Exception as e:
+                log_error(f"💥 Enhanced cycle failed: {e}")
+                traceback.print_exc()
+                log_info(f"⏳ Waiting {Config.CYCLE_INTERVAL_MINUTES} minutes before retry...")
+                await asyncio.sleep(Config.CYCLE_INTERVAL_MINUTES * 60)
                         
     def _log_enhanced_startup_summary(self) -> None:
         """Log enhanced startup configuration summary"""
