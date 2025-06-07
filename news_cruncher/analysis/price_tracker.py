@@ -1,6 +1,6 @@
 """
 Price tracking functionality for trading decisions with configurable intervals
-Python 3.13.3 compatible
+Python 3.13.3 compatible - FIXED VERSION
 """
 import asyncio
 import pytz
@@ -82,7 +82,7 @@ class PriceTracker:
         return schedule
     
     def get_current_price(self, ticker: str) -> Optional[float]:
-        """Fetch current price using FMP API with enhanced error handling"""
+        """Fetch current price using FMP API with enhanced error handling - SYNCHRONOUS"""
         try:
             log_debug(f"Fetching current price for {ticker}")
             data = self.fmp_loader.make_request(f"quote/{ticker}")
@@ -108,7 +108,7 @@ class PriceTracker:
 
 class TrackingScheduler:
     """Background scheduler for monitoring price checkpoints with configurable intervals"""
-    
+  
     def __init__(self, price_tracker: PriceTracker, csv_logger) -> None:
         """Initialize tracking scheduler"""
         self.price_tracker = price_tracker
@@ -132,7 +132,7 @@ class TrackingScheduler:
             current_price = decision.recommendation_price
             log_info(f"📊 Using existing entry price for {decision.ticker}: ${current_price:.2f}")
         else:
-            # Fallback: fetch price if not already set
+            # Fallback: fetch price if not already set - FIXED: Remove await
             log_warning(f"⚠️ No entry price set for {decision.ticker}, fetching now...")
             current_price = self.price_tracker.get_current_price(decision.ticker)
             
@@ -206,54 +206,57 @@ class TrackingScheduler:
         # Check each configured checkpoint
         for i, checkpoint in enumerate(checkpoint_info):
             # Check if we have a scheduled time for this checkpoint
-            if i >= len(decision.tracking_schedule):
-                continue
+            if i < len(decision.tracking_schedule):
+                scheduled_time = decision.tracking_schedule[i]
                 
-            checkpoint_time = decision.tracking_schedule[i]
-            label = checkpoint['short_label']
-            
-            # Check if this checkpoint is due and hasn't been processed yet
-            current_price = decision.get_checkpoint_price(i)
-            
-            if current_price is None and now >= checkpoint_time:
-                log_debug(f"⏰ {label} checkpoint due for {decision.ticker}")
-                price = self.price_tracker.get_current_price(decision.ticker)
-                
-                if price:
-                    change_pct = self._calculate_change_pct(decision.recommendation_price, price)
-                    decision.set_checkpoint_price(i, price, now, change_pct)
-                    updated = True
-                    
-                    # Use dynamic logging
-                    log_message = Config.format_price_checkpoint_log(decision.ticker, i, price, change_pct)
-                    log_info(log_message)
+                # Convert both times to UTC for comparison
+                if isinstance(scheduled_time, datetime) and scheduled_time.tzinfo:
+                    scheduled_utc = scheduled_time.astimezone(timezone.utc)
                 else:
-                    log_error(f"❌ Failed to get {label} price for {decision.ticker}")
-        
-        # Check if tracking should be completed
-        if not decision.tracking_completed:
-            # Check if all scheduled checkpoints are done or if we're past the last checkpoint
-            all_checkpoints_done = True
-            for i in range(len(decision.tracking_schedule)):
-                if decision.get_checkpoint_price(i) is None:
-                    all_checkpoints_done = False
-                    break
-            
-            if all_checkpoints_done:
-                decision.tracking_completed = True
-                decision.tracking_status = "completed"
-                updated = True
-                log_info(f"🏁 All checkpoints completed for {decision.ticker}")
-            elif len(decision.tracking_schedule) > 0:
-                # Check timeout condition
-                last_checkpoint = decision.tracking_schedule[-1]
-                hours_past_last = (now - last_checkpoint).total_seconds() / 3600
+                    scheduled_utc = scheduled_time.replace(tzinfo=timezone.utc)
                 
-                if hours_past_last > 2:  # 2 hours past last checkpoint
-                    log_warning(f"⏰ Timing out tracking for {decision.ticker} ({hours_past_last:.1f}h past last checkpoint)")
-                    decision.tracking_completed = True
-                    decision.tracking_status = "partial"
-                    updated = True
+                # Check if it's time for this checkpoint
+                if now >= scheduled_utc:
+                    # Check if we already have this price
+                    existing_price = decision.get_checkpoint_price(i)
+                    
+                    if existing_price is None:
+                        # Fetch price for this checkpoint - FIXED: Remove await
+                        log_debug(f"Fetching {checkpoint['short_label']} price for {decision.ticker}")
+                        price = self.price_tracker.get_current_price(decision.ticker)
+                        
+                        if price:
+                            # Store price data
+                            decision.set_checkpoint_price(i, price)
+                            
+                            # Calculate percentage change
+                            if decision.recommendation_price:
+                                change_pct = self._calculate_change_pct(decision.recommendation_price, price)
+                                decision.set_checkpoint_change_pct(i, change_pct)
+                                
+                                log_info(f"📊 {checkpoint['short_label']} update for {decision.ticker}: "
+                                       f"${price:.2f} ({change_pct:+.2f}%)")
+                            
+                            decision.set_checkpoint_timestamp(i, now)
+                            updated = True
+                        else:
+                            log_warning(f"Could not fetch {checkpoint['short_label']} price for {decision.ticker}")
+        
+        # Check if all checkpoints are complete
+        completed_checkpoints = 0
+        for i in range(len(checkpoint_info)):
+            if decision.get_checkpoint_price(i) is not None:
+                completed_checkpoints += 1
+        
+        # Mark as completed if all checkpoints have prices
+        if completed_checkpoints == len(checkpoint_info):
+            decision.tracking_completed = True
+            decision.tracking_status = "completed"
+            updated = True
+        elif completed_checkpoints > 0:
+            decision.tracking_completed = True
+            decision.tracking_status = "partial"
+            updated = True
         
         return updated
     

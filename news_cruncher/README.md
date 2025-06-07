@@ -24,42 +24,42 @@ A sophisticated financial news analysis system that combines state-of-the-art **
 ```mermaid
 graph TB
     subgraph "📊 Enhanced Data Sources"
-        FMP[FMP API<br/>• Stock News<br/>• Press Releases<br/>• Earnings Calendar<br/>• 🆕 Earnings Transcripts<br/>• Market News<br/>• 🆕 Fundamental Data<br/>• Real-time Quotes]
+        FMP[🏢 FMP API<br/>• Stock News<br/>• Press Releases<br/>• Earnings Calendar<br/>• 🆕 Earnings Transcripts<br/>• Market News<br/>• 🆕 Fundamental Data<br/>• Real-time Quotes]
     end
     
     subgraph "🧠 Enhanced AI Analysis Pipeline"
-        subgraph "🚀 Neural Networks (94-96% Accuracy)"
+        subgraph "🚀 Neural Networks"
             EnhancedNeural[🚀 Enhanced Neural Analyzer<br/>RoBERTa + BiLSTM + CNN<br/>Weight: 45%<br/>94-96% Accuracy]
-            FinBERT[FinBERT<br/>Financial BERT<br/>Weight: 25%<br/>~85% Accuracy]
+            FinBERT[🤖 FinBERT<br/>Financial BERT<br/>Weight: 25%<br/>~85% Accuracy]
         end
         
-        subgraph "🤖 LLM Services (Rebalanced)"
-            Gemini[Google Gemini<br/>Weight: 20%]
-            OpenAI[OpenAI GPT<br/>Weight: 12%]
-            Claude[Anthropic Claude<br/>Weight: 10%]
+        subgraph "🤖 LLM Services"
+            Gemini[🟢 Google Gemini<br/>Weight: 20%]
+            OpenAI[🔵 OpenAI GPT<br/>Weight: 12%]
+            Claude[🟣 Anthropic Claude<br/>Weight: 10%]
         end
         
-        subgraph "🚨 Emergency & Fallback"
-            AlphaV[Alpha Vantage<br/>Weight: 8%]
-            Polygon[Polygon API<br/>Weight: 6%]
-            Tiingo[Tiingo API<br/>Weight: 3%]
-            Keywords[Enhanced Keywords<br/>Weight: 2%]
+        subgraph "🚨 Fallback Services"
+            AlphaV[📊 Alpha Vantage<br/>Weight: 8%]
+            Polygon[🔺 Polygon API<br/>Weight: 6%]
+            Tiingo[📈 Tiingo API<br/>Weight: 3%]
+            Keywords[🔤 Enhanced Keywords<br/>Weight: 2%]
         end
     end
     
     subgraph "🔍 Quality Filtering Pipeline"
-        TickerAgg[Ticker Aggregator<br/>Group & Prioritize]
+        TickerAgg[📋 Ticker Aggregator<br/>Group & Prioritize]
         FundFilter[🆕 Fundamental Filter<br/>• Price Range: $10-$300<br/>• Volume: 500K+ shares<br/>• Market Cap: $500M+<br/>• Beta: ≤2.0<br/>• Options Required<br/>• Major Exchanges Only]
     end
     
     subgraph "📈 Technical & Decision Engine"
-        TechAnalysis[Technical Analyzer<br/>RSI, MACD, Bollinger<br/>Weight: 30%]
-        DecisionEngine[Enhanced Decision Engine<br/>News 70% + Tech 30%<br/>Min Confidence: 60%]
+        TechAnalysis[📊 Technical Analyzer<br/>RSI, MACD, Bollinger<br/>Weight: 30%]
+        DecisionEngine[⚡ Enhanced Decision Engine<br/>News 70% + Tech 30%<br/>Min Confidence: 60%]
     end
     
     subgraph "💾 Enhanced Output & Tracking"
         CSV[📋 Enhanced CSV Output<br/>• Trading Decisions<br/>• Neural Analysis Details<br/>• Earnings Insights<br/>• Price History]
-        SQLite[(SQLite DB<br/>• Article Tracking<br/>• 🆕 Fundamentals Cache)]
+        SQLite[🗄️ SQLite DB<br/>• Article Tracking<br/>• 🆕 Fundamentals Cache]
         PriceTracker[🆕 Enhanced Price Tracker<br/>• 45min, 1hr, Close<br/>• Market Hours Logic<br/>• GPU Accelerated]
     end
     
@@ -107,39 +107,39 @@ graph TB
         Input[📰 Financial News Text<br/>Earnings Transcripts<br/>Press Releases]
         
         subgraph "🔤 Text Preprocessing"
-            Tokenizer[RoBERTa Tokenizer<br/>• Financial Abbreviations<br/>• Domain Vocabulary<br/>• 512 Token Limit]
+            Tokenizer[🤖 RoBERTa Tokenizer<br/>• Financial Abbreviations<br/>• Domain Vocabulary<br/>• 512 Token Limit]
         end
         
         subgraph "🧬 RoBERTa Base Model"
-            RoBERTa[RoBERTa-Base<br/>• 768 Hidden Dimensions<br/>• 12 Attention Heads<br/>• Contextual Embeddings<br/>• Fine-tuned Layers 9-12]
+            RoBERTa[🤖 RoBERTa-Base<br/>• 768 Hidden Dimensions<br/>• 12 Attention Heads<br/>• Contextual Embeddings<br/>• Fine-tuned Layers 9-12]
         end
         
         subgraph "🔀 Parallel Processing Branches"
             subgraph "🔍 CNN Branch"
-                CNN3[Conv1D Kernel=3<br/>Local Patterns]
-                CNN5[Conv1D Kernel=5<br/>Phrase Patterns]
-                CNN7[Conv1D Kernel=7<br/>Sentence Patterns]
-                CNNPool[Global Max Pooling<br/>Feature Extraction]
+                CNN3[🔍 Conv1D Kernel=3<br/>Local Patterns]
+                CNN5[🔍 Conv1D Kernel=5<br/>Phrase Patterns]
+                CNN7[🔍 Conv1D Kernel=7<br/>Sentence Patterns]
+                CNNPool[⬇️ Global Max Pooling<br/>Feature Extraction]
             end
             
             subgraph "🔄 LSTM Branch"
-                BiLSTM[Bidirectional LSTM<br/>• 2 Layers<br/>• 256 Hidden Units<br/>• Sequential Dependencies<br/>• Dropout 0.3]
+                BiLSTM[🔄 Bidirectional LSTM<br/>• 2 Layers<br/>• 256 Hidden Units<br/>• Sequential Dependencies<br/>• Dropout 0.3]
             end
             
             subgraph "👁️ Attention Branch"
-                MultiHead[Multi-Head Attention<br/>• 8 Attention Heads<br/>• Focus on Key Tokens<br/>• Financial Keywords]
-                AttentionPool[Global Average Pooling<br/>Weighted Features]
+                MultiHead[👁️ Multi-Head Attention<br/>• 8 Attention Heads<br/>• Focus on Key Tokens<br/>• Financial Keywords]
+                AttentionPool[⬇️ Global Average Pooling<br/>Weighted Features]
             end
         end
         
         subgraph "🔗 Feature Fusion"
-            Fusion[Feature Fusion Layer<br/>• CNN: 768 features<br/>• LSTM: 512 features<br/>• Attention: 768 features<br/>• Total: 2048 → 512]
+            Fusion[🔗 Feature Fusion Layer<br/>• CNN: 768 features<br/>• LSTM: 512 features<br/>• Attention: 768 features<br/>• Total: 2048 → 512]
         end
         
         subgraph "📊 Multi-Task Outputs"
-            Sentiment[Sentiment Classification<br/>BUY/SELL/NEUTRAL<br/>Softmax Activation]
-            Volatility[Volatility Prediction<br/>0.0-1.0 Scale<br/>Sigmoid Activation]
-            Confidence[Confidence Estimation<br/>Model Certainty<br/>Sigmoid Activation]
+            Sentiment[📊 Sentiment Classification<br/>BUY/SELL/NEUTRAL<br/>Softmax Activation]
+            Volatility[📈 Volatility Prediction<br/>0.0-1.0 Scale<br/>Sigmoid Activation]
+            Confidence[✅ Confidence Estimation<br/>Model Certainty<br/>Sigmoid Activation]
         end
     end
     
@@ -179,93 +179,67 @@ graph TB
 ```mermaid
 graph TD
     subgraph "📡 Data Acquisition"
-        FMPCall[FMP Earnings Call API<br/>earning_call_transcript/{ticker}]
-        Tickers[Priority Tickers<br/>• AAPL, MSFT, GOOGL<br/>• JPM, PFE, WMT<br/>• 50 Major Companies]
-        Quarters[Lookback Quarters<br/>Default: 2 Quarters]
+        FMPCall[🏢 FMP Earnings Call API<br/>earning_call_transcript/ticker]
+        Tickers[🎯 Priority Tickers<br/>• AAPL, MSFT, GOOGL<br/>• JPM, PFE, WMT<br/>• 50 Major Companies]
+        Quarters[📅 Lookback Quarters<br/>Default: 2 Quarters]
     end
     
     subgraph "🔍 Transcript Processing"
-        Raw[Raw Transcript Text<br/>~50,000-200,000 chars]
+        Raw[📄 Raw Transcript Text<br/>~50,000-200,000 chars]
         
         subgraph "👥 Speaker Identification"
-            Executives[👔 Executives<br/>CEO, CFO, COO<br/>Management Tone Analysis]
-            Analysts[📊 Analysts<br/>Questions & Concerns<br/>Market Sentiment]
-            Operators[📞 Operators<br/>Call Coordination<br/>Filtered Out]
+            Executives[👔 Executives<br/>CEO, CFO, COO<br/>Management Statements]
+            Analysts[👤 Analysts<br/>Questions & Concerns<br/>Future Expectations]
+            Operators[📞 Operators<br/>Call Management<br/>Technical Info]
         end
         
-        subgraph "📑 Content Segmentation"
-            Opening[📢 Opening Remarks<br/>Company Overview]
-            Results[📈 Financial Results<br/>Q3 Performance, Metrics]
-            Guidance[🔮 Forward Guidance<br/>Future Outlook, Targets]
-            QA[❓ Q&A Session<br/>Analyst Questions, Concerns]
-            Closing[🔚 Closing Statements<br/>Thank You, Next Steps]
+        subgraph "📊 Content Analysis"
+            Guidance[🎯 Guidance Extraction<br/>Forward-looking statements<br/>Revenue/earnings projections]
+            Metrics[📈 Financial Metrics<br/>Revenue, margins, growth<br/>Key performance indicators]
+            Sentiment[😊 Sentiment Analysis<br/>Management tone<br/>Confidence levels]
+            Concerns[⚠️ Risk Analysis<br/>Analyst concerns<br/>Challenge identification]
         end
     end
     
-    subgraph "🧠 Advanced Analysis"
-        subgraph "💭 Sentiment Analysis"
-            ManagementTone[Management Tone<br/>• Confident: 45%<br/>• Cautious: 35%<br/>• Defensive: 20%]
-            OverallSentiment[Overall Sentiment<br/>• Positive: 60%<br/>• Neutral: 25%<br/>• Negative: 15%]
-        end
+    subgraph "🧠 Enhanced Analysis"
+        ContextualAnalysis[🧠 Contextual Analysis<br/>• Quarter-over-quarter trends<br/>• Management tone analysis<br/>• Forward guidance strength]
         
-        subgraph "📊 Content Extraction"
-            FinancialMetrics[Financial Metrics<br/>• Revenue: $15.6B<br/>• EPS: $2.45<br/>• Margin: 23.4%]
-            GuidanceStatements[Guidance Extraction<br/>• Q4 Revenue: $16-17B<br/>• FY Growth: 8-12%<br/>• Capex: $8-10B]
-            RiskFactors[Risk Identification<br/>• Supply Chain Issues<br/>• Regulatory Concerns<br/>• Market Competition]
-        end
-        
-        subgraph "🎯 Key Insights"
-            Highlights[Key Highlights<br/>• Record Q3 Revenue<br/>• New Product Launch<br/>• Market Expansion]
-            AnalystConcerns[Analyst Concerns<br/>• Margin Pressure<br/>• Competition Threats<br/>• Economic Headwinds]
-        end
+        TechnicalIntegration[⚡ Integration Engine<br/>• Combines with news sentiment<br/>• Technical analysis overlay<br/>• Multi-source consensus]
     end
     
-    subgraph "📰 Article Generation"
-        MainArticle[Main Earnings Article<br/>Comprehensive Analysis<br/>Management + Analyst Views]
-        GuidanceArticle[Guidance-Focused Article<br/>Forward-Looking Statements<br/>Financial Projections]
-        Integration[Integration with News Pipeline<br/>Symbol: AAPL<br/>Source: earnings_transcript]
+    subgraph "📋 Article Creation"
+        MainArticle[📰 Main Earnings Article<br/>Comprehensive call summary]
+        GuidanceArticle[🎯 Guidance-Focused Article<br/>Forward-looking insights]
+        ConcernArticle[⚠️ Risk-Focused Article<br/>Analyst concerns summary]
     end
     
     FMPCall --> Raw
-    Tickers --> FMPCall
-    Quarters --> FMPCall
+    Tickers --> Raw
+    Quarters --> Raw
     
     Raw --> Executives
     Raw --> Analysts
     Raw --> Operators
     
-    Executives --> Opening
-    Executives --> Results
     Executives --> Guidance
-    Executives --> Closing
-    Analysts --> QA
+    Executives --> Metrics
+    Executives --> Sentiment
+    Analysts --> Concerns
     
-    Opening --> ManagementTone
-    Results --> OverallSentiment
-    Guidance --> GuidanceStatements
-    QA --> AnalystConcerns
+    Guidance --> ContextualAnalysis
+    Metrics --> ContextualAnalysis
+    Sentiment --> ContextualAnalysis
+    Concerns --> ContextualAnalysis
     
-    Results --> FinancialMetrics
-    Opening --> Highlights
-    QA --> RiskFactors
+    ContextualAnalysis --> TechnicalIntegration
     
-    ManagementTone --> MainArticle
-    OverallSentiment --> MainArticle
-    FinancialMetrics --> MainArticle
-    Highlights --> MainArticle
-    AnalystConcerns --> MainArticle
+    TechnicalIntegration --> MainArticle
+    TechnicalIntegration --> GuidanceArticle
+    TechnicalIntegration --> ConcernArticle
     
-    GuidanceStatements --> GuidanceArticle
-    RiskFactors --> GuidanceArticle
-    
-    MainArticle --> Integration
-    GuidanceArticle --> Integration
-    
-    style Raw fill:#f9ca24
-    style ManagementTone fill:#6c5ce7
-    style OverallSentiment fill:#a29bfe
-    style FinancialMetrics fill:#fd79a8
-    style Integration fill:#00b894
+    style ContextualAnalysis fill:#ff6b6b,color:#fff
+    style TechnicalIntegration fill:#4ecdc4,color:#fff
+    style MainArticle fill:#00b894,color:#fff
 ```
 
 ---
@@ -274,55 +248,45 @@ graph TD
 
 ```mermaid
 graph TD
-    subgraph "📊 Input Ticker Buckets"
-        TickerInput[150 Tickers from News<br/>AAPL: 12 articles<br/>TSLA: 8 articles<br/>PENNY: 3 articles<br/>VOLATILE: 5 articles]
+    subgraph "📊 Input Processing"
+        TickerInput[📋 Ticker List<br/>127 potential tickers<br/>From news aggregation]
     end
     
-    subgraph "💾 Data Sources & Caching"
-        FMPProfile[FMP Company Profile API<br/>/profile/{ticker}]
-        FMPQuote[FMP Quote API<br/>/quote/{ticker}]
-        OptionsAPI[FMP Options Chain API<br/>/options-chain/{ticker}]
-        
-        Cache[(SQLite Cache<br/>fundamentals_cache.db<br/>24-hour expiry)]
+    subgraph "🏢 FMP Data Sources"
+        FMPProfile[🏢 Company Profile API<br/>Market cap, exchange, sector]
+        FMPQuote[💰 Real-time Quote API<br/>Price, volume, beta]
+        OptionsAPI[📊 Options Data API<br/>Options availability check]
+        Cache[💾 24-hour Cache<br/>Reduces API calls by 85%]
     end
     
-    subgraph "🔍 Filter Criteria Checks"
-        subgraph "💰 Price Range Filter"
-            PriceMin[Min Price: $10.00<br/>❌ Eliminates Penny Stocks]
-            PriceMax[Max Price: $300.00<br/>❌ Avoids Ultra-Expensive]
-        end
-        
-        subgraph "📊 Liquidity Filters"
-            AvgVolume[Min Avg Volume: 500K shares<br/>🔄 Daily Liquidity Check]
-            DollarVolume[Min Dollar Volume: $5M<br/>💵 Price × Volume]
-        end
-        
-        subgraph "🏢 Company Quality"
-            MarketCap[Min Market Cap: $500M<br/>🏭 Established Companies]
-            Beta[Max Beta: 2.0<br/>📈 Volatility Limit]
-        end
-        
-        subgraph "🎯 Trading Features"
-            Options[Options Required: Yes<br/>📋 Institutional Interest]
-            Exchanges[Allowed Exchanges<br/>🏛️ NASDAQ, NYSE, NYSEArca]
-        end
+    subgraph "🔍 Filter Criteria"
+        PriceMin[💰 Min Price: $10.00<br/>Avoid penny stocks]
+        PriceMax[💰 Max Price: $300.00<br/>Reasonable entry cost]
+        AvgVolume[📊 Min Volume: 500K shares<br/>Ensure liquidity]
+        DollarVolume[💵 Min Dollar Volume: $5M<br/>Institutional interest]
+        MarketCap[🏛️ Min Market Cap: $500M<br/>Company stability]
+        Beta[📈 Max Beta: 2.0<br/>Risk management]
+        Options[📊 Options Required: Yes<br/>Trading flexibility]
+        Exchanges[🏢 Exchanges: NASDAQ, NYSE, NYSEArca<br/>Quality focus]
     end
     
-    subgraph "📈 Filter Results"
-        Passed[✅ Passed: 45 Tickers<br/>AAPL ✅ $150, $2.1B vol, $2.8T cap<br/>MSFT ✅ $330, $1.8B vol, $2.5T cap<br/>GOOGL ✅ $125, $1.2B vol, $1.6T cap]
+    subgraph "✅ Results"
+        subgraph "✅ Passed: 22 Tickers"
+            Passed[✅ Quality Stocks<br/>AAPL: $150, $2.1B vol, $2.5T cap<br/>MSFT: $425, $1.2B vol, $1.6T cap]
+        end
         
         subgraph "❌ Filtered Out: 105 Tickers"
-            PriceFiltered[Price Issues: 23<br/>• PENNY: $0.45 < $10.00<br/>• EXPENSIVE: $450 > $300]
-            VolumeFiltered[Volume Issues: 31<br/>• LOW_VOL: 50K < 500K shares<br/>• ILLIQUID: $800K < $5M dollar]
-            CapFiltered[Market Cap: 18<br/>• SMALL_CAP: $50M < $500M]
-            BetaFiltered[Beta Issues: 12<br/>• VOLATILE: 3.5 > 2.0]
-            OptionsFiltered[No Options: 8<br/>• NO_OPTIONS: Not available]
-            ExchangeFiltered[Exchange: 13<br/>• OTC_STOCK: OTCQB not allowed]
+            PriceFiltered[💸 Price Issues: 23<br/>• PENNY: $0.45 < $10.00<br/>• EXPENSIVE: $450 > $300]
+            VolumeFiltered[📉 Volume Issues: 31<br/>• LOW_VOL: 50K < 500K shares<br/>• ILLIQUID: $800K < $5M dollar]
+            CapFiltered[🏛️ Market Cap: 18<br/>• SMALL_CAP: $50M < $500M]
+            BetaFiltered[📈 Beta Issues: 12<br/>• VOLATILE: 3.5 > 2.0]
+            OptionsFiltered[📊 No Options: 8<br/>• NO_OPTIONS: Not available]
+            ExchangeFiltered[🏢 Exchange: 13<br/>• OTC_STOCK: OTCQB not allowed]
         end
     end
     
     subgraph "📊 Statistics & Logging"
-        Stats[Filter Efficiency: 70%<br/>Quality Focus Achieved<br/>API Calls Minimized<br/>Cache Hit Rate: 85%]
+        Stats[📊 Filter Efficiency: 70%<br/>Quality Focus Achieved<br/>API Calls Minimized<br/>Cache Hit Rate: 85%]
     end
     
     TickerInput --> FMPProfile
@@ -381,67 +345,54 @@ graph TD
 
 ```mermaid
 flowchart TD
-    Input[📊 Enhanced Ticker Analysis<br/>• Neural Prediction<br/>• Technical Signal<br/>• Earnings Data<br/>• Fundamental Quality] --> NewsCheck{News Analysis<br/>Available?}
+    Input[📊 Enhanced Ticker Analysis<br/>• Neural Prediction<br/>• Technical Signal<br/>• Earnings Data<br/>• Fundamental Quality] --> NewsCheck{📰 News Analysis<br/>Available?}
     
     NewsCheck -->|No| NoDecision[❌ NONE Decision<br/>Insufficient Data]
     NewsCheck -->|Yes| NeuralCheck{🚀 Enhanced Neural<br/>Prediction Available?}
     
-    NeuralCheck -->|Yes| NeuralConf{Neural Confidence<br/>≥ 0.7?}
-    NeuralCheck -->|No| TraditionalCheck{Traditional Analysis<br/>Available?}
+    NeuralCheck -->|Yes| NeuralConf{🧠 Neural Confidence<br/>≥ 0.7?}
+    NeuralCheck -->|No| TraditionalCheck{🤖 Traditional Analysis<br/>Available?}
     
     NeuralConf -->|Yes| PriorityNeural[🚀 Neural Priority Path<br/>Weight: 45%<br/>High Confidence Route]
     NeuralConf -->|No| TraditionalCheck
     
-    TraditionalCheck -->|Yes| ConfCheck{Combined Confidence<br/>≥ 0.5?}
+    TraditionalCheck -->|Yes| ConfCheck{📊 Combined Confidence<br/>≥ 0.5?}
     TraditionalCheck -->|No| NoDecision
     
     ConfCheck -->|No| LowConf[❌ NONE Decision<br/>Low Confidence]
-    ConfCheck -->|Yes| TechCheck{Technical Analysis<br/>Available?}
+    ConfCheck -->|Yes| TechCheck{📈 Technical Analysis<br/>Available?}
     
-    PriorityNeural --> EarningsBoost{🎙️ Earnings Transcript<br/>Data Available?}
-    TechCheck --> EarningsBoost
+    PriorityNeural --> EarningsCheck{🎙️ Earnings Transcript<br/>Available?}
+    TechCheck --> EarningsCheck
     
-    EarningsBoost -->|Yes| EarningsWeight[📈 +5% Confidence Boost<br/>Rich Earnings Context]
-    EarningsBoost -->|No| Conflict
-    EarningsWeight --> Conflict
+    EarningsCheck -->|Yes| EarningsWeight[🎙️ Earnings Boost<br/>+2-3% Accuracy<br/>Enhanced Context]
+    EarningsCheck -->|No| CombineAnalysis[📊 Standard Analysis<br/>News + Technical]
     
-    TechCheck -->|Yes| Conflict{Signals<br/>Conflict?}
-    TechCheck -->|No| NewsOnly[📰 News-Only Analysis<br/>Weight: 100%]
-    
-    Conflict -->|Yes| ConflictCheck{Conflict Confidence<br/>≥ 0.65?}
-    Conflict -->|No| Combine[⚖️ Enhanced Combination<br/>Neural: 45% | FinBERT: 25%<br/>LLMs: 47% | Tech: 30%]
-    
-    ConflictCheck -->|No| ConflictDecision[❌ NONE Decision<br/>Conflicting Signals]
-    ConflictCheck -->|Yes| Combine
-    
-    NewsOnly --> ScoreCalc[📊 Calculate Final Score<br/>Apply Neural Weighting]
-    Combine --> ScoreCalc
-    
-    ScoreCalc --> FundamentalCheck{🔍 Passed Fundamental<br/>Filtering?}
+    EarningsWeight --> FundamentalCheck{🔍 Fundamental Filter<br/>Passed?}
+    CombineAnalysis --> FundamentalCheck
     
     FundamentalCheck -->|No| FundamentalReject[❌ NONE Decision<br/>Failed Quality Check]
-    FundamentalCheck -->|Yes| Direction{Enhanced Combined Score}
+    FundamentalCheck -->|Yes| FinalCheck{⚖️ Final Confidence<br/>≥ 0.6?}
     
-    Direction -->|> 0.25| Long[📈 LONG Decision<br/>High Quality Signal]
-    Direction -->|< -0.25| Short[📉 SHORT Decision<br/>High Quality Signal]
-    Direction -->|-0.25 to 0.25| Neutral[➡️ NEUTRAL Decision<br/>Unclear Signal]
-    
-    Long --> FinalCheck{Final Confidence<br/>≥ 0.6?}
-    Short --> FinalCheck
-    Neutral --> FinalCheck
-    
-    FinalCheck -->|Yes| LogDecision[✅ Log Enhanced Decision<br/>• Neural Analysis Details<br/>• Earnings Insights<br/>• Fundamental Metrics]
+    FinalCheck -->|Yes| DecisionType{📊 Decision Direction}
     FinalCheck -->|No| SkipLogging[❌ Skip Logging<br/>Below Threshold]
     
-    LogDecision --> TrackingCheck{LONG or SHORT<br/>Decision?}
+    DecisionType -->|Long Signal| Long[📈 LONG Decision]
+    DecisionType -->|Short Signal| Short[📉 SHORT Decision]
+    DecisionType -->|Conflicted| Neutral[⚖️ NEUTRAL Decision]
+    
+    Long --> LogDecision[✅ Log Enhanced Decision<br/>• Neural Analysis Details<br/>• Earnings Insights<br/>• Fundamental Metrics]
+    Short --> LogDecision
+    Neutral --> LogDecision
+    
+    LogDecision --> TrackingCheck{📊 LONG or SHORT<br/>Decision?}
     TrackingCheck -->|Yes| StartTracking[📈 Start Enhanced Tracking<br/>• Get Baseline Price<br/>• Schedule Checkpoints<br/>• GPU Accelerated]
-    TrackingCheck -->|No| Complete[Complete Analysis]
+    TrackingCheck -->|No| Complete[✅ Complete Analysis]
     
     StartTracking --> Complete
     SkipLogging --> Complete
     NoDecision --> Complete
     LowConf --> Complete
-    ConflictDecision --> Complete
     FundamentalReject --> Complete
     
     style PriorityNeural fill:#ff6b6b,color:#fff
@@ -461,24 +412,24 @@ gantt
     dateFormat  HH:mm
     axisFormat %H:%M
     
-    section AAPL (🚀 Neural LONG at 10:00)
+    section AAPL Neural LONG at 10:00
     Neural Analysis Complete    :milestone, n1, 10:00, 0m
-    Baseline Price $150.25      :milestone, m1, 10:00, 0m
-    45m Check $151.30 (+0.70%)  :milestone, m2, 10:45, 0m
-    1hr Check $152.10 (+1.23%)  :milestone, m3, 11:00, 0m
-    Close $149.80 (-0.30%)      :milestone, m4, 15:50, 0m
+    Baseline Price 150.25       :milestone, m1, 10:00, 0m
+    45m Check 151.30 +0.70pct   :milestone, m2, 10:45, 0m
+    1hr Check 152.10 +1.23pct   :milestone, m3, 11:00, 0m
+    Close 149.80 -0.30pct       :milestone, m4, 15:50, 0m
     
-    section TSLA (🤖 Traditional SHORT at 14:00)
+    section TSLA Traditional SHORT at 14:00
     Traditional Analysis        :milestone, t0, 14:00, 0m
-    Baseline Price $200.50      :milestone, t1, 14:00, 0m
-    45m Check $198.20 (-1.15%)  :milestone, t2, 14:45, 0m
-    1hr Check $195.80 (-2.34%)  :milestone, t3, 15:00, 0m
-    Close $196.50 (-2.00%)      :milestone, t4, 15:50, 0m
+    Baseline Price 200.50       :milestone, t1, 14:00, 0m
+    45m Check 198.20 -1.15pct   :milestone, t2, 14:45, 0m
+    1hr Check 195.80 -2.34pct   :milestone, t3, 15:00, 0m
+    Close 196.50 -2.00pct       :milestone, t4, 15:50, 0m
     
-    section MSFT (🎙️ Earnings + Neural LONG at 15:30)
+    section MSFT Earnings Neural LONG at 15:30
     Earnings Transcript Boost   :milestone, ms0, 15:30, 0m
-    Baseline Price $300.00      :milestone, ms1, 15:30, 0m
-    Close Only $301.50 (+0.50%) :milestone, ms2, 15:50, 0m
+    Baseline Price 300.00       :milestone, ms1, 15:30, 0m
+    Close Only 301.50 +0.50pct  :milestone, ms2, 15:50, 0m
     
     section GPU-Accelerated Background Scheduler
     Enhanced Monitoring         :active, sched, 10:00, 06:00
@@ -626,8 +577,8 @@ python main.py
 ```mermaid
 graph LR
     subgraph "📈 Accuracy Progression"
-        Basic[Basic System<br/>~75% Accuracy<br/>Keyword Analysis Only]
-        Traditional[Traditional System<br/>~85% Accuracy<br/>FinBERT + LLMs]
+        Basic[📊 Basic System<br/>~75% Accuracy<br/>Keyword Analysis Only]
+        Traditional[🤖 Traditional System<br/>~85% Accuracy<br/>FinBERT + LLMs]
         Enhanced[🚀 Enhanced System<br/>94-96% Accuracy<br/>Neural + Earnings + Filtering]
     end
     
@@ -664,21 +615,21 @@ graph LR
 ```mermaid
 graph TB
     subgraph "💻 System Resources"
-        CPU[CPU Usage<br/>📊 Medium<br/>2-4 cores utilized<br/>Enhanced neural processing]
+        CPU[🖥️ CPU Usage<br/>📊 Medium<br/>2-4 cores utilized<br/>Enhanced neural processing]
         
-        GPU[GPU Usage (Optional)<br/>🚀 High when available<br/>Accelerates neural analysis<br/>5-10x speed boost]
+        GPU[🎮 GPU Usage Optional<br/>🚀 High when available<br/>Accelerates neural analysis<br/>5-10x speed boost]
         
-        RAM[Memory Usage<br/>💾 6-8GB recommended<br/>Model caching<br/>Batch processing]
+        RAM[💾 Memory Usage<br/>💾 6-8GB recommended<br/>Model caching<br/>Batch processing]
         
-        Storage[Storage Usage<br/>💿 ~5GB total<br/>2-3GB models (one-time)<br/>500MB cache databases]
+        Storage[💿 Storage Usage<br/>💿 ~5GB total<br/>2-3GB models one-time<br/>500MB cache databases]
     end
     
     subgraph "🌐 API Usage"
-        FMP[FMP API Calls<br/>📡 300-500/cycle<br/>News + Transcripts + Fundamentals<br/>Well within limits]
+        FMP[🏢 FMP API Calls<br/>📡 300-500/cycle<br/>News + Transcripts + Fundamentals<br/>Well within limits]
         
-        LLM[LLM API Calls<br/>🤖 50-100/cycle<br/>Only for enabled services<br/>Neural reduces dependency]
+        LLM[🤖 LLM API Calls<br/>🤖 50-100/cycle<br/>Only for enabled services<br/>Neural reduces dependency]
         
-        Cache[Caching Efficiency<br/>💾 85% hit rate<br/>24-hour fundamental cache<br/>Reduces API calls]
+        Cache[💾 Caching Efficiency<br/>💾 85% hit rate<br/>24-hour fundamental cache<br/>Reduces API calls]
     end
     
     style GPU fill:#ff6b6b,color:#fff
@@ -696,7 +647,7 @@ erDiagram
         string timestamp "Analysis timestamp"
         string ticker "Stock symbol"
         string decision "LONG|SHORT|NONE"
-        float confidence "0.0-1.0 (typically 0.7-0.9)"
+        float confidence "0.0-1.0 typically 0.7-0.9"
         string reasoning "Enhanced analysis details"
         
         float news_score "-1.0 to 1.0"
@@ -723,12 +674,12 @@ erDiagram
         
         float recommendation_price "Entry price"
         string recommendation_timestamp "Decision time"
-        float price_45m "45-minute checkpoint"
-        string price_45m_timestamp "Checkpoint time"
-        float price_45m_change_pct "Percentage change"
-        float price_1hr "1-hour checkpoint"
-        string price_1hr_timestamp "Checkpoint time"
-        float price_1hr_change_pct "Percentage change"
+        float price_checkpoint1 "45-minute checkpoint"
+        string price_checkpoint1_timestamp "Checkpoint time"
+        float price_checkpoint1_change_pct "Percentage change"
+        float price_checkpoint2 "1-hour checkpoint"
+        string price_checkpoint2_timestamp "Checkpoint time"
+        float price_checkpoint2_change_pct "Percentage change"
         float price_close "Market close price"
         string price_close_timestamp "Close time"
         float price_close_change_pct "Daily performance"
@@ -743,7 +694,7 @@ erDiagram
 
 ### **Sample Enhanced Output**
 ```csv
-timestamp,ticker,decision,confidence,reasoning,neural_analysis_details,has_earnings_data,passed_fundamental_filter,recommendation_price,price_45m_change_pct
+timestamp,ticker,decision,confidence,reasoning,neural_analysis_details,has_earnings_data,passed_fundamental_filter,recommendation_price,price_checkpoint1_change_pct
 2024-01-15T10:30:00Z,AAPL,LONG,0.847,"Enhanced neural analysis: 94.2% accuracy model with earnings transcript boost","{\"sentiment_intensity\": 0.78, \"volatility_pred\": 0.23, \"pattern_boost\": 1.15}",true,true,150.25,+0.73
 2024-01-15T10:30:00Z,TSLA,SHORT,0.792,"Multi-source consensus with fundamental filtering confirmation","{\"neural_confidence\": 0.81, \"earnings_boost\": false, \"fundamental_score\": 0.89}",false,true,198.50,-1.24
 ```
@@ -791,13 +742,13 @@ graph LR
     end
     
     subgraph "🚨 Alert Conditions"
-        LowAccuracy[Accuracy < 90%<br/>Check model loading]
+        LowAccuracy[📉 Accuracy < 90%<br/>Check model loading]
         
-        LowConfidence[Avg confidence < 0.6<br/>Increase thresholds]
+        LowConfidence[📉 Avg confidence < 0.6<br/>Increase thresholds]
         
-        SlowProcessing[>30 sec/ticker<br/>Check GPU, reduce load]
+        SlowProcessing[⏱️ >30 sec/ticker<br/>Check GPU, reduce load]
         
-        NoEarnings[<5% earnings coverage<br/>Check API quotas]
+        NoEarnings[📊 <5% earnings coverage<br/>Check API quotas]
     end
     
     Accuracy --> LowAccuracy
@@ -851,21 +802,21 @@ nvidia-smi  # Check GPU usage (if available)
 ```mermaid
 graph TD
     subgraph "📈 Before Enhancement"
-        OldSystem[Traditional System<br/>85% Accuracy<br/>0.65 Avg Confidence<br/>Analysis of all tickers]
+        OldSystem[🤖 Traditional System<br/>85% Accuracy<br/>0.65 Avg Confidence<br/>Analysis of all tickers]
     end
     
     subgraph "🚀 After Enhancement"
-        NewSystem[Enhanced System<br/>94-96% Accuracy<br/>0.78 Avg Confidence<br/>Quality-filtered tickers only]
+        NewSystem[🚀 Enhanced System<br/>94-96% Accuracy<br/>0.78 Avg Confidence<br/>Quality-filtered tickers only]
     end
     
     subgraph "💰 Business Impact"
-        FewerErrors[Fewer False Positives<br/>-60% bad decisions<br/>Better risk management]
+        FewerErrors[❌ Fewer False Positives<br/>-60% bad decisions<br/>Better risk management]
         
-        HigherReturns[Higher Returns<br/>+15-25% improvement<br/>Compound over time]
+        HigherReturns[📈 Higher Returns<br/>+15-25% improvement<br/>Compound over time]
         
-        BetterTiming[Better Entry/Exit<br/>Enhanced price tracking<br/>Real-time monitoring]
+        BetterTiming[⏰ Better Entry/Exit<br/>Enhanced price tracking<br/>Real-time monitoring]
         
-        InstitutionalGrade[Institutional Quality<br/>Professional-level analysis<br/>Scalable architecture]
+        InstitutionalGrade[🏛️ Institutional Quality<br/>Professional-level analysis<br/>Scalable architecture]
     end
     
     OldSystem --> NewSystem
@@ -888,6 +839,54 @@ graph TD
 | **🔍 Fundamental Filtering** | Quality focus | Risk reduction, better execution |
 | **📈 Price Tracking** | Real-time monitoring | Improved entry/exit timing |
 | **🤖 Multi-LLM Ensemble** | Consensus validation | Reduced model bias |
+
+---
+
+## 📁 **Project Structure**
+
+```
+news_cruncher/
+├── 📄 main.py                          # Enhanced main execution file
+├── ⚙️ config.py                        # Enhanced configuration system
+├── 📋 .env.example                     # Configuration template
+├── 
+├── 📊 analysis/
+│   ├── 🧠 enhanced_neural_analyzer.py  # NEW: 94-96% accuracy neural network
+│   ├── 🤖 finbert_analyzer.py          # FinBERT integration
+│   ├── 🔀 multi_llm_analyzer.py        # Enhanced multi-service analyzer
+│   ├── 📈 technical_analyzer.py        # Technical analysis
+│   └── 📋 __init__.py
+│
+├── 📡 data_loaders/
+│   ├── 🎙️ earnings_transcript_fetcher.py # NEW: Earnings call analysis
+│   ├── 📰 news_fetcher.py              # Enhanced news fetching
+│   ├── 🏢 fundamental_data_fetcher.py  # NEW: Company fundamentals
+│   ├── 🔗 base_fmp_loader.py           # FMP API base class
+│   └── 📋 __init__.py
+│
+├── 🗄️ database/
+│   ├── 📊 article_tracker.py           # Article deduplication
+│   ├── 💾 fundamental_cache.py         # NEW: Fundamental data cache
+│   └── 📋 __init__.py
+│
+├── 📈 price_tracking/
+│   ├── 💰 enhanced_price_tracker.py    # Enhanced price monitoring
+│   └── 📋 __init__.py
+│
+├── 🛠️ utils/
+│   ├── 📝 simple_logger.py             # Enhanced logging system
+│   ├── 🔧 ticker_aggregator.py         # Ticker consolidation
+│   └── 📋 __init__.py
+│
+├── 📁 data/                            # Auto-created directories
+│   ├── 🧠 enhanced_neural_model.pth    # Neural model cache
+│   ├── 🗄️ article_tracking.db         # SQLite database
+│   └── 💾 fundamental_cache.db         # Fundamental data cache
+│
+└── 📁 output/
+    ├── 📊 trading_decisions.csv        # Enhanced CSV output
+    └── 📝 system.log                   # System logs
+```
 
 ---
 

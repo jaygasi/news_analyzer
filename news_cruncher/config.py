@@ -1,268 +1,26 @@
 """
-Configuration for enhanced financial news analysis system with RoBERTa+LSTM/CNN and earnings transcripts
-Python 3.13.3 compatible with type hints and modern features
-
-🎯 CONFIGURATION GUIDE:
-This file controls all major aspects of the financial news analysis system.
-Each setting below includes detailed explanations of its impact on system behavior.
+Enhanced Configuration System for Financial News Analysis
+Manages all settings for neural networks, earnings analysis, and fundamental filtering
+Python 3.13.3 compatible - FIXED VERSION
 """
 import os
+import sys
 from pathlib import Path
 from typing import List, Dict, Any
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load environment variables from .env file
 load_dotenv()
 
 
 class Config:
-    """
-    Configuration class for the enhanced financial news analysis system
-    
-    💡 TIP: Most settings can be overridden via environment variables
-    Example: Set ENABLE_FINBERT=false in .env to disable FinBERT
-    """
+    """Enhanced configuration class with neural networks and earnings analysis settings"""
     
     # ================================================================
-    # 🔑 API KEYS - Required for various services
+    # 🗂️ BASE DIRECTORY CONFIGURATION
     # ================================================================
     
-    # 🚨 REQUIRED: FMP (Financial Modeling Prep) API Key
-    # EFFECT: Without this, the entire system cannot fetch news data
-    # GET KEY: https://financialmodelingprep.com/developer/docs
-    FMP_API_KEY: str = os.getenv('FMP_API_KEY', '')
-    FMP_REQUESTS_PER_MINUTE: int = 300  # FMP API rate limit
-    
-    # 🤖 AI/LLM Service API Keys (Optional but recommended for best results)
-    # EFFECT: More services enabled = more robust predictions via consensus
-    
-    # Google Gemini API Key
-    # EFFECT: Adds Google's LLM analysis (20% weight in multi-source with enhanced neural)
-    # COST: Free tier: 15 requests/minute, 1500 requests/day
-    GEMINI_API_KEY: str = os.getenv('GEMINI_API_KEY', '')
-    
-    # OpenAI API Key  
-    # EFFECT: Adds GPT analysis (12% weight in multi-source with enhanced neural)
-    # COST: Pay-per-use, can be expensive with high volume
-    OPENAI_API_KEY: str = os.getenv('OPENAI_API_KEY', '')
-    
-    # Anthropic Claude API Key
-    # EFFECT: Adds Claude analysis (10% weight in multi-source with enhanced neural)  
-    # COST: Pay-per-use, good quality but limited free tier
-    ANTHROPIC_API_KEY: str = os.getenv('ANTHROPIC_API_KEY', '')
-    
-    # 🚨 Emergency fallback APIs (Optional but recommended for robustness)
-    # EFFECT: Provide backup analysis when primary LLMs fail or hit quotas
-    
-    # Alpha Vantage API Key
-    # EFFECT: Adds news sentiment analysis (8% weight)
-    # COST: Free tier: 5 calls/minute, 500 calls/day
-    ALPHA_VANTAGE_API_KEY: str = os.getenv('ALPHA_VANTAGE_API_KEY', '')
-    
-    # Polygon API Key
-    # EFFECT: Adds news analysis via Polygon's news API (6% weight)
-    # COST: Free tier: 5 calls/minute, quite restrictive
-    POLYGON_API_KEY: str = os.getenv('POLYGON_API_KEY', '')
-    
-    # Tiingo API Key
-    # EFFECT: Adds news analysis via Tiingo's API (3% weight)
-    # COST: Free tier available, good for backup
-    TIINGO_API_KEY: str = os.getenv('TIINGO_API_KEY', '')
-    
-    # ================================================================
-    # 🔧 SERVICE ENABLE/DISABLE TOGGLES
-    # ================================================================
-    
-    # 🧠 FinBERT (Financial BERT) - Local ML Model
-    # EFFECT: Provides specialized financial sentiment analysis (25% weight)
-    # REQUIREMENT: Requires PyTorch and Transformers libraries
-    # PERFORMANCE: CPU-based, adds ~2-3 seconds per analysis
-    # RECOMMENDATION: Keep enabled - it's free and finance-specific
-    ENABLE_FINBERT: bool = os.getenv('ENABLE_FINBERT', 'true').lower() == 'true'
-    
-    # 🚀 NEW: Enhanced Neural Analyzer (RoBERTa + LSTM + CNN)
-    # EFFECT: State-of-the-art hybrid model with 94-96% accuracy (45% weight)
-    # REQUIREMENT: Requires PyTorch, Transformers, and sufficient RAM/VRAM
-    # PERFORMANCE: GPU recommended, adds ~5-8 seconds per analysis but much higher accuracy
-    # RECOMMENDATION: Enable for best results - dramatically improves prediction quality
-    ENABLE_ENHANCED_NEURAL: bool = os.getenv('ENABLE_ENHANCED_NEURAL', 'true').lower() == 'true'
-    
-    # 🌟 Google Gemini - High-quality LLM
-    # EFFECT: Provides sophisticated language understanding (20% weight with enhanced neural)
-    # RATE LIMITS: 15 requests/minute, 1500/day on free tier
-    # RECOMMENDATION: Keep enabled - excellent free tier
-    ENABLE_GEMINI: bool = os.getenv('ENABLE_GEMINI', 'true').lower() == 'true'
-    
-    # 💰 OpenAI GPT Models
-    # EFFECT: High-quality analysis but can be expensive (12% weight with enhanced neural)
-    # RATE LIMITS: Depends on your billing tier
-    # RECOMMENDATION: Disable if you're cost-conscious, enable for best quality
-    ENABLE_OPENAI: bool = os.getenv('ENABLE_OPENAI', 'false').lower() == 'true'
-    
-    # 🎭 Anthropic Claude
-    # EFFECT: Good analysis quality, different perspective (10% weight with enhanced neural)
-    # RATE LIMITS: Limited free tier, pay-per-use
-    # RECOMMENDATION: Enable if you have credits, otherwise keep disabled
-    ENABLE_CLAUDE: bool = os.getenv('ENABLE_CLAUDE', 'false').lower() == 'true'
-    
-    # 📊 Alpha Vantage News Sentiment
-    # EFFECT: Provides real market sentiment data (8% weight with enhanced neural)
-    # RATE LIMITS: 5 calls/minute, 500/day free
-    # RECOMMENDATION: Enable for additional market context
-    ENABLE_ALPHA_VANTAGE: bool = os.getenv('ENABLE_ALPHA_VANTAGE', 'true').lower() == 'true'
-    
-    # 📈 Polygon News Analysis
-    # EFFECT: Market data company's news analysis (6% weight with enhanced neural)
-    # RATE LIMITS: 5 calls/minute on free tier (very restrictive)
-    # RECOMMENDATION: Disable unless you have a paid Polygon plan
-    ENABLE_POLYGON: bool = os.getenv('ENABLE_POLYGON', 'false').lower() == 'true'
-    
-    # 📊 Tiingo News Analysis
-    # EFFECT: Additional financial news analysis (3% weight with enhanced neural)
-    # RATE LIMITS: Free tier available, good backup option
-    # RECOMMENDATION: Enable as low-weight backup source
-    ENABLE_TIINGO: bool = os.getenv('ENABLE_TIINGO', 'false').lower() == 'true'
-    
-    # 🎯 Keyword Sentiment Analysis (Fallback)
-    # EFFECT: Local keyword-based sentiment when APIs are unavailable (2% weight with enhanced neural)
-    # PERFORMANCE: Instant, no API calls required
-    # RECOMMENDATION: Always keep enabled - provides guaranteed analysis
-    ENABLE_KEYWORD_SENTIMENT: bool = os.getenv('ENABLE_KEYWORD_SENTIMENT', 'true').lower() == 'true'
-      
-    # ================================================================
-    # 🔍 FUNDAMENTAL FILTERING CONFIGURATION
-    # ================================================================
-    
-    # 🎯 Enable/Disable Fundamental Filtering
-    # EFFECT: Filters tickers based on company fundamentals before analysis
-    # RECOMMENDATION: Enable to focus on quality, liquid stocks
-    ENABLE_FUNDAMENTAL_FILTERING: bool = os.getenv('ENABLE_FUNDAMENTAL_FILTERING', 'true').lower() == 'true'
-    
-    # 💰 Stock Price Range
-    # EFFECT: Eliminates penny stocks and ultra-expensive stocks
-    # RANGE: Recommended $5-$500 for most strategies
-    MIN_STOCK_PRICE: float = float(os.getenv('MIN_STOCK_PRICE', '10.00'))
-    MAX_STOCK_PRICE: float = float(os.getenv('MAX_STOCK_PRICE', '300.00'))
-    
-    # 📊 Volume Requirements
-    # EFFECT: Ensures adequate liquidity for position entry/exit
-    # MIN_AVG_VOLUME: Average daily share volume (500K = good liquidity)
-    # MIN_DOLLAR_VOLUME: Daily dollar volume (price × volume)
-    MIN_AVG_VOLUME: int = int(os.getenv('MIN_AVG_VOLUME', '500000'))  # 500K shares
-    MIN_DOLLAR_VOLUME: int = int(os.getenv('MIN_DOLLAR_VOLUME', '5000000'))  # $5M daily
-    
-    # 🏢 Company Size Requirements
-    # EFFECT: Focuses on established companies vs. micro-caps
-    # RANGE: $100M+ = small-cap, $500M+ = more established
-    MIN_MARKET_CAP: int = int(os.getenv('MIN_MARKET_CAP', '500000000'))  # $500M
-    
-    # 📈 Volatility Limits
-    # EFFECT: Avoids extremely volatile stocks (beta > 2.0)
-    # RANGE: 1.0 = market volatility, 2.0 = twice market volatility
-    MAX_VOLATILITY_BETA: float = float(os.getenv('MAX_VOLATILITY_BETA', '2.0'))
-    
-    # 🎯 Options Requirement
-    # EFFECT: Options availability indicates institutional interest & liquidity
-    # RECOMMENDATION: True for better liquidity, False for more stock choices
-    REQUIRE_OPTIONS: bool = os.getenv('REQUIRE_OPTIONS', 'true').lower() == 'true'
-    
-    # 🏛️ Exchange Requirements
-    # EFFECT: Restricts to major exchanges for better regulation/reporting
-    # SUPPORTED: NASDAQ, NYSE, NYSEArca, AMEX, OTC
-    ALLOWED_EXCHANGES: List[str] = os.getenv('ALLOWED_EXCHANGES', 'NASDAQ,NYSE,NYSEArca').split(',')
-    
-    # ⚡ Fundamental Data Caching
-    # EFFECT: Cache duration for company fundamental data (reduces API calls)
-    # RANGE: 1-48 hours (fundamentals change slowly)
-    FUNDAMENTAL_CACHE_HOURS: int = int(os.getenv('FUNDAMENTAL_CACHE_HOURS', '24'))
-    
-    # ================================================================
-    # 📊 ANALYSIS LIMITS - Control processing volume and quality
-    # ================================================================
-    
-    # 📈 Decision Confidence Threshold
-    # CURRENT: 0.6 (60% confidence)
-    # EFFECT: Only decisions above this confidence are logged to CSV
-    # RANGE: 0.4-0.9 recommended
-    # NOTE: Enhanced neural model typically produces higher confidence scores
-    # EXAMPLE: 0.4 = more decisions logged (lower precision)
-    #          0.8 = fewer decisions logged (higher precision)
-    MIN_CONFIDENCE_THRESHOLD: float = float(os.getenv('MIN_CONFIDENCE_THRESHOLD', '0.6'))
-    
-    # 📰 News Article Limits
-    # CURRENT: 1000 articles per cycle
-    # EFFECT: Caps total articles processed to manage API costs and speed
-    # RANGE: 100-2000 articles recommended
-    # NOTE: Enhanced neural analysis is more processing-intensive
-    # EXAMPLE: 100 = faster processing, lower API usage
-    #          2000 = more comprehensive analysis, higher costs
-    MAX_NEWS_ARTICLES: int = int(os.getenv('MAX_NEWS_ARTICLES', '1000'))
-    
-    # 🎯 Ticker Analysis Limit
-    # CURRENT: 100 tickers per cycle
-    # EFFECT: Maximum tickers to run full analysis on (prioritized by article count)
-    # RANGE: 25-200 tickers recommended
-    # NOTE: Enhanced neural analysis takes longer per ticker but is more accurate
-    # EXAMPLE: 50 = faster cycles, focus on top tickers
-    #          200 = comprehensive coverage, slower processing
-    MAX_TICKERS_TO_ANALYZE: int = int(os.getenv('MAX_TICKERS_TO_ANALYZE', '100'))
-    
-    # 📝 News Source Configuration
-    # CURRENT: Multiple sources including earnings, press releases, general news
-    # EFFECT: Which news types to fetch and analyze
-    # SOURCES: earnings, press-releases, stock-news, general-news, earnings-transcripts
-    NEWS_SOURCES: List[str] = os.getenv('NEWS_SOURCES', 'earnings,press-releases,stock-news').split(',')
-    
-    # ⏱️ LLM Request Delay
-    # CURRENT: 1.0 seconds between LLM API calls
-    # EFFECT: Prevents hitting rate limits, reduces errors
-    # RANGE: 0.1-5.0 seconds recommended
-    # NOTE: Enhanced neural analysis is local, no API delay needed
-    # EXAMPLE: 0.5 = faster processing, risk of rate limits
-    #          2.0 = conservative, guaranteed to stay under limits
-    LLM_REQUEST_DELAY: float = float(os.getenv('LLM_REQUEST_DELAY', '1.0'))
-    
-    # 📏 Article Quality Filter
-    # CURRENT: 50 characters minimum
-    # EFFECT: Filters out very short/low-quality articles
-    # RANGE: 20-200 characters
-    # EXAMPLE: 100 = stricter quality filtering
-    #          20 = accept more brief articles
-    MIN_NEWS_LENGTH: int = 50
-    
-    # ================================================================
-    # ⏰ TIME CONFIGURATION - Controls how far back to look for news
-    # ================================================================
-    
-    # 🏁 Default News Age for First Run
-    # CURRENT: 24 hours
-    # EFFECT: On first run, how far back to look for news
-    # RANGE: 1-48 hours recommended
-    # EXAMPLE: 6 = only very recent news on startup
-    #          48 = capture more historical context
-    DEFAULT_NEWS_AGE_HOURS: int = 24  # Used for first run only
-    
-    # ⏰ Maximum News Age (Safety Cap)
-    # CURRENT: 72 hours (3 days)
-    # EFFECT: Even if system was down for weeks, never look back more than this
-    # RANGE: 24-168 hours (1-7 days)
-    # EXAMPLE: 24 = always fresh news only
-    #          168 = willing to process week-old news after downtime
-    MAX_NEWS_AGE_HOURS: int = 72     # Maximum lookback even if last run was longer ago
-    
-    # ⚡ Minimum Gap Between Runs
-    # CURRENT: 5 minutes
-    # EFFECT: Prevents too-frequent processing (API rate limiting protection)
-    # RANGE: 1-60 minutes
-    # EXAMPLE: 1 = very frequent updates (higher API usage)
-    #          30 = conservative, less frequent updates
-    MIN_NEWS_AGE_MINUTES: int = 5    # Minimum gap to prevent too-frequent fetching
-    
-    # ================================================================
-    # 📁 FILE PATHS - Where data is stored
-    # ================================================================
-    
-    # 🏠 Base Directory (Auto-detected)
+    # Base Directory (Auto-detected)
     BASE_DIR: Path = Path(__file__).parent
     DATA_DIR: Path = BASE_DIR / 'data'
     OUTPUT_DIR: Path = BASE_DIR / 'output'
@@ -345,6 +103,15 @@ class Config:
     # Enable/disable earnings event analysis
     ENABLE_EARNINGS_EVENTS: bool = os.getenv('ENABLE_EARNINGS_EVENTS', 'true').lower() == 'true'
     
+    # FIXED: Add the missing MAX_EARNINGS_EVENTS_PER_CYCLE configuration
+    # Maximum number of earnings transcripts to fetch per cycle
+    # CURRENT: 15 transcripts per cycle
+    # EFFECT: Limits API usage and processing time for earnings transcripts
+    # RANGE: 5-50 recommended depending on API quota
+    # EXAMPLE: 5 = conservative, faster processing
+    #          25 = comprehensive analysis, higher API usage
+    MAX_EARNINGS_EVENTS_PER_CYCLE: int = int(os.getenv('MAX_EARNINGS_EVENTS_PER_CYCLE', '15'))
+    
     # Earnings event detection window (days)
     EARNINGS_LOOKBACK_DAYS: int = int(os.getenv('EARNINGS_LOOKBACK_DAYS', '3'))
     EARNINGS_LOOKAHEAD_DAYS: int = int(os.getenv('EARNINGS_LOOKAHEAD_DAYS', '7'))
@@ -379,132 +146,185 @@ class Config:
         enabled = []
         if cls.ENABLE_ENHANCED_NEURAL:
             enabled.append('enhanced_neural')
-        if cls.ENABLE_FINBERT and cls.has_finbert_dependencies():
+        if cls.ENABLE_FINBERT:
             enabled.append('finbert')
-        if cls.ENABLE_GEMINI and cls.GEMINI_API_KEY:
+        if cls.ENABLE_GEMINI:
             enabled.append('gemini')
-        if cls.ENABLE_OPENAI and cls.OPENAI_API_KEY:
+        if cls.ENABLE_OPENAI:
             enabled.append('openai')
-        if cls.ENABLE_CLAUDE and cls.ANTHROPIC_API_KEY:
+        if cls.ENABLE_CLAUDE:
             enabled.append('claude')
-        return enabled
-    
-    @classmethod
-    def get_enabled_emergency_services(cls) -> List[str]:
-        """
-        Get list of enabled emergency services
-        
-        EFFECT: Returns fallback services for when primary LLMs fail
-        EXAMPLE: ['alpha_vantage', 'polygon'] if those are configured
-        """
-        enabled = []
-        if cls.ENABLE_ALPHA_VANTAGE and cls.ALPHA_VANTAGE_API_KEY:
+        if cls.ENABLE_ALPHA_VANTAGE:
             enabled.append('alpha_vantage')
-        if cls.ENABLE_POLYGON and cls.POLYGON_API_KEY:
+        if cls.ENABLE_POLYGON:
             enabled.append('polygon')
-        if cls.ENABLE_TIINGO and cls.TIINGO_API_KEY:
+        if cls.ENABLE_TIINGO:
             enabled.append('tiingo')
         return enabled
     
-    @classmethod
-    def has_finbert_dependencies(cls) -> bool:
-        """
-        Check if FinBERT dependencies are available
-        
-        EFFECT: Determines if FinBERT can be enabled
-        REQUIREMENT: Requires 'pip install torch transformers'
-        """
-        try:
-            import torch
-            import transformers
-            return True
-        except ImportError:
-            return False
+    # ================================================================
+    # 🔑 API KEYS & SERVICE CONFIGURATION
+    # ================================================================
     
-    @classmethod
-    def has_enhanced_neural_dependencies(cls) -> bool:
-        """
-        Check if Enhanced Neural dependencies are available
-        
-        EFFECT: Determines if Enhanced Neural can be enabled
-        REQUIREMENT: Requires 'pip install torch transformers numpy'
-        """
-        try:
-            import torch
-            import transformers
-            import numpy as np
-            return True
-        except ImportError:
-            return False
+    # 🏢 Financial Modeling Prep (FMP) - REQUIRED
+    # EFFECT: Primary data source for news, earnings, and price data
+    # COST: Free tier available, paid tiers for higher limits
+    # GET KEY: https://financialmodelingprep.com/developer/docs
+    FMP_API_KEY: str = os.getenv('FMP_API_KEY', '')
     
-    @classmethod
-    def create_directories(cls) -> None:
-        """
-        Create necessary directories if they don't exist
-        
-        EFFECT: Ensures data and output folders exist
-        SAFETY: Prevents file path errors on first run
-        """
-        cls.DATA_DIR.mkdir(exist_ok=True)
-        cls.OUTPUT_DIR.mkdir(exist_ok=True)
+    # 🧠 Enhanced Neural Analysis - HIGHEST ACCURACY
+    # CURRENT: ENABLED (94-96% accuracy)
+    # EFFECT: Uses RoBERTa+LSTM+CNN for superior sentiment analysis
+    # COST: Free (runs locally on CPU/GPU)
+    # PERFORMANCE: ~2-4GB RAM, 15-20 sec/ticker, GPU accelerated
+    ENABLE_ENHANCED_NEURAL: bool = os.getenv('ENABLE_ENHANCED_NEURAL', 'true').lower() == 'true'
     
-    @classmethod
-    def validate_api_keys(cls) -> Dict[str, bool]:
-        """
-        Validate that required API keys are present and enabled
-        
-        EFFECT: Shows which services are actually available
-        RETURN: Dictionary of service_name: available_boolean
-        """
-        return {
-            'fmp': bool(cls.FMP_API_KEY),
-            'gemini': bool(cls.GEMINI_API_KEY) and cls.ENABLE_GEMINI,
-            'openai': bool(cls.OPENAI_API_KEY) and cls.ENABLE_OPENAI,
-            'anthropic': bool(cls.ANTHROPIC_API_KEY) and cls.ENABLE_CLAUDE,
-            'alpha_vantage': bool(cls.ALPHA_VANTAGE_API_KEY) and cls.ENABLE_ALPHA_VANTAGE,
-            'polygon': bool(cls.POLYGON_API_KEY) and cls.ENABLE_POLYGON,
-            'tiingo': bool(cls.TIINGO_API_KEY) and cls.ENABLE_TIINGO
-        }
-
-    @classmethod
-    def get_config_summary(cls) -> Dict[str, Any]:
-        """
-        Get a summary of current configuration including enhanced features
-        
-        EFFECT: Useful for debugging and understanding current settings
-        RETURN: Dictionary with key configuration values
-        """
-        enabled_services = cls.get_enabled_llm_services() + cls.get_enabled_emergency_services()
-        
-        return {
-            'enabled_services': enabled_services,
-            'service_count': len(enabled_services),
-            'confidence_threshold': cls.MIN_CONFIDENCE_THRESHOLD,
-            'max_articles': cls.MAX_NEWS_ARTICLES,
-            'max_tickers': cls.MAX_TICKERS_TO_ANALYZE,
-            'news_age_range': f"{cls.MIN_NEWS_AGE_MINUTES}min - {cls.MAX_NEWS_AGE_HOURS}h",
-            'output_file': str(cls.CSV_OUTPUT_PATH),
-            'has_finbert_deps': cls.has_finbert_dependencies(),
-            'has_enhanced_neural_deps': cls.has_enhanced_neural_dependencies(),
-            'price_check_intervals': f"{cls.PRICE_CHECK_1_MINUTES}m, {cls.PRICE_CHECK_2_MINUTES}m",
-            'close_time': f"{cls.CLOSE_PRICE_HOUR:02d}:{cls.CLOSE_PRICE_MINUTE:02d} EST",
-            'generic_field_names': ['price_checkpoint1', 'price_checkpoint2', 'price_close'],
-            'fundamental_filtering': {
-                'enabled': cls.ENABLE_FUNDAMENTAL_FILTERING,
-                'price_range': f"${cls.MIN_STOCK_PRICE:.2f} - ${cls.MAX_STOCK_PRICE:.2f}",
-                'min_volume': f"{cls.MIN_AVG_VOLUME:,} shares",
-                'min_dollar_volume': f"${cls.MIN_DOLLAR_VOLUME:,}",
-                'min_market_cap': f"${cls.MIN_MARKET_CAP:,}",
-                'max_beta': cls.MAX_VOLATILITY_BETA,
-                'require_options': cls.REQUIRE_OPTIONS,
-                'allowed_exchanges': cls.ALLOWED_EXCHANGES
-            },
-            'enhanced_features': {
-                'enhanced_neural_enabled': cls.ENABLE_ENHANCED_NEURAL,
-                'EARNINGS_EVENTS_enabled': cls.ENABLE_EARNINGS_EVENTS,
-                'max_transcripts_per_cycle': cls.MAX_EARNINGS_EVENTS_PER_CYCLE
-            }
-        }
+    # 🤖 FinBERT Financial Sentiment Analysis - HIGH ACCURACY
+    # CURRENT: ENABLED (~85% accuracy)
+    # EFFECT: Financial domain-specific BERT model for sentiment
+    # COST: Free (runs locally)
+    # PERFORMANCE: ~1-2GB RAM, 5-10 sec/ticker
+    ENABLE_FINBERT: bool = os.getenv('ENABLE_FINBERT', 'true').lower() == 'true'
+    
+    # 🟢 Google Gemini - OPTIONAL HIGH QUALITY
+    # EFFECT: Google's advanced LLM for analysis
+    # COST: Free tier available with generous limits
+    # GET KEY: https://makersuite.google.com/app/apikey
+    GEMINI_API_KEY: str = os.getenv('GEMINI_API_KEY', '')
+    ENABLE_GEMINI: bool = os.getenv('ENABLE_GEMINI', 'false').lower() == 'true'
+    
+    # 🔵 OpenAI GPT - OPTIONAL HIGH QUALITY
+    # EFFECT: ChatGPT/GPT-4 for sentiment analysis
+    # COST: Pay-per-use, typically $0.01-0.10 per ticker
+    # GET KEY: https://platform.openai.com/api-keys
+    OPENAI_API_KEY: str = os.getenv('OPENAI_API_KEY', '')
+    ENABLE_OPENAI: bool = os.getenv('ENABLE_OPENAI', 'false').lower() == 'true'
+    
+    # 🟣 Anthropic Claude - OPTIONAL HIGH QUALITY  
+    # EFFECT: Claude for sophisticated analysis
+    # COST: Pay-per-use, competitive pricing
+    # GET KEY: https://console.anthropic.com/
+    CLAUDE_API_KEY: str = os.getenv('CLAUDE_API_KEY', '')
+    ENABLE_CLAUDE: bool = os.getenv('ENABLE_CLAUDE', 'false').lower() == 'true'
+    
+    # 📊 Alpha Vantage - FALLBACK SERVICE
+    # EFFECT: Financial news and sentiment analysis
+    # COST: Free tier available
+    # GET KEY: https://www.alphavantage.co/support/#api-key
+    ALPHA_VANTAGE_API_KEY: str = os.getenv('ALPHA_VANTAGE_API_KEY', '')
+    ENABLE_ALPHA_VANTAGE: bool = os.getenv('ENABLE_ALPHA_VANTAGE', 'false').lower() == 'true'
+    
+    # 🔺 Polygon - FALLBACK SERVICE
+    # EFFECT: Market news and sentiment
+    # COST: Free tier available
+    # GET KEY: https://polygon.io/
+    POLYGON_API_KEY: str = os.getenv('POLYGON_API_KEY', '')
+    ENABLE_POLYGON: bool = os.getenv('ENABLE_POLYGON', 'false').lower() == 'true'
+    
+    # 📈 Tiingo - FALLBACK SERVICE  
+    # EFFECT: Financial news analysis
+    # COST: Free tier available
+    # GET KEY: https://api.tiingo.com/
+    TIINGO_API_KEY: str = os.getenv('TIINGO_API_KEY', '')
+    ENABLE_TIINGO: bool = os.getenv('ENABLE_TIINGO', 'false').lower() == 'true'
+    
+    # 🔤 Enhanced Keyword Sentiment - ULTRA FALLBACK
+    # EFFECT: Rule-based sentiment analysis as last resort
+    # COST: Free (built-in)
+    # ACCURACY: ~60-70% (basic but reliable)
+    ENABLE_KEYWORD_SENTIMENT: bool = os.getenv('ENABLE_KEYWORD_SENTIMENT', 'true').lower() == 'true'
+    
+    # ================================================================
+    # 🔍 ENHANCED FUNDAMENTAL FILTERING CONFIGURATION
+    # ================================================================
+    
+    # Enable/disable fundamental filtering
+    ENABLE_FUNDAMENTAL_FILTERING: bool = os.getenv('ENABLE_FUNDAMENTAL_FILTERING', 'true').lower() == 'true'
+    
+    # Price range filtering
+    MIN_STOCK_PRICE: float = float(os.getenv('MIN_STOCK_PRICE', '3.00'))
+    MAX_STOCK_PRICE: float = float(os.getenv('MAX_STOCK_PRICE', '1000.00'))
+    
+    # Volume filtering
+    MIN_AVG_VOLUME: int = int(os.getenv('MIN_AVG_VOLUME', '250000'))  # Minimum average daily volume
+    MIN_DOLLAR_VOLUME: int = int(os.getenv('MIN_DOLLAR_VOLUME', '5000000'))  # Minimum daily dollar volume
+    
+    # Market cap filtering
+    MIN_MARKET_CAP: int = int(os.getenv('MIN_MARKET_CAP', '250000000'))  # $250M minimum
+    
+    # Risk filtering
+    MAX_VOLATILITY_BETA: float = float(os.getenv('MAX_VOLATILITY_BETA', '2.0'))  # Maximum beta (volatility)
+    
+    # Options availability
+    REQUIRE_OPTIONS: bool = os.getenv('REQUIRE_OPTIONS', 'false').lower() == 'true'
+    
+    # Exchange filtering
+    ALLOWED_EXCHANGES: List[str] = os.getenv('ALLOWED_EXCHANGES', 'NASDAQ,NYSE,NYSEArca,CBOE,BATS,AMEX').split(',')
+    
+    # ================================================================
+    # 📊 ANALYSIS THRESHOLDS & LIMITS
+    # ================================================================
+    
+    # 🎯 Decision Confidence Threshold
+    # CURRENT: 0.6 (60% confidence minimum)
+    # EFFECT: Only decisions above this confidence are logged/tracked
+    # RANGE: 0.5-0.9 recommended
+    # EXAMPLE: 0.5 = more decisions, lower quality
+    #          0.8 = fewer decisions, higher quality
+    MIN_CONFIDENCE_THRESHOLD: float = float(os.getenv('MIN_CONFIDENCE_THRESHOLD', '0.6'))
+    
+    # 📰 News Article Limits
+    # CURRENT: 1000 articles per cycle
+    # EFFECT: Caps total articles processed to manage API costs and speed
+    # RANGE: 100-2000 articles recommended
+    # NOTE: Enhanced neural analysis is more processing-intensive
+    # EXAMPLE: 100 = faster processing, lower API usage
+    #          2000 = more comprehensive analysis, higher costs
+    MAX_NEWS_ARTICLES: int = int(os.getenv('MAX_NEWS_ARTICLES', '1000'))
+    
+    # 🎯 Ticker Analysis Limit
+    # CURRENT: 100 tickers per cycle
+    # EFFECT: Maximum tickers to run full analysis on (prioritized by article count)
+    # RANGE: 25-200 tickers recommended
+    # NOTE: Enhanced neural analysis takes longer per ticker but is more accurate
+    # EXAMPLE: 50 = faster cycles, focus on top tickers
+    #          200 = comprehensive coverage, slower processing
+    MAX_TICKERS_TO_ANALYZE: int = int(os.getenv('MAX_TICKERS_TO_ANALYZE', '100'))
+    
+    # 📝 News Source Configuration
+    # CURRENT: Multiple sources including earnings, press releases, general news
+    # EFFECT: Which news types to fetch and analyze
+    # SOURCES: earnings, press-releases, stock-news, general-news, earnings-transcripts
+    NEWS_SOURCES: List[str] = os.getenv('NEWS_SOURCES', 'earnings,press-releases,stock-news').split(',')
+    
+    # ⏱️ LLM Request Delay
+    # CURRENT: 1.0 seconds between LLM API calls
+    # EFFECT: Prevents hitting rate limits, reduces errors
+    # RANGE: 0.1-5.0 seconds recommended
+    # NOTE: Enhanced neural analysis is local, no API delay needed
+    # EXAMPLE: 0.5 = faster processing, risk of rate limits
+    #          2.0 = conservative, guaranteed to stay under limits
+    LLM_REQUEST_DELAY: float = float(os.getenv('LLM_REQUEST_DELAY', '1.0'))
+    
+    # ================================================================
+    # ⏰ TIMING & SCHEDULING CONFIGURATION
+    # ================================================================
+    
+    # 🔄 Main Cycle Interval
+    # CURRENT: 5 minutes between analysis cycles
+    # EFFECT: How often to fetch news and make new decisions
+    # RANGE: 1-60 minutes recommended
+    # EXAMPLE: 1 = very frequent updates, higher API usage
+    #          15 = less frequent, more conservative resource usage
+    CYCLE_INTERVAL_MINUTES: int = int(os.getenv('CYCLE_INTERVAL_MINUTES', '5'))
+    
+    # 📰 News Lookback Configuration
+    # CURRENT: 24 hours default, 48 hours maximum
+    # EFFECT: How far back to fetch news articles
+    # RANGE: 1-72 hours recommended
+    # NOTE: Longer lookback = more articles but older news
+    DEFAULT_NEWS_LOOKBACK_HOURS: int = int(os.getenv('DEFAULT_NEWS_LOOKBACK_HOURS', '24'))
+    MAX_NEWS_AGE_HOURS: int = int(os.getenv('MAX_NEWS_AGE_HOURS', '48'))
     
     # ================================================================
     # 🆕 DYNAMIC LABELING METHODS FOR CONFIGURABLE INTERVALS
@@ -547,112 +367,177 @@ class Config:
 
     @classmethod 
     def get_checkpoint_info(cls) -> List[Dict[str, Any]]:
-        """Get information about all price checkpoints with dynamic intervals"""
+        """
+        Get comprehensive checkpoint configuration information
+        
+        Returns list of checkpoint dictionaries with all metadata:
+        - short_label: Human-readable label (e.g., "checkpoint1 (45m)")
+        - field_prefix: CSV field prefix (e.g., "price_checkpoint1")
+        - minutes: Minutes after recommendation (None for close)
+        - description: Full description
+        """
         return [
             {
-                'name': 'checkpoint1',
+                'short_label': f'checkpoint1 ({cls.PRICE_CHECK_1_MINUTES}m)',
+                'field_prefix': 'price_checkpoint1',
                 'minutes': cls.PRICE_CHECK_1_MINUTES,
-                'field_prefix': 'price_checkpoint1',  # ← ADD THIS
-                'short_label': f"checkpoint1 ({cls.PRICE_CHECK_1_MINUTES}m)",
-                'description': f"First price check after {cls.PRICE_CHECK_1_MINUTES} minutes"
+                'description': f'First price check {cls.PRICE_CHECK_1_MINUTES} minutes after recommendation'
             },
             {
-                'name': 'checkpoint2', 
+                'short_label': f'checkpoint2 ({cls.PRICE_CHECK_2_MINUTES}m)',
+                'field_prefix': 'price_checkpoint2', 
                 'minutes': cls.PRICE_CHECK_2_MINUTES,
-                'field_prefix': 'price_checkpoint2',  # ← ADD THIS
-                'short_label': f"checkpoint2 ({cls.PRICE_CHECK_2_MINUTES}m)",
-                'description': f"Second price check after {cls.PRICE_CHECK_2_MINUTES} minutes"
+                'description': f'Second price check {cls.PRICE_CHECK_2_MINUTES} minutes after recommendation'
             },
             {
-                'name': 'close',
-                'hour': cls.CLOSE_PRICE_HOUR,
-                'minute': cls.CLOSE_PRICE_MINUTE,
-                'field_prefix': 'price_close',  # ← ADD THIS
-                'short_label': f"close ({cls.CLOSE_PRICE_HOUR:02d}:{cls.CLOSE_PRICE_MINUTE:02d})",
-                'description': f"Market close price at {cls.CLOSE_PRICE_HOUR:02d}:{cls.CLOSE_PRICE_MINUTE:02d} EST"
+                'short_label': f'close ({cls.CLOSE_PRICE_HOUR:02d}:{cls.CLOSE_PRICE_MINUTE:02d})',
+                'field_prefix': 'price_close',
+                'minutes': None,  # Special case for close time
+                'description': f'Market close price at {cls.CLOSE_PRICE_HOUR:02d}:{cls.CLOSE_PRICE_MINUTE:02d} EST'
             }
         ]
     
+    # ================================================================
+    # 📊 ENHANCED SYSTEM STATUS & REPORTING
+    # ================================================================
+    
     @classmethod
-    def format_price_log_message(cls, ticker: str, price: float, change_pct: float, 
-                                 checkpoint_index: int = None, 
-                                 checkpoint_name: str = None) -> str:
-        """Format dynamic price log messages based on configuration"""
-        if checkpoint_name == "checkpoint1":
-            label = f"checkpoint1 ({cls.PRICE_CHECK_1_MINUTES}m)"
-            return f"📈 {label}: {ticker} ${price:.2f} ({change_pct:+.2f}%)"
-        elif checkpoint_name == "checkpoint2":
-            label = f"checkpoint2 ({cls.PRICE_CHECK_2_MINUTES}m)"
-            return f"📈 {label}: {ticker} ${price:.2f} ({change_pct:+.2f}%)"
-        elif checkpoint_name == "close":
-            label = f"close ({cls.CLOSE_PRICE_HOUR:02d}:{cls.CLOSE_PRICE_MINUTE:02d})"
-            return f"📈 {label}: {ticker} ${price:.2f} ({change_pct:+.2f}%)"
-        else:
-            return f"📈 checkpoint_{checkpoint_index}: {ticker} ${price:.2f} ({change_pct:+.2f}%)"
+    def get_system_config_summary(cls) -> Dict[str, Any]:
+        """Get comprehensive system configuration summary for logging/debugging"""
+        return {
+            'neural_analysis': {
+                'enhanced_neural_enabled': cls.ENABLE_ENHANCED_NEURAL,
+                'finbert_enabled': cls.ENABLE_FINBERT,
+                'expected_accuracy': '94-96% with enhanced neural, 85-90% traditional'
+            },
+            'api_services': {
+                'required': {
+                    'fmp': bool(cls.FMP_API_KEY),
+                },
+                'optional': {
+                    'gemini': cls.ENABLE_GEMINI and bool(cls.GEMINI_API_KEY),
+                    'openai': cls.ENABLE_OPENAI and bool(cls.OPENAI_API_KEY),
+                    'claude': cls.ENABLE_CLAUDE and bool(cls.CLAUDE_API_KEY),
+                    'alpha_vantage': cls.ENABLE_ALPHA_VANTAGE and bool(cls.ALPHA_VANTAGE_API_KEY),
+                    'polygon': cls.ENABLE_POLYGON and bool(cls.POLYGON_API_KEY),
+                    'tiingo': cls.ENABLE_TIINGO and bool(cls.TIINGO_API_KEY)
+                }
+            },
+            'processing_limits': {
+                'max_articles': cls.MAX_NEWS_ARTICLES,
+                'max_tickers': cls.MAX_TICKERS_TO_ANALYZE,
+                'min_confidence': cls.MIN_CONFIDENCE_THRESHOLD,
+                'cycle_interval_minutes': cls.CYCLE_INTERVAL_MINUTES
+            },
+            'fundamental_filtering': {
+                'enabled': cls.ENABLE_FUNDAMENTAL_FILTERING,
+                'price_range': f"${cls.MIN_STOCK_PRICE:.2f} - ${cls.MAX_STOCK_PRICE:.2f}",
+                'min_volume': f"{cls.MIN_AVG_VOLUME:,} shares",
+                'min_dollar_volume': f"${cls.MIN_DOLLAR_VOLUME:,}",
+                'min_market_cap': f"${cls.MIN_MARKET_CAP:,}",
+                'max_beta': cls.MAX_VOLATILITY_BETA,
+                'require_options': cls.REQUIRE_OPTIONS,
+                'allowed_exchanges': cls.ALLOWED_EXCHANGES
+            },
+            'enhanced_features': {
+                'enhanced_neural_enabled': cls.ENABLE_ENHANCED_NEURAL,
+                'earnings_events_enabled': cls.ENABLE_EARNINGS_EVENTS,
+                'max_transcripts_per_cycle': cls.MAX_EARNINGS_EVENTS_PER_CYCLE
+            }
+        }
+    
+    # ================================================================
+    # 🆕 DYNAMIC LABELING METHODS FOR CONFIGURABLE INTERVALS
+    # ================================================================
+    
+    @classmethod
+    def get_price_check_labels(cls) -> List[str]:
+        """Get dynamic labels for price checks showing actual intervals"""
+        checkpoint_info = cls.get_checkpoint_info()
+        return [checkpoint['short_label'] for checkpoint in checkpoint_info]
+    
+    @classmethod
+    def get_csv_price_headers(cls) -> List[str]:
+        """Get generic CSV headers for price tracking (never change)"""
+        return [
+            # Entry price
+            'recommendation_price',
+            'recommendation_timestamp',
+            
+            # Checkpoint 1 (generic names)
+            'price_checkpoint1',
+            'price_checkpoint1_timestamp',
+            'price_checkpoint1_change_pct',
+            
+            # Checkpoint 2 (generic names) 
+            'price_checkpoint2',
+            'price_checkpoint2_timestamp',
+            'price_checkpoint2_change_pct',
+            
+            # Close price (generic name)
+            'price_close',
+            'price_close_timestamp', 
+            'price_close_change_pct',
+            
+            # Tracking metadata
+            'tracking_status'
+        ]
+    
+    @classmethod
+    def create_directories(cls) -> None:
+        """Create necessary directories if they don't exist"""
+        cls.DATA_DIR.mkdir(exist_ok=True)
+        cls.OUTPUT_DIR.mkdir(exist_ok=True)
+    
+    @classmethod
+    def validate_configuration(cls) -> List[str]:
+        """Validate configuration and return list of issues"""
+        issues = []
+        
+        # Check required API keys
+        if not cls.FMP_API_KEY:
+            issues.append("❌ FMP_API_KEY is required but not set")
+        
+        # Check if at least one analysis method is enabled
+        analysis_methods = [
+            cls.ENABLE_ENHANCED_NEURAL,
+            cls.ENABLE_FINBERT,
+            cls.ENABLE_GEMINI and bool(cls.GEMINI_API_KEY),
+            cls.ENABLE_OPENAI and bool(cls.OPENAI_API_KEY),
+            cls.ENABLE_CLAUDE and bool(cls.CLAUDE_API_KEY),
+            cls.ENABLE_ALPHA_VANTAGE and bool(cls.ALPHA_VANTAGE_API_KEY),
+            cls.ENABLE_POLYGON and bool(cls.POLYGON_API_KEY),
+            cls.ENABLE_TIINGO and bool(cls.TIINGO_API_KEY),
+            cls.ENABLE_KEYWORD_SENTIMENT
+        ]
+        
+        if not any(analysis_methods):
+            issues.append("⚠️ No analysis methods are enabled and configured")
+        
+        # Check price tracking intervals
+        if cls.PRICE_CHECK_1_MINUTES >= cls.PRICE_CHECK_2_MINUTES:
+            issues.append(f"⚠️ First checkpoint ({cls.PRICE_CHECK_1_MINUTES}m) should be before second checkpoint ({cls.PRICE_CHECK_2_MINUTES}m)")
+        
+        # Check fundamental filtering ranges
+        if cls.MIN_STOCK_PRICE >= cls.MAX_STOCK_PRICE:
+            issues.append(f"⚠️ MIN_STOCK_PRICE ({cls.MIN_STOCK_PRICE}) should be less than MAX_STOCK_PRICE ({cls.MAX_STOCK_PRICE})")
+        
+        # Check confidence threshold
+        if not 0.1 <= cls.MIN_CONFIDENCE_THRESHOLD <= 0.95:
+            issues.append(f"⚠️ MIN_CONFIDENCE_THRESHOLD ({cls.MIN_CONFIDENCE_THRESHOLD}) should be between 0.1 and 0.95")
+        
+        return issues
 
 
 # ================================================================
-# 🚀 QUICK START RECOMMENDATIONS - UPDATED WITH ENHANCED FEATURES
+# 📋 CONFIGURATION USAGE EXAMPLES & DOCUMENTATION
 # ================================================================
 
-"""
-💡 RECOMMENDED CONFIGURATIONS:
+CONFIG_USAGE_EXAMPLES = """
+🔧 Enhanced Configuration Usage Examples:
 
-🚀 ENHANCED PREMIUM SETUP (Best accuracy with new features):
-- Enable: Enhanced Neural, FinBERT, Gemini, Earnings Transcripts
-- Set MAX_NEWS_ARTICLES = 800  # Reduced slightly due to enhanced processing
-- Set MAX_TICKERS_TO_ANALYZE = 75  # Enhanced neural is more processing-intensive
-- Set MIN_CONFIDENCE_THRESHOLD = 0.65  # Enhanced neural produces higher confidence
-- Enable fundamental filtering with default settings
-- EXPECTED ACCURACY: 94-96% with enhanced neural
-
-🆓 FREE TIER SETUP (Minimal costs, good accuracy):
-- Enable: Enhanced Neural, FinBERT, Keywords (all free/local)
-- Disable: All paid API services
-- Set MAX_NEWS_ARTICLES = 500
-- Set MAX_TICKERS_TO_ANALYZE = 50
-- Set MIN_CONFIDENCE_THRESHOLD = 0.7
-- Enable fundamental filtering
-- EXPECTED ACCURACY: 90-94% with enhanced neural only
-
-💰 PREMIUM SETUP (Best quality with API services):  
-- Enable: All services with valid API keys
-- Set MAX_NEWS_ARTICLES = 1000
-- Set MAX_TICKERS_TO_ANALYZE = 100
-- Set MIN_CONFIDENCE_THRESHOLD = 0.6
-- Set LLM_REQUEST_DELAY = 0.5
-- Enable fundamental filtering with default settings
-- Enable earnings transcript analysis
-- EXPECTED ACCURACY: 95-97% with full service ensemble
-
-⚡ FAST TESTING SETUP:
-- Enable: Enhanced Neural only
-- Set MAX_NEWS_ARTICLES = 200
-- Set MAX_TICKERS_TO_ANALYZE = 25
-- Set MIN_CONFIDENCE_THRESHOLD = 0.5
-- Disable fundamental filtering and earnings transcripts
-- EXPECTED ACCURACY: 90-92% with fast processing
-
-🛡️ CONSERVATIVE SETUP (High precision):
-- Enable: Enhanced Neural, FinBERT, Gemini
-- Set MIN_CONFIDENCE_THRESHOLD = 0.8
-- Set MIN_NEWS_LENGTH = 100
-- Enable fundamental filtering with strict criteria:
-  - MIN_STOCK_PRICE = 15.00
-  - MIN_MARKET_CAP = 1000000000 (1B)
-  - MAX_VOLATILITY_BETA = 1.5
-- Enable earnings transcript analysis
-- EXPECTED ACCURACY: 96-98% with very high precision
-
-🎯 TROUBLESHOOTING:
-
-❌ No decisions logged?
-- Lower MIN_CONFIDENCE_THRESHOLD to 0.4
-- Check if enhanced neural dependencies are installed: pip install torch transformers
-- Ensure API keys are valid
-- Temporarily disable fundamental filtering
-
-⏱️ Processing too slow?
+⚡ PERFORMANCE OPTIMIZATION:
+- Too slow? Reduce MAX_TICKERS_TO_ANALYZE to 50
 - Reduce MAX_NEWS_ARTICLES to 400
 - Reduce MAX_TICKERS_TO_ANALYZE to 50
 - Disable earnings transcript analysis temporarily
