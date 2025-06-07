@@ -24,20 +24,22 @@ from utils.simple_logger import log_info, log_error, log_debug, log_warning
 
 class EnhancedFinancialNewsAnalyzer:
     """Enhanced main application class with neural networks and earnings analysis"""
-    
+ 
     def __init__(self) -> None:
         """Initialize enhanced analyzer"""
         self.cycle_count = 0
         self.last_successful_run = None
+        self.scheduler_started = False  # This line should be added
         
         # Initialize components
         self._initialize_components()
         
-        # Start background price tracking
-        self._start_background_scheduler()
+        # DON'T start background price tracking here - COMMENT OUT OR REMOVE this line:
+        # self._start_background_scheduler()  # <-- This should be commented out or removed
         
         # Log enhanced startup summary
         self._log_enhanced_startup_summary()
+
     
     def _initialize_components(self) -> None:
         """Initialize all system components including enhanced features"""
@@ -276,8 +278,13 @@ class EnhancedFinancialNewsAnalyzer:
             
             # Step 7: Log decisions with enhanced metrics
             if decisions:
-                log_info(f"📝 Step 7: Logging {decisions_made} enhanced trading decisions...")
+                log_info(f"📝 Step 7: Processing {len(decisions)} enhanced trading decisions...")
                 logged_count = self.csv_logger.log_decisions_batch(decisions)
+                
+                # NEW: Start price tracking scheduler when we have actual LONG/SHORT decisions that got logged
+                if logged_count > 0 and not self.scheduler_started:
+                    log_info("📈 Starting price tracking scheduler (first LONG/SHORT decisions logged)")
+                    self._start_background_scheduler()
                 
                 # Add price tracking for LONG/SHORT decisions
                 tracking_added = 0
@@ -289,13 +296,18 @@ class EnhancedFinancialNewsAnalyzer:
                         else:
                             log_warning(f"Skipping price tracking for {decision.ticker} - no entry price available")
                 
-                log_info(f"✅ Successfully logged {logged_count} decisions with enhanced analysis")
-                log_info(f"📊 Added price tracking for {tracking_added} LONG/SHORT positions")
+                # FIXED: Accurate summary messages
+                if logged_count > 0:
+                    log_info(f"✅ Successfully logged {logged_count} LONG/SHORT decisions to CSV")
+                    log_info(f"📊 Added price tracking for {tracking_added} positions")
+                else:
+                    log_info(f"✅ Analysis complete - no LONG/SHORT decisions met criteria for logging")
+                    log_info(f"📊 All {len(decisions)} decisions were NONE (confidence too low)")
                 
                 # Print enhanced decision summary
                 self._print_enhanced_decisions_summary(decisions)
             else:
-                log_info("📝 Step 7: No high-confidence decisions to log")
+                log_info("📝 Step 7: No trading decisions generated")
                 
                 # Debug: Show what decisions were made (even low confidence ones)
                 if decisions_made > 0:
@@ -387,7 +399,7 @@ class EnhancedFinancialNewsAnalyzer:
         
         if prices_failed > 0:
             log_warning(f"⚠️ {prices_failed} decisions will be logged without entry prices")
-    
+
     def _mark_articles_processed(self, articles: List[Dict[str, Any]], 
                                 decisions: List = None) -> None:
         """Mark articles as processed in database"""
@@ -402,9 +414,6 @@ class EnhancedFinancialNewsAnalyzer:
             
             for article in articles:
                 try:
-                    # Create unique article identifier
-                    #article_id = self.article_tracker._create_article_id(article)
-                    
                     # Determine decision info
                     ticker = article.get('symbol', 'UNKNOWN')
                     decision_info = decisions_by_ticker.get(ticker)
@@ -412,15 +421,17 @@ class EnhancedFinancialNewsAnalyzer:
                     decision_type = decision_info.decision if decision_info else 'NONE'
                     confidence = decision_info.confidence if decision_info else 0.0
                     
-                    # Mark as processed
-                    self.article_tracker.mark_article_processed(
-                        article_id=article_id,
-                        ticker=ticker,
+                    # FIXED: Use the correct method signature for mark_article_processed
+                    success = self.article_tracker.mark_article_processed(
+                        article,  # Pass the article directly
                         decision=decision_type,
-                        confidence=confidence,
-                        source=article.get('source', 'unknown')
+                        confidence=confidence
                     )
-                    successful_marks += 1
+                    
+                    if success:
+                        successful_marks += 1
+                    else:
+                        failed_marks += 1
                     
                 except Exception as e:
                     log_error(f"Failed to mark article as processed: {e}")
@@ -432,7 +443,7 @@ class EnhancedFinancialNewsAnalyzer:
             log_error(f"Error in batch article marking: {e}")
     
     def _print_enhanced_decisions_summary(self, decisions: List) -> None:
-        """Print enhanced summary of trading decisions"""
+        """Print enhanced summary of trading decisions with CSV logging clarity"""
         if not decisions:
             return
         
@@ -460,19 +471,30 @@ class EnhancedFinancialNewsAnalyzer:
                 earnings_boost_count += 1
         
         avg_confidence = confidence_sum / len(decisions)
+        tradeable_decisions = decision_counts['LONG'] + decision_counts['SHORT']
         
         log_info("📊 Enhanced decision summary:")
+        log_info(f"   🧠 Analysis results: {len(decisions)} total decisions")
         log_info(f"   📈 LONG: {decision_counts['LONG']}, 📉 SHORT: {decision_counts['SHORT']}, ⚖️ NONE: {decision_counts['NONE']}")
         log_info(f"   🎯 Average confidence: {avg_confidence:.3f}")
+        
+        if tradeable_decisions > 0:
+            log_info(f"   ✅ Tradeable decisions (logged to CSV): {tradeable_decisions}")
+        else:
+            log_info(f"   📝 CSV logging: 0 decisions (all were NONE - confidence too low)")
+            
         log_info(f"   🚀 Enhanced neural decisions: {enhanced_neural_count}")
         log_info(f"   🎙️ With earnings data: {earnings_boost_count}")
         
-        # Show top performing decisions
-        high_confidence = [d for d in decisions if d.confidence >= 0.8]
-        if high_confidence:
-            log_info(f"   ⭐ High confidence (≥0.8): {len(high_confidence)} decisions")
-            for decision in sorted(high_confidence, key=lambda x: x.confidence, reverse=True)[:3]:
-                log_info(f"      {decision.ticker}: {decision.decision} ({decision.confidence:.3f})")
+        # Show top confidence NONE decisions for debugging
+        if decision_counts['NONE'] > 0:
+            none_decisions = [d for d in decisions if d.decision == 'NONE']
+            none_decisions.sort(key=lambda x: x.confidence, reverse=True)
+            top_none = none_decisions[:3]
+            
+            log_info(f"   🔍 Top NONE decisions (for debugging):")
+            for i, decision in enumerate(top_none, 1):
+                log_info(f"      {i}. {decision.ticker}: {decision.confidence:.3f} confidence")
     
     def _log_enhanced_cycle_summary(self, cycle_start: datetime, articles_fetched: int,
                                   earnings_transcripts_processed: int, articles_processed: int,
@@ -543,8 +565,8 @@ class EnhancedFinancialNewsAnalyzer:
                 await self._process_cycle()
                 log_info(f"✅ Enhanced cycle completed, waiting {Config.CYCLE_INTERVAL_MINUTES} minutes before next run...")
                 await asyncio.sleep(Config.CYCLE_INTERVAL_MINUTES * 60)
-                    
-            except KeyboardInterrupt:
+                        
+            except (KeyboardInterrupt, asyncio.CancelledError):  # Catch both
                 log_info("🛑 Enhanced analyzer interrupted by user")
                 break
             except Exception as e:
@@ -654,11 +676,11 @@ async def main():
         _log_enhanced_startup_banner()
         analyzer = EnhancedFinancialNewsAnalyzer()
         await analyzer.run()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):  # ADD CancelledError here too
         log_info("🛑 Enhanced application terminated by user")
     except Exception as e:
         log_error(f"💥 Enhanced application failed: {e}")
-        traceback.print_exc()  # ADD THIS LINE
+        traceback.print_exc()
         sys.exit(1)
 
 

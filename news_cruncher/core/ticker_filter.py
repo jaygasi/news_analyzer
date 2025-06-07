@@ -9,6 +9,7 @@ import sqlite3
 from pathlib import Path
 from data_loaders.base_fmp_loader import BaseFMPLoader
 from utils.simple_logger import log_info, log_debug, log_warning, log_error
+from config import Config  # ADD THIS LINE
 
 
 @dataclass
@@ -36,7 +37,11 @@ class TickerFilterEngine:
         self.cache_db_path = Path('data/fundamentals_cache.db')
         
         # Debug control - set to True to see detailed ticker analysis
-        self.enable_detailed_debug = False  # Only shows detailed debug when True
+        self.enable_detailed_debug = False  # Permanently disabled - we only want rejected stock logging
+        
+        # NEW: Control for logging rejected stocks (ADD THESE LINES)
+        self.enable_rejected_logging = getattr(Config, 'ENABLE_REJECTED_STOCK_LOGGING', True)
+        self.max_rejected_to_log = getattr(Config, 'MAX_REJECTED_STOCKS_TO_LOG', 30)
         
         # Initialize cache database
         self._init_cache_database()
@@ -86,6 +91,12 @@ class TickerFilterEngine:
         self.enable_detailed_debug = enabled
         log_info(f"Ticker filter debug mode: {'ENABLED' if enabled else 'DISABLED'}")
     
+    def set_rejected_logging(self, enabled: bool, max_to_log: int = 30) -> None:
+        """Configure rejected stock logging"""
+        self.enable_rejected_logging = enabled
+        self.max_rejected_to_log = max_to_log
+        log_info(f"Rejected stock logging: {'ENABLED' if enabled else 'DISABLED'} (max: {max_to_log})")
+    
     def filter_ticker_buckets(self, ticker_buckets: Dict[str, List[Dict[str, Any]]]) -> Dict[str, List[Dict[str, Any]]]:
         """Filter ticker buckets based on fundamental criteria with optional detailed debugging"""
         log_info(f"🔍 Filtering {len(ticker_buckets)} tickers by fundamental criteria...")
@@ -94,9 +105,7 @@ class TickerFilterEngine:
         self._log_initial_tickers(ticker_buckets)
         
         # Sample tickers for detailed debugging (first 10)
-        debug_tickers = list(ticker_buckets.keys())[:10] if self.enable_detailed_debug else []
-        if debug_tickers:
-            log_info(f"🐛 DEBUG MODE: Will analyze first 10 tickers in detail: {', '.join(debug_tickers)}")
+        debug_tickers = []
         
         filtered_buckets = {}
         filter_stats = {
@@ -109,7 +118,10 @@ class TickerFilterEngine:
             'failed_exchange': 0,
             'failed_data_unavailable': 0
         }
-        
+       
+        # NEW: Track rejected stocks for logging (ADD THIS LINE)
+        rejected_stocks = [] if self.enable_rejected_logging else None        
+            
         for ticker, articles in ticker_buckets.items():
             try:
                 fundamentals = self._get_company_fundamentals(ticker)
@@ -146,12 +158,20 @@ class TickerFilterEngine:
                     else:
                         log_info(f"  ❌ No fundamental data returned from FMP API")
                 
-                if fundamentals is None:
-                    filter_stats['failed_data_unavailable'] += 1
-                    if ticker in debug_tickers:
-                        log_info(f"  🚫 RESULT: FAILED - No API data available")
-                    log_debug(f"❌ {ticker}: No fundamental data available")
-                    continue
+                    if fundamentals is None:
+                        filter_stats['failed_data_unavailable'] += 1
+                        if ticker in debug_tickers:
+                            log_info(f"  🚫 RESULT: FAILED - No API data available")
+                        log_debug(f"❌ {ticker}: No fundamental data available")
+                        
+                        # NEW: Track rejected stock
+                        if rejected_stocks is not None and len(rejected_stocks) < self.max_rejected_to_log:
+                            rejected_stocks.append({
+                                'ticker': ticker,
+                                'reason': 'No API data available',
+                                'fundamentals': None
+                            })
+                        continue
                 
                 passes_filter, reason = self._meets_criteria(ticker, fundamentals)
                 
@@ -180,11 +200,27 @@ class TickerFilterEngine:
                         log_info(f"  🚫 RESULT: FAILED - {reason}")
                     log_debug(f"❌ {ticker}: {reason}")
                     
+                    # NEW: Track rejected stock (ADD THESE LINES)
+                    if rejected_stocks is not None and len(rejected_stocks) < self.max_rejected_to_log:
+                        rejected_stocks.append({
+                            'ticker': ticker,
+                            'reason': reason,
+                            'fundamentals': fundamentals
+                        })
+                    
             except Exception as e:
                 filter_stats['failed_data_unavailable'] += 1
                 if ticker in debug_tickers:
                     log_info(f"  💥 RESULT: ERROR - {e}")
                 log_debug(f"❌ {ticker}: Error getting fundamentals - {e}")
+                
+                # NEW: Track rejected stock
+                if rejected_stocks is not None and len(rejected_stocks) < self.max_rejected_to_log:
+                    rejected_stocks.append({
+                        'ticker': ticker,
+                        'reason': f'Error: {e}',
+                        'fundamentals': None
+                    })
                 continue
         
         # Log filtering statistics
@@ -202,6 +238,10 @@ class TickerFilterEngine:
             log_info(f"    Options availability: {filter_stats['failed_options']}")
             log_info(f"    Exchange restrictions: {filter_stats['failed_exchange']}")
             log_info(f"    Data unavailable: {filter_stats['failed_data_unavailable']}")
+        
+        # NEW: Log sample of rejected stocks (ADD THESE LINES BEFORE return)
+        if rejected_stocks and self.enable_rejected_logging:
+            self._log_rejected_stocks(rejected_stocks)
         
         return filtered_buckets
     
@@ -422,3 +462,32 @@ class TickerFilterEngine:
         except Exception as e:
             log_error(f"Error getting cache stats: {e}")
             return {'error': str(e)}
+    
+    def _log_rejected_stocks(self, rejected_stocks: List[Dict[str, Any]]) -> None:
+        """Log sample of rejected stocks with their failure reasons"""
+        log_info(f"🚫 Sample of rejected stocks (first {len(rejected_stocks)}):")
+        
+        for i, rejected in enumerate(rejected_stocks[:self.max_rejected_to_log], 1):
+            ticker = rejected['ticker']
+            reason = rejected['reason']
+            fundamentals = rejected['fundamentals']
+            
+            if fundamentals:
+                price = fundamentals.get('price', 'N/A')
+                volume = fundamentals.get('avg_volume', 'N/A')
+                market_cap = fundamentals.get('market_cap', 'N/A')
+                exchange = fundamentals.get('exchange', 'N/A')
+                
+                if isinstance(volume, (int, float)) and volume > 0:
+                    volume_str = f"{volume:,.0f}"
+                else:
+                    volume_str = str(volume)
+                    
+                if isinstance(market_cap, (int, float)) and market_cap > 0:
+                    market_cap_str = f"${market_cap:,.0f}"
+                else:
+                    market_cap_str = str(market_cap)
+                
+                log_info(f"  {i:2d}. {ticker:6s} | ${price} | Vol: {volume_str} | Cap: {market_cap_str} | {exchange} | ❌ {reason}")
+            else:
+                log_info(f"  {i:2d}. {ticker:6s} | No data available | ❌ {reason}")

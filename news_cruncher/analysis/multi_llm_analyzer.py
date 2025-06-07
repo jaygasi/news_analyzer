@@ -233,30 +233,42 @@ class MultiLLMAnalyzer:
         ]
 
     def _init_finbert(self) -> None:
-        """Initialize FinBERT model (local)"""
+        """Initialize FinBERT with enhanced error handling"""
         if not TORCH_AVAILABLE:
             self.services['finbert'] = {'available': False}
             return
             
         try:
-            model_name = "ProsusAI/finbert"
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-
-            tokenizer = AutoTokenizer.from_pretrained(model_name)
-            model = AutoModelForSequenceClassification.from_pretrained(model_name)
-            model.to(device)
-            model.eval()
-
+            # Suppress the specific warning about untrained weights
+            import warnings
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="Some weights of RobertaModel were not initialized")
+                
+                # Load with specific configuration to reduce warnings
+                self.finbert_tokenizer = AutoTokenizer.from_pretrained('ProsusAI/finbert')
+                self.finbert_model = AutoModelForSequenceClassification.from_pretrained(
+                    'ProsusAI/finbert',
+                    local_files_only=False,
+                    trust_remote_code=False
+                )
+            
+            # Check if CUDA is available and move model to GPU
+            if torch.cuda.is_available():
+                self.finbert_model = self.finbert_model.cuda()
+                device_info = "CUDA GPU"
+            else:
+                device_info = "CPU"
+            
             self.services['finbert'] = {
                 'available': True,
-                'tokenizer': tokenizer,
-                'model': model,
-                'device': device,
+                'model': self.finbert_model,
+                'tokenizer': self.finbert_tokenizer,
                 'requests_today': 0,
-                'quota_limit': float('inf')  # No quota for local model
+                'quota_limit': float('inf'),  # Local model - no quota
+                'device': device_info
             }
             
-            log_info("✅ FinBERT initialized successfully")
+            log_info(f"✅ FinBERT initialized successfully on {device_info}")
 
         except Exception as e:
             log_error(f"Failed to initialize FinBERT: {e}")
@@ -361,6 +373,13 @@ class MultiLLMAnalyzer:
             'quota_limit': float('inf')
         }
 
+    def analyze_ticker_multi_source(self, ticker: str, articles: List[Dict[str, Any]]) -> Optional[DirectionalPrediction]:
+        """
+        Analyze ticker using multi-source approach - this is an alias for analyze_news_direction
+        This method exists to maintain compatibility with calling code
+        """
+        return self.analyze_news_direction(ticker, articles)
+    
     def analyze_news_direction(self, ticker: str, articles: List[Dict[str, Any]]) -> Optional[DirectionalPrediction]:
         """
         Analyze news direction using all available services including enhanced neural analyzer
@@ -550,37 +569,34 @@ class MultiLLMAnalyzer:
             return None
 
     def _analyze_with_finbert(self, ticker: str, text: str) -> Optional[DirectionalPrediction]:
-        """Analyze using FinBERT"""
-        if not TORCH_AVAILABLE:
+        """Analyze using FinBERT model"""
+        if not self.services.get('finbert', {}).get('available', False):
             return None
             
         try:
-            service = self.services['finbert']
-            tokenizer = service['tokenizer']
-            model = service['model']
-            device = service['device']
-
-            # Tokenize
-            inputs = tokenizer(
-                text[:512],  # Limit to model's max length
-                return_tensors="pt",
-                max_length=512,
-                truncation=True,
-                padding=True
-            ).to(device)
-
-            # Predict
+            model = self.services['finbert']['model']
+            tokenizer = self.services['finbert']['tokenizer']
+            
+            # Tokenize input
+            inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
+            
+            # FIXED: Check device properly and move inputs to same device as model
+            model_device = next(model.parameters()).device
+            inputs = {k: v.to(model_device) for k, v in inputs.items()}
+            
             with torch.no_grad():
                 outputs = model(**inputs)
                 predictions = torch.nn.functional.softmax(outputs.logits, dim=-1)
-                predictions = predictions.cpu().numpy()[0]
-
-            # FinBERT outputs: [positive, negative, neutral]
-            positive_score = float(predictions[0])
-            negative_score = float(predictions[1])
-            neutral_score = float(predictions[2])
-
-            # Determine direction
+                
+            # Convert to numpy for easier handling
+            scores = predictions.cpu().numpy()[0]
+            
+            # FinBERT outputs: [negative, neutral, positive]
+            negative_score = float(scores[0])
+            neutral_score = float(scores[1])
+            positive_score = float(scores[2])
+            
+            # Determine direction based on highest score
             if positive_score > negative_score and positive_score > neutral_score:
                 direction = 'BUY'
                 confidence = positive_score

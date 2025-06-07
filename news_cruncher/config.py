@@ -93,8 +93,17 @@ class Config:
     TRADE_MONITOR_INTERVAL_MINUTES: int = int(os.getenv('TRADE_MONITOR_INTERVAL_MINUTES', '5'))
       
     # ================================================================
-    # 🛠️ UTILITY METHODS - ENHANCED WITH NEURAL ANALYSIS
+    # 🛠️ Logging Settings
     # ================================================================
+        # NEW: Rejected stock logging configuration
+    ENABLE_REJECTED_STOCK_LOGGING = True  # Set to False to disable rejected stock logging
+    MAX_REJECTED_STOCKS_TO_LOG = 30  # Number of rejected stocks to log (set to 0 to disable)
+    
+    # NEW: CSV logging configuration  
+    ONLY_LOG_TRADING_DECISIONS = True  # Only log LONG/SHORT decisions, skip NONE
+    
+    # NEW: Price tracking scheduler configuration
+    START_SCHEDULER_ON_FIRST_DECISION = True  # Wait for first trading decision before starting scheduler
     
     # ================================================================
     # 📅 EARNINGS EVENT ANALYSIS CONFIGURATION
@@ -172,6 +181,9 @@ class Config:
     # GET KEY: https://financialmodelingprep.com/developer/docs
     FMP_API_KEY: str = os.getenv('FMP_API_KEY', '')
     FMP_REQUESTS_PER_MINUTE: int = int(os.getenv('FMP_REQUESTS_PER_MINUTE', '10'))
+    # Enhanced API rate limiting (to prevent 429 errors)
+    FMP_MIN_REQUEST_INTERVAL = 0.2  # Minimum seconds between FMP API requests (5 per second max)
+    FMP_RETRY_DELAY = 60  # Seconds to wait after 429 error before retry
     
     # 🧠 Enhanced Neural Analysis - HIGHEST ACCURACY
     # CURRENT: ENABLED (94-96% accuracy)

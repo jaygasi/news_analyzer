@@ -7,6 +7,7 @@ import json
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
+from enhanced_decision_engine import TradingDecision
 from core.decision_engine import TradingDecision
 from config import Config
 from utils.simple_logger import log_info, log_error, log_debug, log_warning
@@ -153,19 +154,26 @@ class CSVLogger:
             return False
 
     def log_decisions_batch(self, decisions: List[TradingDecision]) -> int:
-        """Log multiple trading decisions in batch with enhanced logging"""
+        """Log multiple trading decisions in batch with enhanced logging - ONLY LONG/SHORT"""
         if not decisions:
             return 0
 
         try:
             logged_count = 0
             decisions_with_prices = 0
+            skipped_none_decisions = 0
 
             with open(self.csv_path, 'a', newline='', encoding='utf-8') as file:
                 writer = csv.writer(file)
 
                 for decision in decisions:
                     try:
+                        # FILTER: Only log LONG/SHORT decisions, skip NONE
+                        if decision.decision not in ['LONG', 'SHORT']:
+                            skipped_none_decisions += 1
+                            log_debug(f"Skipping {decision.ticker} - NONE decision (confidence: {decision.confidence:.3f})")
+                            continue
+                        
                         row_data = self._decision_to_row(decision)
                         writer.writerow(row_data)
                         logged_count += 1
@@ -177,11 +185,18 @@ class CSVLogger:
                     except Exception as e:
                         log_error(f"Error logging decision for {decision.ticker}: {e}")
 
-            log_info(f"✅ Logged {logged_count} trading decisions to CSV")
-            log_info(f"💰 {decisions_with_prices}/{logged_count} decisions have entry prices")
-            
-            if decisions_with_prices < logged_count:
-                log_warning(f"⚠️ {logged_count - decisions_with_prices} decisions logged without entry prices")
+            # FIXED: Accurate logging messages
+            if logged_count > 0:
+                log_info(f"✅ Logged {logged_count} trading decisions to CSV (LONG/SHORT only)")
+                log_info(f"💰 {decisions_with_prices}/{logged_count} logged decisions have entry prices")
+                
+                if decisions_with_prices < logged_count:
+                    log_warning(f"⚠️ {logged_count - decisions_with_prices} decisions logged without entry prices")
+            else:
+                log_info(f"📝 No LONG/SHORT decisions to log to CSV")
+                
+            if skipped_none_decisions > 0:
+                log_info(f"⏭️ Skipped {skipped_none_decisions} NONE decisions (confidence too low for trading)")
             
             return logged_count
 
