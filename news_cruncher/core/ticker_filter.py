@@ -14,18 +14,15 @@ from utils.simple_logger import log_info, log_debug, log_warning, log_error
 @dataclass
 class FilterCriteria:
     """Criteria for filtering tickers based on fundamental analysis"""
-    min_price: float = 10.00  # Eliminates penny stocks
-    max_price: float = 300.00  # Avoids ultra-expensive stocks
-    min_avg_volume: int = 500_000  # 500K shares daily (good liquidity)
-    min_dollar_volume: int = 5_000_000  # $5M daily (institutional interest)
-    min_market_cap: int = 500_000_000  # $500M+ (established companies)
-    max_volatility_beta: float = 2.0  # Reasonable volatility
-    require_options: bool = True  # Options = liquidity + institutional interest
-    allowed_exchanges: List[str] = None  # Major exchanges only
-    
-    def __post_init__(self):
-        if self.allowed_exchanges is None:
-            self.allowed_exchanges = ['NASDAQ', 'NYSE', 'NYSEArca']
+    # All values should be passed from Config - no hardcoded defaults
+    min_price: float  # Eliminates penny stocks
+    max_price: float  # Avoids ultra-expensive stocks
+    min_avg_volume: int  # Daily share volume (good liquidity)
+    min_dollar_volume: int  # Daily dollar volume (institutional interest)
+    min_market_cap: int  # Company size (established companies)
+    max_volatility_beta: float  # Reasonable volatility
+    require_options: bool  # Options = liquidity + institutional interest
+    allowed_exchanges: List[str]  # Major exchanges only
 
 
 class TickerFilterEngine:
@@ -37,6 +34,9 @@ class TickerFilterEngine:
         self.criteria = filter_criteria
         self.fundamentals_cache = {}
         self.cache_db_path = Path('data/fundamentals_cache.db')
+        
+        # Debug control - set to True to see detailed ticker analysis
+        self.enable_detailed_debug = False  # Only shows detailed debug when True
         
         # Initialize cache database
         self._init_cache_database()
@@ -51,10 +51,9 @@ class TickerFilterEngine:
         log_info(f"  Allowed exchanges: {', '.join(self.criteria.allowed_exchanges)}")
     
     def _init_cache_database(self) -> None:
-        """Initialize SQLite database for caching fundamental data"""
+        """Initialize SQLite cache for fundamental data"""
         try:
-            # Ensure data directory exists
-            self.cache_db_path.parent.mkdir(exist_ok=True)
+            self.cache_db_path.parent.mkdir(parents=True, exist_ok=True)
             
             with sqlite3.connect(self.cache_db_path) as conn:
                 conn.execute('''
@@ -65,24 +64,39 @@ class TickerFilterEngine:
                         exchange TEXT,
                         beta REAL,
                         avg_volume INTEGER,
+                        volume INTEGER,
                         has_options BOOLEAN,
-                        cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        cached_at TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
+                
                 conn.execute('''
-                    CREATE INDEX IF NOT EXISTS idx_cached_at ON fundamentals_cache(cached_at)
+                    CREATE INDEX IF NOT EXISTS idx_cached_at 
+                    ON fundamentals_cache(cached_at)
                 ''')
+                
                 conn.commit()
                 
         except Exception as e:
-            log_error(f"Failed to initialize cache database: {e}")
+            log_error(f"Error initializing fundamentals cache: {e}")
+    
+    def set_debug_mode(self, enabled: bool) -> None:
+        """Enable or disable detailed debugging output"""
+        self.enable_detailed_debug = enabled
+        log_info(f"Ticker filter debug mode: {'ENABLED' if enabled else 'DISABLED'}")
     
     def filter_ticker_buckets(self, ticker_buckets: Dict[str, List[Dict[str, Any]]]) -> Dict[str, List[Dict[str, Any]]]:
-        """Filter ticker buckets based on fundamental criteria"""
-        if not ticker_buckets:
-            return {}
-        
+        """Filter ticker buckets based on fundamental criteria with optional detailed debugging"""
         log_info(f"🔍 Filtering {len(ticker_buckets)} tickers by fundamental criteria...")
+        
+        # Log initial tickers overview
+        self._log_initial_tickers(ticker_buckets)
+        
+        # Sample tickers for detailed debugging (first 10)
+        debug_tickers = list(ticker_buckets.keys())[:10] if self.enable_detailed_debug else []
+        if debug_tickers:
+            log_info(f"🐛 DEBUG MODE: Will analyze first 10 tickers in detail: {', '.join(debug_tickers)}")
         
         filtered_buckets = {}
         filter_stats = {
@@ -100,8 +114,42 @@ class TickerFilterEngine:
             try:
                 fundamentals = self._get_company_fundamentals(ticker)
                 
+                # DETAILED DEBUGGING FOR SELECTED TICKERS
+                if ticker in debug_tickers:
+                    log_info(f"🐛 DEBUG {ticker}:")
+                    if fundamentals:
+                        log_info(f"  📊 Raw API Data:")
+                        log_info(f"    Price: ${fundamentals.get('price', 'N/A')}")
+                        log_info(f"    Market Cap: ${fundamentals.get('market_cap', 'N/A'):,}" if fundamentals.get('market_cap') else "    Market Cap: N/A")
+                        log_info(f"    Avg Volume: {fundamentals.get('avg_volume', 'N/A'):,}" if fundamentals.get('avg_volume') else "    Avg Volume: N/A")
+                        log_info(f"    Current Volume: {fundamentals.get('volume', 'N/A'):,}" if fundamentals.get('volume') else "    Current Volume: N/A")
+                        log_info(f"    Beta: {fundamentals.get('beta', 'N/A')}")
+                        log_info(f"    Exchange: {fundamentals.get('exchange', 'N/A')}")
+                        log_info(f"    Options Available: {fundamentals.get('has_options', 'N/A')}")
+                        
+                        # Show criteria comparison
+                        log_info(f"  ✅ Criteria Check:")
+                        price = fundamentals.get('price', 0)
+                        log_info(f"    Price: ${price:.2f} vs range ${self.criteria.min_price:.2f}-${self.criteria.max_price:.2f}")
+                        
+                        avg_vol = fundamentals.get('avg_volume', 0)
+                        log_info(f"    Volume: {avg_vol:,} vs min {self.criteria.min_avg_volume:,}")
+                        
+                        market_cap = fundamentals.get('market_cap', 0)
+                        log_info(f"    Market Cap: ${market_cap:,} vs min ${self.criteria.min_market_cap:,}")
+                        
+                        beta = fundamentals.get('beta', 0)
+                        log_info(f"    Beta: {beta} vs max {self.criteria.max_volatility_beta}")
+                        
+                        exchange = fundamentals.get('exchange', '')
+                        log_info(f"    Exchange: '{exchange}' in {self.criteria.allowed_exchanges}")
+                    else:
+                        log_info(f"  ❌ No fundamental data returned from FMP API")
+                
                 if fundamentals is None:
                     filter_stats['failed_data_unavailable'] += 1
+                    if ticker in debug_tickers:
+                        log_info(f"  🚫 RESULT: FAILED - No API data available")
                     log_debug(f"❌ {ticker}: No fundamental data available")
                     continue
                 
@@ -110,6 +158,8 @@ class TickerFilterEngine:
                 if passes_filter:
                     filtered_buckets[ticker] = articles
                     filter_stats['passed'] += 1
+                    if ticker in debug_tickers:
+                        log_info(f"  ✅ RESULT: PASSED all criteria")
                     log_debug(f"✅ {ticker}: Passed all criteria")
                 else:
                     # Track specific failure reasons
@@ -126,10 +176,14 @@ class TickerFilterEngine:
                     elif 'exchange' in reason.lower():
                         filter_stats['failed_exchange'] += 1
                     
+                    if ticker in debug_tickers:
+                        log_info(f"  🚫 RESULT: FAILED - {reason}")
                     log_debug(f"❌ {ticker}: {reason}")
                     
             except Exception as e:
                 filter_stats['failed_data_unavailable'] += 1
+                if ticker in debug_tickers:
+                    log_info(f"  💥 RESULT: ERROR - {e}")
                 log_debug(f"❌ {ticker}: Error getting fundamentals - {e}")
                 continue
         
@@ -151,6 +205,36 @@ class TickerFilterEngine:
         
         return filtered_buckets
     
+    def _log_initial_tickers(self, ticker_buckets: Dict[str, List[Dict[str, Any]]]) -> None:
+        """Log which tickers are being considered before filtering"""
+        log_info(f"📊 Initial tickers before filtering ({len(ticker_buckets)}):")
+        
+        # Group by article count for better overview
+        by_article_count = {}
+        for ticker, articles in ticker_buckets.items():
+            count = len(articles)
+            if count not in by_article_count:
+                by_article_count[count] = []
+            by_article_count[count].append(ticker)
+        
+        for count in sorted(by_article_count.keys(), reverse=True):
+            tickers = by_article_count[count]
+            display_tickers = ', '.join(tickers[:15])  # Show first 15
+            if len(tickers) > 15:
+                display_tickers += f" (+{len(tickers)-15} more)"
+            log_info(f"  📰 {count} articles: {display_tickers}")
+        
+        # Show some sample articles to understand data quality (only if debug enabled)
+        if self.enable_detailed_debug:
+            sample_tickers = list(ticker_buckets.keys())[:3]
+            for ticker in sample_tickers:
+                articles = ticker_buckets[ticker]
+                log_info(f"  📄 Sample {ticker} articles:")
+                for i, article in enumerate(articles[:2]):  # Show first 2 articles
+                    title = article.get('title', 'No Title')[:60]
+                    source = article.get('source', 'Unknown')
+                    log_info(f"    {i+1}. [{source}] {title}...")
+    
     def _get_company_fundamentals(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Fetch company fundamental data with caching"""
         # Check memory cache first
@@ -168,6 +252,8 @@ class TickerFilterEngine:
             # Get company profile for basic info
             profile_data = self.fmp_loader.make_request(f"profile/{ticker}")
             if not profile_data or not isinstance(profile_data, list) or len(profile_data) == 0:
+                if self.enable_detailed_debug:
+                    log_debug(f"No profile data for {ticker}: {profile_data}")
                 return None
             
             profile = profile_data[0]
@@ -175,6 +261,8 @@ class TickerFilterEngine:
             # Get current quote for volume data
             quote_data = self.fmp_loader.make_request(f"quote/{ticker}")
             if not quote_data or not isinstance(quote_data, list) or len(quote_data) == 0:
+                if self.enable_detailed_debug:
+                    log_debug(f"No quote data for {ticker}: {quote_data}")
                 return None
             
             quote = quote_data[0]
@@ -232,12 +320,12 @@ class TickerFilterEngine:
             if market_cap < self.criteria.min_market_cap:
                 return False, f"Market cap ${market_cap:,} below minimum ${self.criteria.min_market_cap:,}"
             
-            # Volume checks
+            # Volume requirements
             avg_volume = fundamentals.get('avg_volume', 0)
             if avg_volume < self.criteria.min_avg_volume:
                 return False, f"Avg volume {avg_volume:,} below minimum {self.criteria.min_avg_volume:,}"
             
-            # Dollar volume check (price * avg_volume)
+            # Dollar volume check
             dollar_volume = price * avg_volume
             if dollar_volume < self.criteria.min_dollar_volume:
                 return False, f"Dollar volume ${dollar_volume:,.0f} below minimum ${self.criteria.min_dollar_volume:,}"
@@ -248,15 +336,14 @@ class TickerFilterEngine:
                 return False, f"Beta {beta:.2f} above maximum {self.criteria.max_volatility_beta:.2f}"
             
             # Exchange check
-            exchange = fundamentals.get('exchange', '').upper()
-            if exchange not in [ex.upper() for ex in self.criteria.allowed_exchanges]:
+            exchange = fundamentals.get('exchange', '').strip()
+            if exchange and exchange not in self.criteria.allowed_exchanges:
                 return False, f"Exchange '{exchange}' not in allowed list {self.criteria.allowed_exchanges}"
             
             # Options availability check
-            if self.criteria.require_options:
-                has_options = fundamentals.get('has_options', False)
-                if not has_options:
-                    return False, "Options not available"
+            has_options = fundamentals.get('has_options', False)
+            if self.criteria.require_options and not has_options:
+                return False, f"Options not available but required"
             
             return True, "Passed all criteria"
             
@@ -264,68 +351,74 @@ class TickerFilterEngine:
             return False, f"Error evaluating criteria: {e}"
     
     def _get_cached_fundamentals(self, ticker: str) -> Optional[Dict[str, Any]]:
-        """Get cached fundamental data if still valid (24 hour expiry)"""
+        """Get cached fundamental data if still valid"""
         try:
             with sqlite3.connect(self.cache_db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.execute(
-                    '''SELECT * FROM fundamentals_cache 
-                       WHERE ticker = ? AND cached_at > datetime('now', '-24 hours')''',
-                    (ticker,)
-                )
-                row = cursor.fetchone()
+                cursor = conn.execute('''
+                    SELECT price, market_cap, exchange, beta, avg_volume, volume, has_options, cached_at
+                    FROM fundamentals_cache 
+                    WHERE ticker = ? AND cached_at > datetime('now', '-24 hours')
+                ''', (ticker,))
                 
+                row = cursor.fetchone()
                 if row:
                     return {
-                        'price': row['price'],
-                        'market_cap': row['market_cap'],
-                        'exchange': row['exchange'],
-                        'beta': row['beta'],
-                        'avg_volume': row['avg_volume'],
-                        'has_options': bool(row['has_options'])
+                        'price': row[0],
+                        'market_cap': row[1],
+                        'exchange': row[2],
+                        'beta': row[3],
+                        'avg_volume': row[4],
+                        'volume': row[5],
+                        'has_options': bool(row[6])
                     }
+                    
         except Exception as e:
             log_debug(f"Error reading cache for {ticker}: {e}")
         
         return None
     
     def _cache_fundamentals(self, ticker: str, fundamentals: Dict[str, Any]) -> None:
-        """Cache fundamental data in database"""
+        """Cache fundamental data"""
         try:
             with sqlite3.connect(self.cache_db_path) as conn:
-                conn.execute(
-                    '''INSERT OR REPLACE INTO fundamentals_cache 
-                       (ticker, price, market_cap, exchange, beta, avg_volume, has_options, cached_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))''',
-                    (
-                        ticker,
-                        fundamentals.get('price', 0),
-                        fundamentals.get('market_cap', 0),
-                        fundamentals.get('exchange', ''),
-                        fundamentals.get('beta', 0),
-                        fundamentals.get('avg_volume', 0),
-                        fundamentals.get('has_options', False)
-                    )
-                )
+                conn.execute('''
+                    INSERT OR REPLACE INTO fundamentals_cache 
+                    (ticker, price, market_cap, exchange, beta, avg_volume, volume, has_options, cached_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ''', (
+                    ticker,
+                    fundamentals.get('price', 0),
+                    fundamentals.get('market_cap', 0),
+                    fundamentals.get('exchange', ''),
+                    fundamentals.get('beta', 0),
+                    fundamentals.get('avg_volume', 0),
+                    fundamentals.get('volume', 0),
+                    fundamentals.get('has_options', False)
+                ))
                 conn.commit()
+                
         except Exception as e:
             log_debug(f"Error caching fundamentals for {ticker}: {e}")
     
-    def get_filter_summary(self, original_count: int, filtered_count: int) -> Dict[str, Any]:
-        """Get summary of filtering results"""
-        return {
-            'original_ticker_count': original_count,
-            'filtered_ticker_count': filtered_count,
-            'tickers_removed': original_count - filtered_count,
-            'filter_efficiency': (original_count - filtered_count) / original_count if original_count > 0 else 0,
-            'criteria_used': {
-                'min_price': self.criteria.min_price,
-                'max_price': self.criteria.max_price,
-                'min_avg_volume': self.criteria.min_avg_volume,
-                'min_dollar_volume': self.criteria.min_dollar_volume,
-                'min_market_cap': self.criteria.min_market_cap,
-                'max_volatility_beta': self.criteria.max_volatility_beta,
-                'require_options': self.criteria.require_options,
-                'allowed_exchanges': self.criteria.allowed_exchanges
-            }
-        }
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache statistics"""
+        try:
+            with sqlite3.connect(self.cache_db_path) as conn:
+                cursor = conn.execute('SELECT COUNT(*) FROM fundamentals_cache')
+                total_cached = cursor.fetchone()[0]
+                
+                cursor = conn.execute('''
+                    SELECT COUNT(*) FROM fundamentals_cache 
+                    WHERE cached_at > datetime('now', '-24 hours')
+                ''')
+                valid_cached = cursor.fetchone()[0]
+                
+                return {
+                    'total_entries': total_cached,
+                    'valid_entries': valid_cached,
+                    'cache_path': str(self.cache_db_path)
+                }
+                
+        except Exception as e:
+            log_error(f"Error getting cache stats: {e}")
+            return {'error': str(e)}

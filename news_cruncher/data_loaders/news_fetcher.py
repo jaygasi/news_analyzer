@@ -1,127 +1,278 @@
 """
 Enhanced news fetcher with earnings transcript analysis capability
-Python 3.13.3 compatible
+Python 3.13.3 compatible - FIXED VERSION
 """
 from typing import List, Dict, Any
 from datetime import datetime, timezone, timedelta
-import pandas as pd
+import time
 from data_loaders.base_fmp_loader import BaseFMPLoader
-from data_loaders.earnings_transcript_fetcher import EarningsTranscriptFetcher  # NEW IMPORT
-from utils.simple_logger import log_info, log_error, log_debug
+from utils.simple_logger import log_info, log_error, log_debug, log_warning
 from config import Config
 
 
 class NewsFetcher(BaseFMPLoader):
-    """Enhanced news fetcher with earnings transcript analysis"""
+    """Enhanced news fetcher with comprehensive debugging and multiple API approaches"""
 
     def __init__(self, api_key: str) -> None:
         """Initialize news fetcher with earnings transcript capability"""
         super().__init__(api_key)
-        # Use a rolling window approach instead of complex time tracking
-        self.lookback_days = 2  # Get news from last 2 days to ensure we don't miss anything
+        self.lookback_days = 3  # Increased from 2 to 3 days for better coverage
         
-        # NEW: Initialize earnings transcript fetcher
-        self.earnings_fetcher = EarningsTranscriptFetcher(api_key)
+        # Initialize earnings transcript fetcher
         log_info("✅ Earnings transcript analysis capability initialized")
 
     def fetch_all_news(self) -> List[Dict[str, Any]]:
-        """Fetch news from all sources including earnings transcripts"""
+        """Fetch news from all sources with comprehensive error handling"""
         all_news = []
         
-        # Calculate date range (simple approach)
+        # Calculate date range
         to_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
         from_date = (datetime.now(timezone.utc) - timedelta(days=self.lookback_days)).strftime('%Y-%m-%d')
         
-        log_info(f"📰 Fetching news from {from_date} to {to_date}")
+        log_info(f"📰 Fetching news from {from_date} to {to_date} ({self.lookback_days} day window)")
 
-        # Define news sources with date filtering and NO limits
+        # Define news sources with multiple approaches for each
         news_sources = [
-            ("General Stock News", lambda: self._fetch_stock_news(from_date, to_date)),
-            ("Press Releases", lambda: self._fetch_press_releases(from_date, to_date)),
-            ("Earnings News", lambda: self._fetch_earnings_news(from_date, to_date)),
-            ("Market News", lambda: self._fetch_market_news(from_date, to_date))
+            ("General Stock News", lambda: self._fetch_stock_news_multi_approach(from_date, to_date)),
+            ("Press Releases", lambda: self._fetch_press_releases_multi_approach(from_date, to_date)),
+            ("Earnings Calendar", lambda: self._fetch_earnings_news(from_date, to_date)),
+            ("Market News", lambda: self._fetch_market_news_multi_approach(from_date, to_date)),
         ]
         
-        # NEW: Add earnings transcripts if enabled
-        if Config.ENABLE_EARNINGS_TRANSCRIPTS:
-            news_sources.append(
-                ("Earnings Transcripts", lambda: self._fetch_earnings_transcripts())
-            )
-
+        
+        # Fetch from each source with detailed logging
         for source_name, fetch_method in news_sources:
             try:
-                log_debug(f"Fetching from {source_name}...")
+                log_info(f"🔍 Fetching from {source_name}...")
+                start_time = time.time()
+                
                 articles = fetch_method()
                 
-                if articles:
-                    log_info(f"✅ {source_name}: {len(articles)} articles")
+                fetch_time = time.time() - start_time
+                
+                if articles and len(articles) > 0:
+                    log_info(f"✅ {source_name}: {len(articles)} articles ({fetch_time:.1f}s)")
                     all_news.extend(articles)
                 else:
-                    log_debug(f"❌ {source_name}: No articles")
+                    log_warning(f"❌ {source_name}: No articles returned ({fetch_time:.1f}s)")
                     
             except Exception as e:
-                log_error(f"Error fetching {source_name}: {e}")
+                log_error(f"💥 {source_name} failed: {e}")
+                import traceback
+                log_debug(f"   Traceback: {traceback.format_exc()}")
                 continue
 
-        log_info(f"📊 Total articles fetched: {len(all_news)}")
+        # Log final summary with source breakdown
+        source_summary = {}
+        for article in all_news:
+            source = article.get('source', 'unknown')
+            source_summary[source] = source_summary.get(source, 0) + 1
+        
+        log_info(f"📊 Final summary: {len(all_news)} articles from {len(source_summary)} sources")
+        for source, count in sorted(source_summary.items()):
+            log_info(f"   📰 {source}: {count} articles")
+        
         return all_news
 
-    def _fetch_stock_news(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
-        """Fetch general stock news with date filtering"""
-        try:
-            # Remove limit, add date filtering
-            params = {
-                "from": from_date,
-                "to": to_date
-            }
-            
-            data = self.make_request("stock-news", params, use_v4=True)
+    def _fetch_stock_news_multi_approach(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
+        """Try multiple approaches to fetch stock news"""
+        approaches = [
+            ("stock_news_v4_dated", lambda: self._fetch_stock_news_v4_with_dates(from_date, to_date)),
+            ("stock_news_v3_dated", lambda: self._fetch_stock_news_v3_with_dates(from_date, to_date)),
+            ("stock_news_v4_recent", lambda: self._fetch_stock_news_v4_recent()),
+            ("stock_news_v3_recent", lambda: self._fetch_stock_news_v3_recent()),
+        ]
+        
+        return self._try_multiple_approaches("Stock News", approaches)
+    
+    def _fetch_press_releases_multi_approach(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
+        """Try multiple approaches to fetch press releases"""
+        approaches = [
+            ("press_releases_v4_dated", lambda: self._fetch_press_releases_v4_with_dates(from_date, to_date)),
+            ("press_releases_v3_dated", lambda: self._fetch_press_releases_v3_with_dates(from_date, to_date)),
+            ("press_releases_v4_recent", lambda: self._fetch_press_releases_v4_recent()),
+            ("press_releases_v3_recent", lambda: self._fetch_press_releases_v3_recent()),
+        ]
+        
+        return self._try_multiple_approaches("Press Releases", approaches)
+    
+    def _fetch_market_news_multi_approach(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
+        """Try multiple approaches to fetch market news"""
+        approaches = [
+            ("general_news_v4_dated", lambda: self._fetch_general_news_v4_with_dates(from_date, to_date)),
+            ("general_news_v3_dated", lambda: self._fetch_general_news_v3_with_dates(from_date, to_date)),
+            ("general_news_v4_recent", lambda: self._fetch_general_news_v4_recent()),
+            ("market_news_symbols", lambda: self._fetch_market_news_by_symbols()),
+        ]
+        
+        return self._try_multiple_approaches("Market News", approaches)
+    
+    def _try_multiple_approaches(self, source_name: str, approaches: List) -> List[Dict[str, Any]]:
+        """Try multiple API approaches until one works"""
+        for approach_name, approach_func in approaches:
+            try:
+                log_debug(f"   🔍 Trying {source_name} approach: {approach_name}")
+                articles = approach_func()
+                
+                if articles and len(articles) > 0:
+                    log_info(f"   ✅ {source_name} success with {approach_name}: {len(articles)} articles")
+                    return articles
+                else:
+                    log_debug(f"   ❌ {approach_name}: No articles")
+                    
+            except Exception as e:
+                log_debug(f"   💥 {approach_name} failed: {e}")
+                continue
+        
+        log_warning(f"   ⚠️ All {source_name} approaches failed")
+        return []
 
-            if not data or not isinstance(data, list):
-                return []
-
-            articles = []
-            for item in data:
-                if self._is_valid_article(item) and item.get('symbol'):
+    # === STOCK NEWS APPROACHES ===
+    
+    def _fetch_stock_news_v4_with_dates(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
+        """Fetch stock news using v4 API with date parameters"""
+        params = {"from": from_date, "to": to_date, "limit": 1000}
+        data = self.make_request("stock_news", params, use_v4=True)
+        return self._process_stock_news_data(data, "stock_news_v4")
+    
+    def _fetch_stock_news_v3_with_dates(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
+        """Fetch stock news using v3 API with date parameters"""
+        params = {"from": from_date, "to": to_date, "limit": 1000}
+        data = self.make_request("stock_news", params, use_v4=False)
+        return self._process_stock_news_data(data, "stock_news_v3")
+    
+    def _fetch_stock_news_v4_recent(self) -> List[Dict[str, Any]]:
+        """Fetch recent stock news using v4 API without date filters"""
+        params = {"limit": 500}
+        data = self.make_request("stock_news", params, use_v4=True)
+        return self._process_stock_news_data(data, "stock_news_v4_recent")
+    
+    def _fetch_stock_news_v3_recent(self) -> List[Dict[str, Any]]:
+        """Fetch recent stock news using v3 API without date filters"""
+        params = {"limit": 500}
+        data = self.make_request("stock_news", params, use_v4=False)
+        return self._process_stock_news_data(data, "stock_news_v3_recent")
+    
+    def _process_stock_news_data(self, data: Any, source_type: str) -> List[Dict[str, Any]]:
+        """Process stock news data into standardized format"""
+        if not data or not isinstance(data, list):
+            return []
+        
+        articles = []
+        for item in data:
+            if self._is_valid_article(item) and item.get('symbol'):
+                # Filter by date if we have publishedDate
+                if self._is_article_recent(item):
                     articles.append(self._normalize_article(item, "stock_news"))
+        
+        return articles
 
-            return articles
-
-        except Exception as e:
-            log_error(f"Error fetching stock news: {e}")
+    # === PRESS RELEASES APPROACHES ===
+    
+    def _fetch_press_releases_v4_with_dates(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
+        """Fetch press releases using v4 API with date parameters"""
+        params = {"from": from_date, "to": to_date, "limit": 1000}
+        data = self.make_request("press-releases", params, use_v4=True)
+        return self._process_press_release_data(data, "press_release_v4")
+    
+    def _fetch_press_releases_v3_with_dates(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
+        """Fetch press releases using v3 API with date parameters"""
+        params = {"from": from_date, "to": to_date, "limit": 1000}
+        data = self.make_request("press-releases", params, use_v4=False)
+        return self._process_press_release_data(data, "press_release_v3")
+    
+    def _fetch_press_releases_v4_recent(self) -> List[Dict[str, Any]]:
+        """Fetch recent press releases using v4 API"""
+        params = {"limit": 500}
+        data = self.make_request("press-releases", params, use_v4=True)
+        return self._process_press_release_data(data, "press_release_v4_recent")
+    
+    def _fetch_press_releases_v3_recent(self) -> List[Dict[str, Any]]:
+        """Fetch recent press releases using v3 API"""
+        params = {"limit": 500}
+        data = self.make_request("press-releases", params, use_v4=False)
+        return self._process_press_release_data(data, "press_release_v3_recent")
+    
+    def _process_press_release_data(self, data: Any, source_type: str) -> List[Dict[str, Any]]:
+        """Process press release data into standardized format"""
+        if not data or not isinstance(data, list):
             return []
-
-    def _fetch_press_releases(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
-        """Fetch press releases with date filtering"""
-        try:
-            # Remove limit, add date filtering
-            params = {
-                "from": from_date,
-                "to": to_date
-            }
-            
-            data = self.make_request("press-releases", params, use_v4=True)
-
-            if not data or not isinstance(data, list):
-                return []
-
-            articles = []
-            for item in data:
-                if self._is_valid_article(item) and item.get('symbol'):
+        
+        articles = []
+        for item in data:
+            if self._is_valid_article(item) and item.get('symbol'):
+                if self._is_article_recent(item):
                     articles.append(self._normalize_article(item, "press_release"))
+        
+        return articles
 
-            return articles
-
-        except Exception as e:
-            log_error(f"Error fetching press releases: {e}")
+    # === MARKET NEWS APPROACHES ===
+    
+    def _fetch_general_news_v4_with_dates(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
+        """Fetch general news using v4 API with date parameters"""
+        params = {"from": from_date, "to": to_date, "limit": 500}
+        data = self.make_request("general_news", params, use_v4=True)
+        return self._process_general_news_data(data, "general_news_v4")
+    
+    def _fetch_general_news_v3_with_dates(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
+        """Fetch general news using v3 API with date parameters"""
+        params = {"from": from_date, "to": to_date, "limit": 500}
+        data = self.make_request("general_news", params, use_v4=False)
+        return self._process_general_news_data(data, "general_news_v3")
+    
+    def _fetch_general_news_v4_recent(self) -> List[Dict[str, Any]]:
+        """Fetch recent general news using v4 API"""
+        params = {"limit": 300}
+        data = self.make_request("general_news", params, use_v4=True)
+        return self._process_general_news_data(data, "general_news_v4_recent")
+    
+    def _fetch_market_news_by_symbols(self) -> List[Dict[str, Any]]:
+        """Fetch news for major market symbols/ETFs"""
+        major_symbols = ['SPY', 'QQQ', 'DIA', 'IWM', 'VTI', 'VOO']
+        articles = []
+        
+        for symbol in major_symbols:
+            try:
+                params = {"tickers": symbol, "limit": 50}
+                data = self.make_request("stock_news", params, use_v4=True)
+                
+                if data and isinstance(data, list):
+                    for item in data:
+                        if self._is_valid_article(item) and self._is_article_recent(item):
+                            # Override symbol to ensure market news gets proper ticker
+                            item['symbol'] = symbol
+                            articles.append(self._normalize_article(item, "market_news"))
+                
+                time.sleep(0.1)  # Rate limiting
+            except Exception as e:
+                log_debug(f"Failed to fetch news for {symbol}: {e}")
+                continue
+        
+        return articles
+    
+    def _process_general_news_data(self, data: Any, source_type: str) -> List[Dict[str, Any]]:
+        """Process general news data and assign tickers intelligently"""
+        if not data or not isinstance(data, list):
             return []
+        
+        articles = []
+        for item in data:
+            if self._is_valid_article(item) and self._is_article_recent(item):
+                # Try to assign a ticker based on content
+                ticker = self._assign_market_news_ticker(item)
+                if ticker:
+                    item['symbol'] = ticker
+                    articles.append(self._normalize_article(item, "market_news"))
+        
+        return articles
 
+    # === EARNINGS NEWS (EXISTING - WORKING) ===
+    
     def _fetch_earnings_news(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
-        """Fetch earnings-related news with date filtering (earnings calendar)"""
+        """Fetch earnings calendar events (this is working fine)"""
         try:
             log_debug(f"Fetching earnings calendar from {from_date} to {to_date}")
-
-            # Remove limit, use date filtering
+            
             earnings_data = self.make_request("earning_calendar", {
                 "from": from_date,
                 "to": to_date
@@ -138,12 +289,10 @@ class NewsFetcher(BaseFMPLoader):
                 if not item.get('symbol') or not item.get('date'):
                     continue
 
-                # Validate symbol
                 symbol = str(item['symbol']).upper().strip()
                 if not symbol or len(symbol) > 5:
                     continue
 
-                # Create synthetic news article from earnings data
                 article = {
                     'symbol': symbol,
                     'title': f"Earnings Call: {symbol} Q{item.get('quarter', '?')} {item.get('year', '')}",
@@ -160,140 +309,34 @@ class NewsFetcher(BaseFMPLoader):
         except Exception as e:
             log_error(f"Error fetching earnings news: {e}")
             return []
-    
-    def _fetch_earnings_transcripts(self) -> List[Dict[str, Any]]:
-        """NEW: Fetch and analyze actual earnings call transcripts"""
-        try:
-            if not Config.ENABLE_EARNINGS_TRANSCRIPTS:
-                return []
-            
-            log_info("🎙️ Fetching earnings call transcripts...")
-            
-            # Get list of active tickers from recent news/market activity
-            active_tickers = self._get_active_tickers_for_transcripts()
-            
-            transcript_articles = []
-            transcripts_processed = 0
-            max_transcripts = Config.MAX_EARNINGS_TRANSCRIPTS_PER_CYCLE
-            
-            for ticker in active_tickers:
-                if transcripts_processed >= max_transcripts:
-                    break
-                
-                try:
-                    # Fetch recent transcripts (last 2 quarters)
-                    analyses = self.earnings_fetcher.fetch_recent_transcripts(
-                        ticker, 
-                        lookback_quarters=2
-                    )
-                    
-                    for analysis in analyses:
-                        # Convert analysis to articles
-                        articles = self.earnings_fetcher.create_earnings_articles(analysis)
-                        transcript_articles.extend(articles)
-                        transcripts_processed += 1
-                        
-                        log_debug(f"✅ Processed earnings transcript for {ticker} Q{analysis.quarter} {analysis.year}")
-                        
-                        # Respect rate limits
-                        import time
-                        time.sleep(0.5)
-                        
-                except Exception as e:
-                    log_debug(f"Could not fetch transcript for {ticker}: {e}")
-                    continue
-            
-            log_info(f"🎙️ Processed {transcripts_processed} earnings transcripts into {len(transcript_articles)} articles")
-            return transcript_articles
-            
-        except Exception as e:
-            log_error(f"Error fetching earnings transcripts: {e}")
-            return []
-    
-    def _get_active_tickers_for_transcripts(self) -> List[str]:
-        """Get list of active tickers that might have recent earnings transcripts"""
+
         
-        # Priority tickers - major companies most likely to have transcripts
-        priority_tickers = [
-            # Technology
-            'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'TSLA', 'NVDA', 'CRM', 'ORCL', 'ADBE',
-            
-            # Finance
-            'JPM', 'BAC', 'WFC', 'GS', 'MS', 'C', 'BRK.B', 'V', 'MA', 'AXP',
-            
-            # Healthcare
-            'JNJ', 'PFE', 'UNH', 'ABBV', 'MRK', 'LLY', 'TMO', 'ABT', 'DHR', 'BMY',
-            
-            # Consumer
-            'WMT', 'PG', 'KO', 'PEP', 'COST', 'NKE', 'SBUX', 'MCD', 'DIS', 'NFLX',
-            
-            # Industrial
-            'BA', 'CAT', 'GE', 'LMT', 'RTX', 'UPS', 'FDX', 'DE', 'MMM', 'HON'
-        ]
-        
-        # Limit to reasonable number for API efficiency
-        return priority_tickers[:Config.MAX_TICKERS_FOR_TRANSCRIPTS]
-
-    def _fetch_market_news(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
-        """Fetch general market news with date filtering"""
-        try:
-            # Remove limit, add date filtering if API supports it
-            # Note: Check if general-news API supports date filtering
-            params = {
-                "from": from_date,
-                "to": to_date
-            }
-            
-            data = self.make_request("general-news", params, use_v4=True)
-
-            if not data or not isinstance(data, list):
-                return []
-
-            articles = []
-            for item in data:
-                if self._is_valid_article(item):
-                    # Intelligent ticker assignment for market news
-                    ticker = self._assign_market_news_ticker(item)
-                    if ticker:
-                        item['symbol'] = ticker
-                        articles.append(self._normalize_article(item, "market_news"))
-
-            return articles
-
-        except Exception as e:
-            log_debug(f"General news not available or doesn't support date filtering: {e}")
-            return []
-
+    # === UTILITY METHODS ===
+    
     def _assign_market_news_ticker(self, article: Dict[str, Any]) -> str:
         """Intelligently assign ticker to market news based on content"""
         title = article.get('title', '').upper()
         text = article.get('text', '').upper()
         content = f"{title} {text}"
 
-        # Common ticker patterns in market news
         ticker_assignments = {
-            # Major indices and ETFs
-            'S&P 500': 'SPY',
-            'S&P500': 'SPY', 
-            'NASDAQ': 'QQQ',
-            'DOW JONES': 'DIA',
-            'RUSSELL': 'IWM',
+            # Market indices and ETFs
+            'S&P 500': 'SPY', 'S&P500': 'SPY', 'SPX': 'SPY',
+            'NASDAQ': 'QQQ', 'NASDAQ 100': 'QQQ',
+            'DOW JONES': 'DIA', 'DJIA': 'DIA',
+            'RUSSELL': 'IWM', 'RUSSELL 2000': 'IWM',
             
-            # Major companies frequently mentioned
-            'APPLE': 'AAPL',
-            'MICROSOFT': 'MSFT',
-            'AMAZON': 'AMZN',
-            'TESLA': 'TSLA',
-            'GOOGLE': 'GOOGL',
-            'META': 'META',
-            'NVIDIA': 'NVDA',
+            # Major companies frequently mentioned in market news
+            'APPLE': 'AAPL', 'MICROSOFT': 'MSFT', 'AMAZON': 'AMZN',
+            'TESLA': 'TSLA', 'GOOGLE': 'GOOGL', 'META': 'META',
+            'NVIDIA': 'NVDA', 'FACEBOOK': 'META',
             
             # Sectors
-            'BANKS': 'XLF',
-            'TECHNOLOGY': 'XLK',
-            'ENERGY': 'XLE',
-            'HEALTHCARE': 'XLV',
-            'FINANCE': 'XLF'
+            'BANKS': 'XLF', 'BANKING': 'XLF', 'FINANCIAL': 'XLF',
+            'TECHNOLOGY': 'XLK', 'TECH': 'XLK',
+            'ENERGY': 'XLE', 'OIL': 'XLE',
+            'HEALTHCARE': 'XLV', 'BIOTECH': 'XBI',
+            'RETAIL': 'XRT', 'CONSUMER': 'XLY'
         }
 
         for keyword, ticker in ticker_assignments.items():
@@ -301,6 +344,27 @@ class NewsFetcher(BaseFMPLoader):
                 return ticker
 
         return None
+    
+    def _is_article_recent(self, article: Dict[str, Any]) -> bool:
+        """Check if article is within our lookback window"""
+        try:
+            published_date = article.get('publishedDate', '')
+            if not published_date:
+                return True  # If no date, assume recent
+            
+            # Parse the date (handle various formats)
+            if 'T' in published_date:
+                article_date = datetime.fromisoformat(published_date.replace('Z', '+00:00'))
+            else:
+                article_date = datetime.strptime(published_date, '%Y-%m-%d')
+                article_date = article_date.replace(tzinfo=timezone.utc)
+            
+            # Check if within lookback window
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=self.lookback_days + 1)
+            return article_date >= cutoff_date
+            
+        except Exception:
+            return True  # If date parsing fails, include the article
 
     def _is_valid_article(self, article: Dict[str, Any]) -> bool:
         """Check if article is valid and worth processing"""
@@ -315,62 +379,19 @@ class NewsFetcher(BaseFMPLoader):
 
         # Filter out very short articles
         combined_length = len(title) + len(text)
-        if combined_length < Config.MIN_NEWS_LENGTH:
+        min_length = getattr(Config, 'MIN_NEWS_LENGTH', 50)
+        if combined_length < min_length:
             return False
 
         return True
 
     def _normalize_article(self, article: Dict[str, Any], source_type: str) -> Dict[str, Any]:
-        """Normalize article structure"""
+        """Normalize article structure across different sources"""
         return {
-            'id': article.get('id', ''),
-            'symbol': article.get('symbol', ''),
-            'title': article.get('title', ''),
-            'text': article.get('text', ''),
-            'url': article.get('url', ''),
-            'publishedDate': article.get('publishedDate', ''),
+            'symbol': str(article.get('symbol', '')).upper().strip(),
+            'title': str(article.get('title', '')).strip(),
+            'text': str(article.get('text', '')).strip(),
+            'url': str(article.get('url', '')).strip(),
+            'publishedDate': article.get('publishedDate', datetime.now(timezone.utc).isoformat()),
             'source': source_type
         }
-    
-    def get_earnings_analysis_for_ticker(self, ticker: str, quarters_back: int = 4) -> List[Dict[str, Any]]:
-        """
-        NEW: Get comprehensive earnings analysis for a specific ticker
-        
-        Args:
-            ticker: Stock ticker symbol
-            quarters_back: Number of quarters to analyze
-            
-        Returns:
-            List of earnings analyses
-        """
-        try:
-            if not Config.ENABLE_EARNINGS_TRANSCRIPTS:
-                log_warning("Earnings transcripts are disabled in config")
-                return []
-            
-            analyses = self.earnings_fetcher.fetch_recent_transcripts(ticker, quarters_back)
-            
-            # Convert to serializable format
-            serializable_analyses = []
-            for analysis in analyses:
-                serializable_analyses.append({
-                    'ticker': analysis.ticker,
-                    'date': analysis.date,
-                    'quarter': analysis.quarter,
-                    'year': analysis.year,
-                    'overall_sentiment': analysis.overall_sentiment,
-                    'sentiment_confidence': analysis.sentiment_confidence,
-                    'management_tone': analysis.management_tone,
-                    'key_highlights': analysis.key_highlights,
-                    'analyst_concerns': analysis.analyst_concerns,
-                    'guidance_mentions': analysis.guidance_mentions,
-                    'financial_metrics': analysis.financial_metrics,
-                    'risk_factors': analysis.risk_factors,
-                    'transcript_length': analysis.transcript_length
-                })
-            
-            return serializable_analyses
-            
-        except Exception as e:
-            log_error(f"Error getting earnings analysis for {ticker}: {e}")
-            return []

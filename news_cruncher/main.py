@@ -19,6 +19,8 @@ from analysis.price_tracker import PriceTracker, TrackingScheduler
 from core.decision_engine import DecisionEngine
 from output.csv_logger import CSVLogger
 import traceback
+from earnings_event_system import EarningsIntegrationManager
+from enhanced_decision_engine import EnhancedDecisionEngine, EnhancedTradingDecision
 
 
 class EnhancedFinancialNewsAnalyzer:
@@ -67,7 +69,7 @@ class EnhancedFinancialNewsAnalyzer:
             'tiingo': Config.ENABLE_TIINGO,
             'keyword_sentiment': Config.ENABLE_KEYWORD_SENTIMENT,
             'fundamental_filtering': Config.ENABLE_FUNDAMENTAL_FILTERING,
-            'earnings_transcripts': Config.ENABLE_EARNINGS_TRANSCRIPTS
+            'earnings_events': Config.ENABLE_EARNINGS_EVENTS
         }
         
         for service, enabled in toggles.items():
@@ -83,12 +85,15 @@ class EnhancedFinancialNewsAnalyzer:
                 log_warning("   Install with: pip install torch transformers numpy")
         
         # Validate earnings transcript configuration
-        if Config.ENABLE_EARNINGS_TRANSCRIPTS:
-            log_info(f"📊 Earnings transcript settings:")
-            log_info(f"   Max transcripts per cycle: {Config.MAX_EARNINGS_TRANSCRIPTS_PER_CYCLE}")
-            log_info(f"   Max tickers for transcripts: {Config.MAX_TICKERS_FOR_TRANSCRIPTS}")
-            log_info(f"   Lookback quarters: {Config.EARNINGS_TRANSCRIPT_LOOKBACK_QUARTERS}")
-    
+        if Config.ENABLE_EARNINGS_EVENTS:
+            log_info(f"📅 Earnings event settings:")
+            log_info(f"   Lookback days: {Config.EARNINGS_LOOKBACK_DAYS}")
+            log_info(f"   Lookahead days: {Config.EARNINGS_LOOKAHEAD_DAYS}")
+            log_info(f"   Min confidence: {Config.MIN_EARNINGS_CONFIDENCE}")
+            log_info(f"   Cache hours: {Config.EARNINGS_CACHE_HOURS}")
+        else:
+            log_info(f"📅 Earnings event analysis: DISABLED")
+                
     def _initialize_components(self) -> None:
         """Initialize all system components including enhanced features"""
         log_info("🔧 Initializing enhanced system components...")
@@ -98,6 +103,14 @@ class EnhancedFinancialNewsAnalyzer:
         self.news_fetcher = NewsFetcher(Config.FMP_API_KEY)  # Pass API key for earnings transcripts
         self.ticker_aggregator = TickerAggregator()
         
+         # Earnings integration
+        if Config.ENABLE_EARNINGS_EVENTS:
+            self.earnings_manager = EarningsIntegrationManager(self.news_fetcher)
+            log_info("✅ Earnings event analysis initialized")
+        else:
+            self.earnings_manager = None
+            log_info("❌ Earnings event analysis disabled")
+            
         # Fundamental filtering (if enabled)
         if Config.ENABLE_FUNDAMENTAL_FILTERING:
             filter_criteria = FilterCriteria(
@@ -111,6 +124,7 @@ class EnhancedFinancialNewsAnalyzer:
                 allowed_exchanges=Config.ALLOWED_EXCHANGES
             )
             self.ticker_filter = TickerFilterEngine(self.news_fetcher, filter_criteria)
+            self.ticker_filter.set_debug_mode(True)  # Enable detailed debugging
             log_info("✅ Fundamental filtering initialized")
         else:
             self.ticker_filter = None
@@ -126,7 +140,8 @@ class EnhancedFinancialNewsAnalyzer:
         self.technical_analyzer = TechnicalAnalyzer(self.news_fetcher)
         
         # Decision engine
-        self.decision_engine = DecisionEngine()
+        #self.decision_engine = DecisionEngine()
+        self.decision_engine = EnhancedDecisionEngine()
         
         # Price tracking components
         log_info("📈 Initializing price tracking components...")
@@ -167,8 +182,8 @@ class EnhancedFinancialNewsAnalyzer:
         log_info(f"   🤖 Traditional services: {len(available_traditional)} available ({', '.join(available_traditional)})")
         
         # Earnings transcript capability
-        if Config.ENABLE_EARNINGS_TRANSCRIPTS:
-            log_info(f"   🎙️ Earnings transcripts: Up to {Config.MAX_EARNINGS_TRANSCRIPTS_PER_CYCLE} per cycle")
+        if Config.ENABLE_EARNINGS_EVENTS:
+            log_info(f"   🎙️ Earnings transcripts: Up to per cycle")
         else:
             log_info("   ❌ Earnings transcripts: Disabled")
         
@@ -238,23 +253,28 @@ class EnhancedFinancialNewsAnalyzer:
         tickers_before_filtering = 0
         tickers_after_filtering = 0
         decisions_made = 0
-        earnings_transcripts_processed = 0
+        EARNINGS_EVENTS_processed = 0
         
         try:
             # Step 1: Fetch latest news (including earnings transcripts)
             log_info(f"📰 Step 1: Fetching enhanced news sources")
             all_articles = self.news_fetcher.fetch_all_news()
+            # Add these 3 lines after: all_articles = self.news_fetcher.fetch_all_news()
+            sources = {}
+            for a in all_articles: sources[a.get('source', 'unknown')] = sources.get(a.get('source', 'unknown'), 0) + 1
+            log_info(f"🐛 NEWS SOURCES: {sources}")
+            
             articles_fetched = len(all_articles)
             
             # Count earnings transcript articles separately
             earnings_articles = [a for a in all_articles if 'transcript' in a.get('source', '')]
-            earnings_transcripts_processed = len(earnings_articles)
+            EARNINGS_EVENTS_processed = len(earnings_articles)
             
             if not all_articles:
                 log_info("No news articles found, ending cycle")
                 return
             
-            log_info(f"📊 Fetched {articles_fetched} total articles ({earnings_transcripts_processed} from earnings transcripts)")
+            log_info(f"📊 Fetched {articles_fetched} total articles ({EARNINGS_EVENTS_processed} from earnings transcripts)")
             
             # Step 2: Filter unprocessed articles
             log_info("🔍 Step 2: Filtering unprocessed articles...")
@@ -297,6 +317,25 @@ class EnhancedFinancialNewsAnalyzer:
             
             tickers_after_filtering = len(ticker_buckets)
             
+             # NEW: Step 3.75: Analyze earnings events
+            log_info("📅 Step 3.75: Analyzing earnings events...")
+            earnings_analyses = {}
+            earnings_analyses_count = 0
+            
+            if Config.ENABLE_EARNINGS_EVENTS and self.earnings_manager:
+                earnings_analyses = self.earnings_manager.analyze_tickers_for_earnings(ticker_buckets)
+                earnings_analyses_count = len(earnings_analyses)
+                
+                if earnings_analyses_count > 0:
+                    log_info(f"📅 Found {earnings_analyses_count} tickers with earnings events")
+                    for ticker, analysis in earnings_analyses.items():
+                        log_info(f"  📊 {ticker}: {analysis.direction} (score: {analysis.overall_score:+.2f}, "
+                                f"conf: {analysis.confidence:.2f}) - {analysis.get_reasoning()}")
+                else:
+                    log_info("📅 No tickers with upcoming/recent earnings events found")
+            else:
+                log_info("📅 Earnings event analysis disabled")
+            
             # Step 4: Prioritize tickers
             log_info("🎯 Step 4: Prioritizing tickers for enhanced analysis...")
             prioritized_tickers = self.ticker_aggregator.prioritize_tickers(ticker_buckets)
@@ -305,9 +344,9 @@ class EnhancedFinancialNewsAnalyzer:
             log_info(f"🧠 Step 5: Enhanced neural analysis of {len(prioritized_tickers)} tickers...")
             ticker_analyses = await self._analyze_tickers_enhanced(prioritized_tickers, ticker_buckets)
             
-            # Step 6: Make trading decisions with enhanced confidence
-            log_info("⚖️ Step 6: Making enhanced trading decisions...")
-            decisions = self.decision_engine.batch_process_decisions(ticker_analyses)
+            # Step 6: Make enhanced trading decisions
+            log_info("⚖️ Step 6: Making enhanced trading decisions with earnings integration...")
+            decisions = self.decision_engine.batch_process_enhanced_decisions(ticker_analyses, earnings_analyses)
             decisions_made = len(decisions)
             
             # Step 6.5: Add entry prices before CSV logging
@@ -353,7 +392,7 @@ class EnhancedFinancialNewsAnalyzer:
             self._print_enhanced_cycle_summary(
                 cycle_start, articles_fetched, articles_processed, 
                 tickers_before_filtering, tickers_after_filtering, 
-                decisions_made, earnings_transcripts_processed
+                decisions_made, EARNINGS_EVENTS_processed
             )
             
         except Exception as e:
@@ -443,21 +482,34 @@ class EnhancedFinancialNewsAnalyzer:
                 for decision in decisions:
                     decisions_by_ticker[decision.ticker] = decision
             
+            successful_marks = 0
+            failed_marks = 0
+            
             for article in articles:
-                ticker = article.get('symbol', '')
-                decision = decisions_by_ticker.get(ticker)
-                
-                decision_str = decision.decision if decision else ''
-                confidence = decision.confidence if decision else 0.0
-                
-                self.article_tracker.mark_article_processed(
-                    article=article.get('id', ''),
-                    url=article.get('url', ''),
-                    decision=decision_str,
-                    confidence=confidence
-                )
-                
-            log_debug(f"Marked {len(articles)} articles as processed")
+                try:
+                    ticker = article.get('symbol', '')
+                    decision = decisions_by_ticker.get(ticker)
+                    
+                    decision_str = decision.decision if decision else ''
+                    confidence = decision.confidence if decision else 0.0
+                    
+                    # CORRECT METHOD CALL: mark_article_processed(article, decision, confidence)
+                    success = self.article_tracker.mark_article_processed(
+                        article=article,  # Pass the full article dict
+                        decision=decision_str,
+                        confidence=confidence
+                    )
+                    
+                    if success:
+                        successful_marks += 1
+                    else:
+                        failed_marks += 1
+                        
+                except Exception as e:
+                    failed_marks += 1
+                    log_debug(f"Error marking individual article for {ticker}: {e}")
+            
+            log_debug(f"Marked articles as processed: {successful_marks} successful, {failed_marks} failed")
             
         except Exception as e:
             log_error(f"Error marking articles as processed: {e}")
@@ -523,13 +575,13 @@ class EnhancedFinancialNewsAnalyzer:
     def _print_enhanced_cycle_summary(self, cycle_start: datetime, articles_fetched: int, 
                                     articles_processed: int, tickers_before_filtering: int, 
                                     tickers_after_filtering: int, decisions_made: int, 
-                                    earnings_transcripts_processed: int) -> None:
+                                    EARNINGS_EVENTS_processed: int) -> None:
         """Print comprehensive cycle summary with enhanced metrics"""
         cycle_duration = (datetime.now() - cycle_start).total_seconds()
         
         log_info("🏁 Enhanced Cycle Summary:")
         log_info(f"   📰 Articles fetched: {articles_fetched}")
-        log_info(f"   🎙️ Earnings transcripts: {earnings_transcripts_processed}")
+        log_info(f"   🎙️ Earnings transcripts: {EARNINGS_EVENTS_processed}")
         log_info(f"   📄 Articles processed: {articles_processed}")
         log_info(f"   📊 Tickers before filtering: {tickers_before_filtering}")
         log_info(f"   🔍 Tickers after filtering: {tickers_after_filtering}")
@@ -541,8 +593,8 @@ class EnhancedFinancialNewsAnalyzer:
             filter_efficiency = (tickers_before_filtering - tickers_after_filtering) / tickers_before_filtering * 100
             log_info(f"   🔍 Filter efficiency: {filter_efficiency:.1f}% of tickers filtered out")
         
-        if earnings_transcripts_processed > 0:
-            transcript_ratio = (earnings_transcripts_processed / articles_fetched) * 100
+        if EARNINGS_EVENTS_processed > 0:
+            transcript_ratio = (EARNINGS_EVENTS_processed / articles_fetched) * 100
             log_info(f"   🎙️ Transcript coverage: {transcript_ratio:.1f}% of articles from earnings calls")
         
         # Performance metrics
@@ -645,13 +697,13 @@ class EnhancedFinancialNewsAnalyzer:
         log_info(f"   🤖 Traditional services: {', '.join(traditional_services)}")
         
         # Earnings transcript status
-        if Config.ENABLE_EARNINGS_TRANSCRIPTS:
-            log_info(f"🎙️ Earnings Transcript Analysis:")
-            log_info(f"   Max transcripts per cycle: {Config.MAX_EARNINGS_TRANSCRIPTS_PER_CYCLE}")
-            log_info(f"   Max tickers for transcripts: {Config.MAX_TICKERS_FOR_TRANSCRIPTS}")
-            log_info(f"   Lookback quarters: {Config.EARNINGS_TRANSCRIPT_LOOKBACK_QUARTERS}")
+        if Config.ENABLE_EARNINGS_EVENTS:
+            log_info(f"📅 Earnings Event Analysis:")
+            log_info(f"   Event detection window: {Config.EARNINGS_LOOKBACK_DAYS} days back, {Config.EARNINGS_LOOKAHEAD_DAYS} days ahead")
+            log_info(f"   Min confidence threshold: {Config.MIN_EARNINGS_CONFIDENCE}")
+            log_info(f"   3-way scoring weights: news={Config.NEWS_WEIGHT_3WAY}, earnings={Config.EARNINGS_WEIGHT_3WAY}, tech={Config.TECHNICAL_WEIGHT_3WAY}")
         else:
-            log_info(f"🎙️ Earnings Transcript Analysis: DISABLED")
+            log_info(f"📅 Earnings Event Analysis: DISABLED")
         
         # Fundamental filtering status
         if Config.ENABLE_FUNDAMENTAL_FILTERING:

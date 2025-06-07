@@ -128,38 +128,7 @@ class Config:
     # PERFORMANCE: Instant, no API calls required
     # RECOMMENDATION: Always keep enabled - provides guaranteed analysis
     ENABLE_KEYWORD_SENTIMENT: bool = os.getenv('ENABLE_KEYWORD_SENTIMENT', 'true').lower() == 'true'
-    
-    # ================================================================
-    # 🎙️ NEW: EARNINGS TRANSCRIPT ANALYSIS CONFIGURATION
-    # ================================================================
-    
-    # 🎙️ Enable Earnings Call Transcript Analysis
-    # EFFECT: Fetches and analyzes actual earnings call transcripts from FMP API
-    # PERFORMANCE: Adds significant depth to earnings-related analysis
-    # API USAGE: Moderate impact - transcripts are large but cached
-    # RECOMMENDATION: Enable for comprehensive earnings analysis
-    ENABLE_EARNINGS_TRANSCRIPTS: bool = os.getenv('ENABLE_EARNINGS_TRANSCRIPTS', 'true').lower() == 'true'
-    
-    # 📊 Maximum Earnings Transcripts Per Cycle
-    # EFFECT: Limits how many transcripts to process per analysis cycle
-    # RANGE: 5-50 recommended (transcripts are large and processing-intensive)
-    # EXAMPLE: 10 = process 10 recent transcripts per cycle
-    #          25 = more comprehensive but slower processing
-    MAX_EARNINGS_TRANSCRIPTS_PER_CYCLE: int = int(os.getenv('MAX_EARNINGS_TRANSCRIPTS_PER_CYCLE', '15'))
-    
-    # 🎯 Maximum Tickers for Transcript Analysis
-    # EFFECT: How many tickers to check for recent earnings transcripts
-    # PERFORMANCE: Higher numbers = more API calls and processing time
-    # RANGE: 20-100 recommended
-    MAX_TICKERS_FOR_TRANSCRIPTS: int = int(os.getenv('MAX_TICKERS_FOR_TRANSCRIPTS', '50'))
-    
-    # 📅 Earnings Transcript Lookback Quarters
-    # EFFECT: How many quarters back to look for transcripts per ticker
-    # RANGE: 1-8 quarters recommended
-    # EXAMPLE: 2 = look at last 2 quarters (6 months of data)
-    #          4 = look at last 4 quarters (1 year of data)
-    EARNINGS_TRANSCRIPT_LOOKBACK_QUARTERS: int = int(os.getenv('EARNINGS_TRANSCRIPT_LOOKBACK_QUARTERS', '2'))
-    
+      
     # ================================================================
     # 🔍 FUNDAMENTAL FILTERING CONFIGURATION
     # ================================================================
@@ -369,6 +338,28 @@ class Config:
     # 🛠️ UTILITY METHODS - ENHANCED WITH NEURAL ANALYSIS
     # ================================================================
     
+    # ================================================================
+    # 📅 EARNINGS EVENT ANALYSIS CONFIGURATION
+    # ================================================================
+    
+    # Enable/disable earnings event analysis
+    ENABLE_EARNINGS_EVENTS: bool = os.getenv('ENABLE_EARNINGS_EVENTS', 'true').lower() == 'true'
+    
+    # Earnings event detection window (days)
+    EARNINGS_LOOKBACK_DAYS: int = int(os.getenv('EARNINGS_LOOKBACK_DAYS', '3'))
+    EARNINGS_LOOKAHEAD_DAYS: int = int(os.getenv('EARNINGS_LOOKAHEAD_DAYS', '7'))
+    
+    # Earnings analysis confidence thresholds
+    MIN_EARNINGS_CONFIDENCE: float = float(os.getenv('MIN_EARNINGS_CONFIDENCE', '0.6'))
+    
+    # Scoring weights for 3-way analysis
+    NEWS_WEIGHT_3WAY: float = float(os.getenv('NEWS_WEIGHT_3WAY', '0.40'))
+    EARNINGS_WEIGHT_3WAY: float = float(os.getenv('EARNINGS_WEIGHT_3WAY', '0.30'))
+    TECHNICAL_WEIGHT_3WAY: float = float(os.getenv('TECHNICAL_WEIGHT_3WAY', '0.30'))
+    
+    # Cache settings for earnings data
+    EARNINGS_CACHE_HOURS: int = int(os.getenv('EARNINGS_CACHE_HOURS', '6'))
+    
     @classmethod
     def _get_tolerance_settings(cls): # New helper method to return tolerance for cleaner use
         return {
@@ -510,9 +501,8 @@ class Config:
             },
             'enhanced_features': {
                 'enhanced_neural_enabled': cls.ENABLE_ENHANCED_NEURAL,
-                'earnings_transcripts_enabled': cls.ENABLE_EARNINGS_TRANSCRIPTS,
-                'max_transcripts_per_cycle': cls.MAX_EARNINGS_TRANSCRIPTS_PER_CYCLE,
-                'transcript_lookback_quarters': cls.EARNINGS_TRANSCRIPT_LOOKBACK_QUARTERS
+                'EARNINGS_EVENTS_enabled': cls.ENABLE_EARNINGS_EVENTS,
+                'max_transcripts_per_cycle': cls.MAX_EARNINGS_EVENTS_PER_CYCLE
             }
         }
     
@@ -553,6 +543,8 @@ class Config:
             'tracking_status'
         ]
     
+    # In config.py - Update the get_checkpoint_info() method
+
     @classmethod 
     def get_checkpoint_info(cls) -> List[Dict[str, Any]]:
         """Get information about all price checkpoints with dynamic intervals"""
@@ -560,12 +552,14 @@ class Config:
             {
                 'name': 'checkpoint1',
                 'minutes': cls.PRICE_CHECK_1_MINUTES,
+                'field_prefix': 'price_checkpoint1',  # ← ADD THIS
                 'short_label': f"checkpoint1 ({cls.PRICE_CHECK_1_MINUTES}m)",
                 'description': f"First price check after {cls.PRICE_CHECK_1_MINUTES} minutes"
             },
             {
                 'name': 'checkpoint2', 
                 'minutes': cls.PRICE_CHECK_2_MINUTES,
+                'field_prefix': 'price_checkpoint2',  # ← ADD THIS
                 'short_label': f"checkpoint2 ({cls.PRICE_CHECK_2_MINUTES}m)",
                 'description': f"Second price check after {cls.PRICE_CHECK_2_MINUTES} minutes"
             },
@@ -573,6 +567,7 @@ class Config:
                 'name': 'close',
                 'hour': cls.CLOSE_PRICE_HOUR,
                 'minute': cls.CLOSE_PRICE_MINUTE,
+                'field_prefix': 'price_close',  # ← ADD THIS
                 'short_label': f"close ({cls.CLOSE_PRICE_HOUR:02d}:{cls.CLOSE_PRICE_MINUTE:02d})",
                 'description': f"Market close price at {cls.CLOSE_PRICE_HOUR:02d}:{cls.CLOSE_PRICE_MINUTE:02d} EST"
             }
@@ -677,8 +672,7 @@ class Config:
 
 📈 Want more comprehensive analysis?
 - Enable earnings transcript analysis
-- Increase MAX_EARNINGS_TRANSCRIPTS_PER_CYCLE to 25
-- Increase EARNINGS_TRANSCRIPT_LOOKBACK_QUARTERS to 4
+- Increase MAX_EARNINGS_EVENTS_PER_CYCLE to 25
 - Monitor API usage with transcript analysis (it's data-intensive)
 
 🕐 Optimize for your hardware:

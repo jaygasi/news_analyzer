@@ -498,9 +498,8 @@ ENABLE_ENHANCED_NEURAL=true
 ENABLE_FINBERT=true
 
 # Earnings Intelligence
-ENABLE_EARNINGS_TRANSCRIPTS=true
-MAX_EARNINGS_TRANSCRIPTS_PER_CYCLE=15
-EARNINGS_TRANSCRIPT_LOOKBACK_QUARTERS=2
+ENABLE_EARNINGS_EVENTS=true
+MAX_EARNINGS_EVENTS_PER_CYCLE=15
 
 # Fundamental Quality Filtering
 ENABLE_FUNDAMENTAL_FILTERING=true
@@ -538,7 +537,7 @@ ENABLE_FINBERT=true
 ENABLE_KEYWORD_SENTIMENT=true
 
 # Earnings Analysis (FMP API only)
-ENABLE_EARNINGS_TRANSCRIPTS=true
+ENABLE_EARNINGS_EVENTS=true
 
 # Quality Filtering
 ENABLE_FUNDAMENTAL_FILTERING=true
@@ -556,12 +555,12 @@ ENABLE_ALPHA_VANTAGE=false
 ```bash
 # Fast processing setup
 ENABLE_ENHANCED_NEURAL=true  # Still best accuracy
-ENABLE_EARNINGS_TRANSCRIPTS=false  # Skip for speed
+ENABLE_EARNINGS_EVENTS=false  # Skip for speed
 
 # Reduced processing limits
 MAX_TICKERS_TO_ANALYZE=25
 MAX_NEWS_ARTICLES=400
-MAX_EARNINGS_TRANSCRIPTS_PER_CYCLE=5
+MAX_EARNINGS_EVENTS_PER_CYCLE=5
 
 # Expected: 90-92% accuracy, fastest processing
 ```
@@ -819,7 +818,7 @@ graph LR
 | Issue | Symptoms | Solution |
 |-------|----------|----------|
 | **🧠 Neural model not loading** | `Enhanced Neural: Not available` | Install: `pip install torch transformers numpy` |
-| **🎙️ No earnings transcripts** | `0 from earnings transcripts` | Check FMP API quota, reduce `MAX_EARNINGS_TRANSCRIPTS_PER_CYCLE` |
+| **🎙️ No earnings transcripts** | `0 from earnings transcripts` | Check FMP API quota, reduce `MAX_EARNINGS_EVENTS_PER_CYCLE` |
 | **🔍 All tickers filtered out** | `Filtered out: 100% tickers` | Relax criteria: `MIN_STOCK_PRICE=5.00` |
 | **💾 Out of memory** | `CUDA out of memory` | Reduce `MAX_TICKERS_TO_ANALYZE=25` |
 | **⏱️ Very slow processing** | `>60 sec/ticker` | Check GPU availability, reduce batch sizes |
