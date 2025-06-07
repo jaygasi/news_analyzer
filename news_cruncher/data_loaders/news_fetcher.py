@@ -1,26 +1,31 @@
 """
-Simplified news fetcher using date-based filtering instead of complex time tracking
+Enhanced news fetcher with earnings transcript analysis capability
 Python 3.13.3 compatible
 """
 from typing import List, Dict, Any
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 from data_loaders.base_fmp_loader import BaseFMPLoader
+from data_loaders.earnings_transcript_fetcher import EarningsTranscriptFetcher  # NEW IMPORT
 from utils.simple_logger import log_info, log_error, log_debug
 from config import Config
 
 
 class NewsFetcher(BaseFMPLoader):
-    """Fetch financial news using simple date-based filtering"""
+    """Enhanced news fetcher with earnings transcript analysis"""
 
     def __init__(self, api_key: str) -> None:
-        """Initialize news fetcher"""
+        """Initialize news fetcher with earnings transcript capability"""
         super().__init__(api_key)
         # Use a rolling window approach instead of complex time tracking
         self.lookback_days = 2  # Get news from last 2 days to ensure we don't miss anything
+        
+        # NEW: Initialize earnings transcript fetcher
+        self.earnings_fetcher = EarningsTranscriptFetcher(api_key)
+        log_info("✅ Earnings transcript analysis capability initialized")
 
     def fetch_all_news(self) -> List[Dict[str, Any]]:
-        """Fetch news from all sources using date-based filtering"""
+        """Fetch news from all sources including earnings transcripts"""
         all_news = []
         
         # Calculate date range (simple approach)
@@ -36,20 +41,29 @@ class NewsFetcher(BaseFMPLoader):
             ("Earnings News", lambda: self._fetch_earnings_news(from_date, to_date)),
             ("Market News", lambda: self._fetch_market_news(from_date, to_date))
         ]
+        
+        # NEW: Add earnings transcripts if enabled
+        if Config.ENABLE_EARNINGS_TRANSCRIPTS:
+            news_sources.append(
+                ("Earnings Transcripts", lambda: self._fetch_earnings_transcripts())
+            )
 
         for source_name, fetch_method in news_sources:
             try:
+                log_debug(f"Fetching from {source_name}...")
                 articles = fetch_method()
+                
                 if articles:
+                    log_info(f"✅ {source_name}: {len(articles)} articles")
                     all_news.extend(articles)
-                    log_info(f"Fetched {len(articles)} articles from {source_name}")
+                else:
+                    log_debug(f"❌ {source_name}: No articles")
+                    
             except Exception as e:
-                log_error(f"Error fetching from {source_name}: {e}")
+                log_error(f"Error fetching {source_name}: {e}")
+                continue
 
-        # Remove duplicates
-        all_news = self._deduplicate_articles(all_news)
-
-        log_info(f"📰 Total articles before processing filter: {len(all_news)}")
+        log_info(f"📊 Total articles fetched: {len(all_news)}")
         return all_news
 
     def _fetch_stock_news(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
@@ -60,14 +74,15 @@ class NewsFetcher(BaseFMPLoader):
                 "from": from_date,
                 "to": to_date
             }
-            data = self.make_request("stock_news", params)
+            
+            data = self.make_request("stock-news", params, use_v4=True)
 
             if not data or not isinstance(data, list):
                 return []
 
             articles = []
             for item in data:
-                if self._is_valid_article(item):
+                if self._is_valid_article(item) and item.get('symbol'):
                     articles.append(self._normalize_article(item, "stock_news"))
 
             return articles
@@ -84,7 +99,8 @@ class NewsFetcher(BaseFMPLoader):
                 "from": from_date,
                 "to": to_date
             }
-            data = self.make_request("press-releases", params)
+            
+            data = self.make_request("press-releases", params, use_v4=True)
 
             if not data or not isinstance(data, list):
                 return []
@@ -101,7 +117,7 @@ class NewsFetcher(BaseFMPLoader):
             return []
 
     def _fetch_earnings_news(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
-        """Fetch earnings-related news with date filtering"""
+        """Fetch earnings-related news with date filtering (earnings calendar)"""
         try:
             log_debug(f"Fetching earnings calendar from {from_date} to {to_date}")
 
@@ -144,6 +160,79 @@ class NewsFetcher(BaseFMPLoader):
         except Exception as e:
             log_error(f"Error fetching earnings news: {e}")
             return []
+    
+    def _fetch_earnings_transcripts(self) -> List[Dict[str, Any]]:
+        """NEW: Fetch and analyze actual earnings call transcripts"""
+        try:
+            if not Config.ENABLE_EARNINGS_TRANSCRIPTS:
+                return []
+            
+            log_info("🎙️ Fetching earnings call transcripts...")
+            
+            # Get list of active tickers from recent news/market activity
+            active_tickers = self._get_active_tickers_for_transcripts()
+            
+            transcript_articles = []
+            transcripts_processed = 0
+            max_transcripts = Config.MAX_EARNINGS_TRANSCRIPTS_PER_CYCLE
+            
+            for ticker in active_tickers:
+                if transcripts_processed >= max_transcripts:
+                    break
+                
+                try:
+                    # Fetch recent transcripts (last 2 quarters)
+                    analyses = self.earnings_fetcher.fetch_recent_transcripts(
+                        ticker, 
+                        lookback_quarters=2
+                    )
+                    
+                    for analysis in analyses:
+                        # Convert analysis to articles
+                        articles = self.earnings_fetcher.create_earnings_articles(analysis)
+                        transcript_articles.extend(articles)
+                        transcripts_processed += 1
+                        
+                        log_debug(f"✅ Processed earnings transcript for {ticker} Q{analysis.quarter} {analysis.year}")
+                        
+                        # Respect rate limits
+                        import time
+                        time.sleep(0.5)
+                        
+                except Exception as e:
+                    log_debug(f"Could not fetch transcript for {ticker}: {e}")
+                    continue
+            
+            log_info(f"🎙️ Processed {transcripts_processed} earnings transcripts into {len(transcript_articles)} articles")
+            return transcript_articles
+            
+        except Exception as e:
+            log_error(f"Error fetching earnings transcripts: {e}")
+            return []
+    
+    def _get_active_tickers_for_transcripts(self) -> List[str]:
+        """Get list of active tickers that might have recent earnings transcripts"""
+        
+        # Priority tickers - major companies most likely to have transcripts
+        priority_tickers = [
+            # Technology
+            'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'TSLA', 'NVDA', 'CRM', 'ORCL', 'ADBE',
+            
+            # Finance
+            'JPM', 'BAC', 'WFC', 'GS', 'MS', 'C', 'BRK.B', 'V', 'MA', 'AXP',
+            
+            # Healthcare
+            'JNJ', 'PFE', 'UNH', 'ABBV', 'MRK', 'LLY', 'TMO', 'ABT', 'DHR', 'BMY',
+            
+            # Consumer
+            'WMT', 'PG', 'KO', 'PEP', 'COST', 'NKE', 'SBUX', 'MCD', 'DIS', 'NFLX',
+            
+            # Industrial
+            'BA', 'CAT', 'GE', 'LMT', 'RTX', 'UPS', 'FDX', 'DE', 'MMM', 'HON'
+        ]
+        
+        # Limit to reasonable number for API efficiency
+        return priority_tickers[:Config.MAX_TICKERS_FOR_TRANSCRIPTS]
 
     def _fetch_market_news(self, from_date: str, to_date: str) -> List[Dict[str, Any]]:
         """Fetch general market news with date filtering"""
@@ -177,80 +266,111 @@ class NewsFetcher(BaseFMPLoader):
 
     def _assign_market_news_ticker(self, article: Dict[str, Any]) -> str:
         """Intelligently assign ticker to market news based on content"""
-        title = str(article.get('title', '')).lower()
-        text = str(article.get('text', '')).lower()
+        title = article.get('title', '').upper()
+        text = article.get('text', '').upper()
         content = f"{title} {text}"
 
-        # Look for explicit ticker mentions first
-        import re
-        ticker_pattern = r'\b([A-Z]{1,5})\b'
-        potential_tickers = re.findall(ticker_pattern, article.get('title', '') + ' ' + article.get('text', ''))
+        # Common ticker patterns in market news
+        ticker_assignments = {
+            # Major indices and ETFs
+            'S&P 500': 'SPY',
+            'S&P500': 'SPY', 
+            'NASDAQ': 'QQQ',
+            'DOW JONES': 'DIA',
+            'RUSSELL': 'IWM',
+            
+            # Major companies frequently mentioned
+            'APPLE': 'AAPL',
+            'MICROSOFT': 'MSFT',
+            'AMAZON': 'AMZN',
+            'TESLA': 'TSLA',
+            'GOOGLE': 'GOOGL',
+            'META': 'META',
+            'NVIDIA': 'NVDA',
+            
+            # Sectors
+            'BANKS': 'XLF',
+            'TECHNOLOGY': 'XLK',
+            'ENERGY': 'XLE',
+            'HEALTHCARE': 'XLV',
+            'FINANCE': 'XLF'
+        }
 
-        # Filter to valid stock tickers
-        valid_tickers = [t for t in potential_tickers if len(t) <= 5 and t not in ['NYSE', 'NASDAQ', 'SEC', 'FDA', 'CEO', 'CFO']]
-        if valid_tickers:
-            return valid_tickers[0]
+        for keyword, ticker in ticker_assignments.items():
+            if keyword in content:
+                return ticker
 
-        # Category-based assignment for general market news
-        if any(word in content for word in ['federal reserve', 'fed', 'interest rate', 'monetary policy']):
-            return 'TLT'  # Treasury bonds for Fed news
-        elif any(word in content for word in ['s&p 500', 'market index', 'broad market']):
-            return 'SPY'  # S&P 500 ETF
-        elif any(word in content for word in ['technology', 'tech stocks', 'nasdaq']):
-            return 'QQQ'  # Tech-heavy NASDAQ ETF
-        elif any(word in content for word in ['small cap', 'russell']):
-            return 'IWM'  # Small cap ETF
-        elif any(word in content for word in ['volatility', 'vix', 'fear']):
-            return 'VIX'  # Volatility index
-        elif any(word in content for word in ['oil', 'energy', 'crude']):
-            return 'XLE'  # Energy sector ETF
-        elif any(word in content for word in ['gold', 'precious metals']):
-            return 'GLD'  # Gold ETF
-        else:
-            # If no specific category, skip this article
-            log_debug(f"Skipping market news without clear ticker assignment: {title[:50]}...")
-            return None
+        return None
 
     def _is_valid_article(self, article: Dict[str, Any]) -> bool:
-        """Validate article has required fields"""
-        required_fields = ['title']
+        """Check if article is valid and worth processing"""
+        if not article:
+            return False
 
-        for field in required_fields:
-            if not article.get(field):
-                return False
+        title = article.get('title', '')
+        text = article.get('text', '')
+        
+        if not title and not text:
+            return False
 
-        # Check minimum content length
-        title = str(article.get('title', ''))
-        text = str(article.get('text', ''))
-
-        if len(title + text) < Config.MIN_NEWS_LENGTH:
+        # Filter out very short articles
+        combined_length = len(title) + len(text)
+        if combined_length < Config.MIN_NEWS_LENGTH:
             return False
 
         return True
 
-    def _normalize_article(self, article: Dict[str, Any], source: str) -> Dict[str, Any]:
-        """Normalize article to standard format"""
+    def _normalize_article(self, article: Dict[str, Any], source_type: str) -> Dict[str, Any]:
+        """Normalize article structure"""
         return {
-            'symbol': str(article.get('symbol', '')).upper().strip(),
-            'title': str(article.get('title', '')).strip(),
-            'text': str(article.get('text', '')).strip(),
-            'url': str(article.get('url', '')).strip(),
-            'publishedDate': article.get('publishedDate', datetime.now(timezone.utc).isoformat()),
-            'source': source,
-            'original_data': article
+            'id': article.get('id', ''),
+            'symbol': article.get('symbol', ''),
+            'title': article.get('title', ''),
+            'text': article.get('text', ''),
+            'url': article.get('url', ''),
+            'publishedDate': article.get('publishedDate', ''),
+            'source': source_type
         }
-
-    def _deduplicate_articles(self, articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Remove duplicate articles based on title and symbol"""
-        seen = set()
-        unique_articles = []
-
-        for article in articles:
-            key = f"{article['symbol']}:{article['title'][:100]}"
-
-            if key not in seen:
-                seen.add(key)
-                unique_articles.append(article)
-
-        log_debug(f"Deduplication: {len(articles)} -> {len(unique_articles)} articles")
-        return unique_articles
+    
+    def get_earnings_analysis_for_ticker(self, ticker: str, quarters_back: int = 4) -> List[Dict[str, Any]]:
+        """
+        NEW: Get comprehensive earnings analysis for a specific ticker
+        
+        Args:
+            ticker: Stock ticker symbol
+            quarters_back: Number of quarters to analyze
+            
+        Returns:
+            List of earnings analyses
+        """
+        try:
+            if not Config.ENABLE_EARNINGS_TRANSCRIPTS:
+                log_warning("Earnings transcripts are disabled in config")
+                return []
+            
+            analyses = self.earnings_fetcher.fetch_recent_transcripts(ticker, quarters_back)
+            
+            # Convert to serializable format
+            serializable_analyses = []
+            for analysis in analyses:
+                serializable_analyses.append({
+                    'ticker': analysis.ticker,
+                    'date': analysis.date,
+                    'quarter': analysis.quarter,
+                    'year': analysis.year,
+                    'overall_sentiment': analysis.overall_sentiment,
+                    'sentiment_confidence': analysis.sentiment_confidence,
+                    'management_tone': analysis.management_tone,
+                    'key_highlights': analysis.key_highlights,
+                    'analyst_concerns': analysis.analyst_concerns,
+                    'guidance_mentions': analysis.guidance_mentions,
+                    'financial_metrics': analysis.financial_metrics,
+                    'risk_factors': analysis.risk_factors,
+                    'transcript_length': analysis.transcript_length
+                })
+            
+            return serializable_analyses
+            
+        except Exception as e:
+            log_error(f"Error getting earnings analysis for {ticker}: {e}")
+            return []

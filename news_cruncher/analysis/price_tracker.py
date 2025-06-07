@@ -21,7 +21,7 @@ class PriceTracker:
         
         # Log current configuration
         checkpoint_info = Config.get_checkpoint_info()
-        intervals = [f"{info['label']} ({info.get('minutes', 'close')})" for info in checkpoint_info]
+        intervals = [f"{info['short_label']} ({info.get('minutes', 'close')})" for info in checkpoint_info]
         log_info(f"Price tracker initialized with configurable intervals: {', '.join(intervals)}")
         
     def is_market_hours(self, dt: datetime) -> bool:
@@ -49,7 +49,7 @@ class PriceTracker:
         checkpoint_info = Config.get_checkpoint_info()
         
         for checkpoint in checkpoint_info:
-            label = checkpoint['label']
+            label = checkpoint['short_label']
             minutes = checkpoint.get('minutes')
             
             if minutes is not None:
@@ -210,7 +210,7 @@ class TrackingScheduler:
                 continue
                 
             checkpoint_time = decision.tracking_schedule[i]
-            label = checkpoint['label']
+            label = checkpoint['short_label']
             
             # Check if this checkpoint is due and hasn't been processed yet
             current_price = decision.get_checkpoint_price(i)
@@ -266,7 +266,7 @@ class TrackingScheduler:
     async def run_scheduler(self) -> None:
         """Main scheduler loop with enhanced configurable interval logging"""
         checkpoint_info = Config.get_checkpoint_info()
-        intervals_summary = ", ".join([f"{info['label']}" for info in checkpoint_info])
+        intervals_summary = ", ".join([f"{info['short_label']}" for info in checkpoint_info])
         
         log_info(f"🕐 Price tracking scheduler started with intervals: {intervals_summary}")
         
@@ -292,7 +292,7 @@ class TrackingScheduler:
                                 change_pct = decision.get_checkpoint_change_pct(i)
                                 
                                 if price is not None and change_pct is not None:
-                                    status_parts.append(f"{checkpoint['label']}: {change_pct:+.1f}%")
+                                    status_parts.append(f"{checkpoint['short_label']}: {change_pct:+.1f}%")
                             
                             status = " | ".join(status_parts) if status_parts else "pending all"
                             log_info(f"  📊 {decision.ticker}: {status}")
@@ -315,7 +315,7 @@ class TrackingScheduler:
         summary = {
             'total_pending_tracks': len(self.pending_tracks),
             'configuration': {
-                'check_intervals': [f"{info['label']} ({info.get('minutes', 'close')})" for info in checkpoint_info],
+                'check_intervals': [f"{info['short_label']} ({info.get('minutes', 'close')})" for info in checkpoint_info],
                 'check1_minutes': Config.PRICE_CHECK_1_MINUTES,
                 'check2_minutes': Config.PRICE_CHECK_2_MINUTES,
                 'close_time': f"{Config.CLOSE_PRICE_HOUR:02d}:{Config.CLOSE_PRICE_MINUTE:02d} EST",
@@ -340,7 +340,7 @@ class TrackingScheduler:
                 
                 if price is not None:
                     position_info['checkpoints_completed'].append({
-                        'label': checkpoint['label'],
+                        'label': checkpoint['short_label'],
                         'price': price,
                         'change_pct': change_pct
                     })

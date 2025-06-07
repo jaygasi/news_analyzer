@@ -210,7 +210,7 @@ class CSVLogger:
                 change_pct = decision.get_checkpoint_change_pct(i)
                 
                 if price is not None and change_pct is not None:
-                    label = checkpoint['label']
+                    label = checkpoint['short_label']
                     updates.append(f"{label}: {change_pct:+.2f}%")
             
             update_info = " | ".join(updates) if updates else "baseline only"
@@ -436,7 +436,7 @@ class CSVLogger:
                         field_prefix = checkpoint['field_prefix']
                         price = row.get(field_prefix, '')
                         if price:
-                            checkpoint_prices.append(f"{checkpoint['label']}:${price}")
+                            checkpoint_prices.append(f"{checkpoint['short_label']}:${price}")
                     
                     price_info = f" [{', '.join(checkpoint_prices)}]" if checkpoint_prices else ""
                     
@@ -514,12 +514,12 @@ class CSVLogger:
                                             calculated_change = ((price - entry) / entry) * 100
                                             if abs(calculated_change - change_pct) > 0.1:  # Allow 0.1% tolerance
                                                 validation_results['issues'].append(
-                                                    f"Row {row_num}: {ticker} {checkpoint['label']} price change mismatch "
+                                                    f"Row {row_num}: {ticker} {checkpoint['short_label']} price change mismatch "
                                                     f"(calculated: {calculated_change:.2f}%, stored: {change_pct:.2f}%)"
                                                 )
                                         except (ValueError, ZeroDivisionError):
                                             validation_results['issues'].append(
-                                                f"Row {row_num}: {ticker} invalid {checkpoint['label']} price data"
+                                                f"Row {row_num}: {ticker} invalid {checkpoint['short_label']} price data"
                                             )
                             except (ValueError, ZeroDivisionError):
                                 validation_results['issues'].append(f"Row {row_num}: {ticker} invalid entry price")
@@ -540,7 +540,7 @@ class CSVLogger:
         checkpoint_info = Config.get_checkpoint_info()
         for checkpoint in checkpoint_info:
             field_prefix = checkpoint['field_prefix']
-            label = checkpoint['label']
+            label = checkpoint['short_label']
             
             mapping[field_prefix] = f"{label} price"
             mapping[f"{field_prefix}_timestamp"] = f"{label} timestamp"

@@ -100,7 +100,7 @@ class TradingDecision:
         
         for i, checkpoint in enumerate(checkpoint_info):
             field_prefix = checkpoint['field_prefix']
-            label = checkpoint['label']
+            label = checkpoint['short_label']
             
             result[label] = {
                 'price': self.price_tracking_data.get(field_prefix),
@@ -161,7 +161,7 @@ class DecisionEngine:
         
         # Log the current configuration for dynamic price tracking
         checkpoint_info = Config.get_checkpoint_info()
-        intervals = [f"{info['label']}" for info in checkpoint_info]
+        intervals = [f"{info['short_label']}" for info in checkpoint_info]
         
         log_info(f"Decision engine initialized with relaxed thresholds: min_confidence={self.min_confidence}, min_news_confidence={self.min_news_confidence}")
         log_info(f"Price tracking intervals: {', '.join(intervals)}")

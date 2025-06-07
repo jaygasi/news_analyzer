@@ -1,5 +1,5 @@
 """
-Main application for simplified financial news analysis system with configurable price tracking
+Enhanced financial news analysis system with RoBERTa+LSTM/CNN hybrid neural analyzer and earnings transcript analysis
 Python 3.13.3 compatible
 """
 import asyncio
@@ -12,18 +12,20 @@ from utils.simple_logger import log_info, log_error, log_warning, log_debug
 from database.article_tracker import ArticleTracker
 from data_loaders.news_fetcher import NewsFetcher
 from core.ticker_aggregator import TickerAggregator
+from core.ticker_filter import TickerFilterEngine, FilterCriteria
 from analysis.multi_llm_analyzer import MultiLLMAnalyzer
 from analysis.technical_analyzer_simple import TechnicalAnalyzer
 from analysis.price_tracker import PriceTracker, TrackingScheduler
 from core.decision_engine import DecisionEngine
 from output.csv_logger import CSVLogger
+import traceback
 
 
-class FinancialNewsAnalyzer:
-    """Main application class for financial news analysis with configurable price tracking"""
+class EnhancedFinancialNewsAnalyzer:
+    """Enhanced financial news analyzer with neural networks and earnings transcript analysis"""
     
     def __init__(self) -> None:
-        """Initialize the financial news analyzer"""
+        """Initialize the enhanced financial news analyzer"""
         self.running = True
         self.cycle_count = 0
         
@@ -39,10 +41,10 @@ class FinancialNewsAnalyzer:
         # Setup signal handlers
         self._setup_signal_handlers()
         
-        log_info("Financial News Analyzer with configurable price tracking initialized successfully")
+        log_info("🚀 Enhanced Financial News Analyzer with neural networks and earnings analysis initialized successfully")
     
     def _validate_configuration(self) -> None:
-        """Validate required configuration with enhanced service status"""
+        """Validate required configuration with enhanced feature status"""
         api_keys = Config.validate_api_keys()
         
         if not api_keys['fmp']:
@@ -52,192 +54,171 @@ class FinancialNewsAnalyzer:
         available_services = [key for key, available in api_keys.items() if available]
         log_info(f"Available API services: {', '.join(available_services)}")
         
-        # Show detailed service toggle status
+        # Show detailed service toggle status including enhanced features
         log_info("🔧 Service toggle status:")
         toggles = {
+            'enhanced_neural': Config.ENABLE_ENHANCED_NEURAL,
             'finbert': Config.ENABLE_FINBERT,
-            'gemini': Config.ENABLE_GEMINI, 
+            'gemini': Config.ENABLE_GEMINI,
             'openai': Config.ENABLE_OPENAI,
             'claude': Config.ENABLE_CLAUDE,
             'alpha_vantage': Config.ENABLE_ALPHA_VANTAGE,
             'polygon': Config.ENABLE_POLYGON,
             'tiingo': Config.ENABLE_TIINGO,
-            'keyword_analysis': Config.ENABLE_KEYWORD_ANALYSIS
+            'keyword_sentiment': Config.ENABLE_KEYWORD_SENTIMENT,
+            'fundamental_filtering': Config.ENABLE_FUNDAMENTAL_FILTERING,
+            'earnings_transcripts': Config.ENABLE_EARNINGS_TRANSCRIPTS
         }
         
-        enabled_count = 0
         for service, enabled in toggles.items():
             status = "✅ ENABLED" if enabled else "❌ DISABLED"
-            log_info(f"  {service}: {status}")
-            if enabled:
-                enabled_count += 1
+            log_info(f"   {service}: {status}")
         
-        log_info(f"Total enabled services: {enabled_count}")
+        # Validate enhanced neural dependencies
+        if Config.ENABLE_ENHANCED_NEURAL:
+            if Config.has_enhanced_neural_dependencies():
+                log_info("✅ Enhanced Neural dependencies satisfied")
+            else:
+                log_warning("⚠️ Enhanced Neural enabled but dependencies missing (torch, transformers, numpy)")
+                log_warning("   Install with: pip install torch transformers numpy")
         
-        if enabled_count < 2:
-            log_warning("⚠️ Only 1 service enabled - consider enabling more for better predictions")
-        elif enabled_count >= 4:
-            log_info("✅ Good service coverage for robust predictions")
-        
-        # Log configurable price tracking intervals
-        intervals = Config.get_price_check_labels()
-        log_info(f"📈 Configurable price tracking intervals: {', '.join(intervals)}")
-        log_info(f"   Check 1: {Config.PRICE_CHECK_1_MINUTES} minutes")
-        log_info(f"   Check 2: {Config.PRICE_CHECK_2_MINUTES} minutes") 
-        log_info(f"   Close time: {Config.CLOSE_PRICE_HOUR:02d}:{Config.CLOSE_PRICE_MINUTE:02d} EST")
+        # Validate earnings transcript configuration
+        if Config.ENABLE_EARNINGS_TRANSCRIPTS:
+            log_info(f"📊 Earnings transcript settings:")
+            log_info(f"   Max transcripts per cycle: {Config.MAX_EARNINGS_TRANSCRIPTS_PER_CYCLE}")
+            log_info(f"   Max tickers for transcripts: {Config.MAX_TICKERS_FOR_TRANSCRIPTS}")
+            log_info(f"   Lookback quarters: {Config.EARNINGS_TRANSCRIPT_LOOKBACK_QUARTERS}")
     
     def _initialize_components(self) -> None:
-        """Initialize all system components including configurable price tracking"""
-        try:
-            # Database components
-            self.article_tracker = ArticleTracker()
-                        
-            # Data fetching
-            self.news_fetcher = NewsFetcher(Config.FMP_API_KEY)
-            
-            # Core processing
-            self.ticker_aggregator = TickerAggregator()
-            
-            # Analysis components
-            self.llm_analyzer = MultiLLMAnalyzer()
-            self.technical_analyzer = TechnicalAnalyzer(self.news_fetcher)
-            
-            # Decision making
-            self.decision_engine = DecisionEngine()
-            
-            # Output with dynamic headers
-            self.csv_logger = CSVLogger()
-            
-            # Price tracking components with configurable intervals
-            self.price_tracker = PriceTracker(self.news_fetcher)
-            self.tracking_scheduler = TrackingScheduler(self.price_tracker, self.csv_logger)
-            
-            # Log service initialization status
-            service_status = self.llm_analyzer.get_service_status()
-            log_info("🤖 AI Service initialization status:")
-            for service_name, status in service_status.items():
-                if status['available']:
-                    weight = status.get('weight', 0)
-                    log_info(f"  ✅ {service_name}: Available (weight: {weight:.3f})")
-                else:
-                    log_info(f"  ❌ {service_name}: Not available")
-            
-            # Log price tracking configuration
-            checkpoint_info = Config.get_checkpoint_info()
-            log_info(f"📊 Price tracking configured with {len(checkpoint_info)} checkpoints:")
-            for checkpoint in checkpoint_info:
-                if checkpoint.get('minutes'):
-                    log_info(f"  📈 {checkpoint['label']}: {checkpoint['minutes']} minutes after entry")
-                else:
-                    log_info(f"  📈 {checkpoint['label']}: {Config.CLOSE_PRICE_HOUR:02d}:{Config.CLOSE_PRICE_MINUTE:02d} EST")
-            
-            log_info("All components including configurable price tracking initialized successfully")
-            
-        except Exception as e:
-            log_error(f"Failed to initialize components: {e}")
-            raise
+        """Initialize all system components including enhanced features"""
+        log_info("🔧 Initializing enhanced system components...")
+        
+        # Core data components
+        self.article_tracker = ArticleTracker()
+        self.news_fetcher = NewsFetcher(Config.FMP_API_KEY)  # Pass API key for earnings transcripts
+        self.ticker_aggregator = TickerAggregator()
+        
+        # Fundamental filtering (if enabled)
+        if Config.ENABLE_FUNDAMENTAL_FILTERING:
+            filter_criteria = FilterCriteria(
+                min_price=Config.MIN_STOCK_PRICE,
+                max_price=Config.MAX_STOCK_PRICE,
+                min_avg_volume=Config.MIN_AVG_VOLUME,
+                min_dollar_volume=Config.MIN_DOLLAR_VOLUME,
+                min_market_cap=Config.MIN_MARKET_CAP,
+                max_volatility_beta=Config.MAX_VOLATILITY_BETA,
+                require_options=Config.REQUIRE_OPTIONS,
+                allowed_exchanges=Config.ALLOWED_EXCHANGES
+            )
+            self.ticker_filter = TickerFilterEngine(self.news_fetcher, filter_criteria)
+            log_info("✅ Fundamental filtering initialized")
+        else:
+            self.ticker_filter = None
+            log_info("❌ Fundamental filtering disabled")
+        
+        # Enhanced analysis components
+        log_info("🧠 Initializing AI analysis components...")
+        
+        # Multi-LLM analyzer (now includes enhanced neural)
+        self.llm_analyzer = MultiLLMAnalyzer()
+        
+        # Technical analyzer
+        self.technical_analyzer = TechnicalAnalyzer(self.news_fetcher)
+        
+        # Decision engine
+        self.decision_engine = DecisionEngine()
+        
+        # Price tracking components
+        log_info("📈 Initializing price tracking components...")
+        self.price_tracker = PriceTracker(self.news_fetcher)
+        
+        # Output component
+        self.csv_logger = CSVLogger()
+        
+        self.tracking_scheduler = TrackingScheduler(self.price_tracker, self.csv_logger)
+        
+        
+        
+        # Log component initialization summary
+        self._log_initialization_summary()
+        
+        log_info("✅ All enhanced components initialized successfully")
+    
+    def _log_initialization_summary(self) -> None:
+        """Log summary of initialized components and their capabilities"""
+        
+        # Get service status from multi-LLM analyzer
+        service_status = self.llm_analyzer.get_service_status()
+        
+        log_info("📋 Component initialization summary:")
+        
+        # Neural analysis capabilities
+        if 'enhanced_neural' in service_status:
+            neural_status = service_status['enhanced_neural']
+            if neural_status.get('available'):
+                log_info(f"   🚀 Enhanced Neural: {neural_status.get('accuracy', 'N/A')} accuracy on {neural_status.get('device', 'CPU')}")
+                log_info(f"      Architecture: {neural_status.get('type', 'RoBERTa+LSTM+CNN')}")
+            else:
+                log_info("   ❌ Enhanced Neural: Not available")
+        
+        # Traditional analysis services
+        traditional_services = ['finbert', 'gemini', 'openai', 'claude', 'alpha_vantage', 'polygon', 'tiingo', 'keyword']
+        available_traditional = [s for s in traditional_services if service_status.get(s, {}).get('available', False)]
+        log_info(f"   🤖 Traditional services: {len(available_traditional)} available ({', '.join(available_traditional)})")
+        
+        # Earnings transcript capability
+        if Config.ENABLE_EARNINGS_TRANSCRIPTS:
+            log_info(f"   🎙️ Earnings transcripts: Up to {Config.MAX_EARNINGS_TRANSCRIPTS_PER_CYCLE} per cycle")
+        else:
+            log_info("   ❌ Earnings transcripts: Disabled")
+        
+        # Fundamental filtering
+        if self.ticker_filter:
+            log_info(f"   🔍 Fundamental filtering: Active with {len(Config.ALLOWED_EXCHANGES)} exchanges")
+        else:
+            log_info("   ❌ Fundamental filtering: Disabled")
+        
+        # Price tracking
+        checkpoint_info = Config.get_checkpoint_info()
+        intervals = ", ".join([cp['short_label'] for cp in checkpoint_info])
+        log_info(f"   📊 Price tracking: {intervals}")
     
     def _setup_signal_handlers(self) -> None:
         """Setup signal handlers for graceful shutdown"""
-        def signal_handler(signum: int, frame) -> None:
+        def signal_handler(signum, frame):
             log_info(f"Received signal {signum}, initiating graceful shutdown...")
             self.running = False
         
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
     
-    async def run(self) -> None:
-        """Main application loop with configurable price tracking"""
-        log_info("🚀 Starting Financial News Analysis System with Configurable Price Tracking")
-        self._print_startup_info()
-        
-        # Start price tracking scheduler as background task
-        tracking_task = asyncio.create_task(self.tracking_scheduler.run_scheduler())
-        
-        try:
-            while self.running:
-                await self._process_cycle()
-                
-                if self.running:
-                    log_info("Cycle completed, waiting 5 minutes before next run...")
-                    await asyncio.sleep(300)  # Wait 5 minutes between cycles
-                    
-        except KeyboardInterrupt:
-            log_info("Interrupted by user")
-        except Exception as e:
-            log_error(f"Fatal error in main loop: {e}")
-            raise
-        finally:
-            # Stop price tracking scheduler
-            self.tracking_scheduler.running = False
-            tracking_task.cancel()
-            
-            await self._shutdown()
-    
-    def _print_startup_info(self) -> None:
-        """Print startup information with configurable intervals"""
-        # Get last run info for dynamic time display
-        time_since_last = datetime.now(timezone.utc) - self.last_successful_run
-        
-        log_info("=" * 60)
-        log_info("📊 FINANCIAL NEWS ANALYSIS SYSTEM WITH CONFIGURABLE PRICE TRACKING")
-        log_info("=" * 60)
-        log_info(f"🔑 Configuration:")
-        log_info(f"   Min confidence threshold: {Config.MIN_CONFIDENCE_THRESHOLD}")
-        log_info(f"   Max tickers to analyze: {Config.MAX_TICKERS_TO_ANALYZE}")
-        log_info(f"   Last successful run: {self.last_successful_run.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-        
-        # Show actual lookback that will be used
-        cutoff_time = self._get_dynamic_news_cutoff_time()
-        actual_lookback = (datetime.now(timezone.utc) - cutoff_time).total_seconds() / 3600
-        log_info(f"   Actual lookback: {actual_lookback:.1f} hours")
-        
-        log_info(f"   Max articles per cycle: {Config.MAX_NEWS_ARTICLES}")
-        log_info(f"   Output file: {Config.CSV_OUTPUT_PATH}")
-        log_info(f"   Database: {Config.SQLITE_DB_PATH}")
-        
-        # Service status
-        service_status = self.llm_analyzer.get_service_status()
-        available_services = [name for name, status in service_status.items() if status['available']]
-        log_info(f"🤖 Available AI services: {', '.join(available_services)}")
-        
-        # Configurable price tracking info
-        intervals = Config.get_price_check_labels()
-        log_info(f"📈 Price tracking intervals: {', '.join(intervals)}")
-        log_info(f"   Tracker check frequency: Every {Config.PRICE_TRACKER_CHECK_INTERVAL} minutes")
-        
-        log_info("=" * 60)
-    
     def _get_dynamic_news_cutoff_time(self) -> datetime:
-        """Get dynamic cutoff time based on last successful run"""
-        # Ensure we're always working in UTC
+        """Calculate dynamic cutoff time based on last successful run with intelligent gap handling"""
         now = datetime.now(timezone.utc)
         
         # Calculate time since last run
         time_since_last = now - self.last_successful_run
-        log_debug(f"Time since last run: {time_since_last.total_seconds() / 3600:.1f} hours")
+        hours_since_last = time_since_last.total_seconds() / 3600
         
-        # Apply constraints with reasonable minimums
-        if time_since_last.total_seconds() < Config.MIN_NEWS_AGE_MINUTES * 60:
-            # Too soon since last run, use minimum gap
+        log_debug(f"Time since last successful run: {hours_since_last:.1f} hours")
+        
+        # Apply intelligent logic
+        if hours_since_last < (Config.MIN_NEWS_AGE_MINUTES / 60):
+            # Too recent - use minimum gap
             cutoff_time = now - timedelta(minutes=Config.MIN_NEWS_AGE_MINUTES)
-            log_debug(f"Using minimum gap: {Config.MIN_NEWS_AGE_MINUTES} minutes")
-        elif time_since_last.total_seconds() > Config.MAX_NEWS_AGE_HOURS * 3600:
-            # Too long since last run, cap at maximum
-            cutoff_time = now - timedelta(hours=Config.MAX_NEWS_AGE_HOURS)
-            log_debug(f"Capping at maximum lookback: {Config.MAX_NEWS_AGE_HOURS} hours")
+            log_debug(f"Very recent run detected. Using minimum gap of {Config.MIN_NEWS_AGE_MINUTES} minutes.")
+        elif hours_since_last <= Config.MAX_NEWS_AGE_HOURS:
+            # Normal case - use actual last run time
+            cutoff_time = self.last_successful_run
+            log_debug(f"Normal case: Using last successful run time as cutoff.")
         else:
-            # Use actual time since last run, but enforce minimum 30-minute lookback
-            if time_since_last.total_seconds() < 1800:  # Less than 30 minutes
-                cutoff_time = now - timedelta(minutes=30)
-                log_debug(f"Enforcing 30-minute minimum lookback instead of {time_since_last.total_seconds()/60:.1f} minutes")
-            else:
-                cutoff_time = self.last_successful_run
-                log_debug(f"Using dynamic lookback: {time_since_last.total_seconds() / 3600:.1f} hours")
-    
-        # Final sanity check
+            # Been down too long - cap at maximum age
+            cutoff_time = now - timedelta(hours=Config.MAX_NEWS_AGE_HOURS)
+            log_warning(f"Long downtime detected ({hours_since_last:.1f}h). Capping lookback at {Config.MAX_NEWS_AGE_HOURS}h.")
+            
+        # Additional safety check
         if cutoff_time > now:
-            log_error(f"⚠️ Cutoff time {cutoff_time} is in the future! Using 1 hour ago instead.")
+            log_warning("Calculated cutoff time is in the future! Using 1 hour ago instead.")
             cutoff_time = now - timedelta(hours=1)
         
         final_lookback_hours = (now - cutoff_time).total_seconds() / 3600
@@ -246,25 +227,34 @@ class FinancialNewsAnalyzer:
         return cutoff_time
     
     async def _process_cycle(self) -> None:
-        """Process one complete analysis cycle with configurable price tracking"""
+        """Process one complete enhanced analysis cycle"""
         self.cycle_count += 1
         cycle_start = datetime.now()
         
-        log_info(f"🔄 Starting analysis cycle #{self.cycle_count}")
+        log_info(f"🔄 Starting enhanced analysis cycle #{self.cycle_count}")
         
         articles_fetched = 0
         articles_processed = 0
+        tickers_before_filtering = 0
+        tickers_after_filtering = 0
         decisions_made = 0
+        earnings_transcripts_processed = 0
         
         try:
-            # Step 1: Fetch latest news
-            log_info(f"📰 Step 1: Fetching news")
+            # Step 1: Fetch latest news (including earnings transcripts)
+            log_info(f"📰 Step 1: Fetching enhanced news sources")
             all_articles = self.news_fetcher.fetch_all_news()
             articles_fetched = len(all_articles)
+            
+            # Count earnings transcript articles separately
+            earnings_articles = [a for a in all_articles if 'transcript' in a.get('source', '')]
+            earnings_transcripts_processed = len(earnings_articles)
             
             if not all_articles:
                 log_info("No news articles found, ending cycle")
                 return
+            
+            log_info(f"📊 Fetched {articles_fetched} total articles ({earnings_transcripts_processed} from earnings transcripts)")
             
             # Step 2: Filter unprocessed articles
             log_info("🔍 Step 2: Filtering unprocessed articles...")
@@ -291,177 +281,158 @@ class FinancialNewsAnalyzer:
                 self._mark_articles_processed(unprocessed_articles)
                 return
             
+            tickers_before_filtering = len(ticker_buckets)
+            
+            # Step 3.5: Apply fundamental filtering (if enabled)
+            if Config.ENABLE_FUNDAMENTAL_FILTERING and self.ticker_filter:
+                log_info("🔍 Step 3.5: Applying fundamental filtering...")
+                ticker_buckets = self.ticker_filter.filter_ticker_buckets(ticker_buckets)
+                
+                if not ticker_buckets:
+                    log_warning("⚠️ No tickers passed fundamental filtering, ending cycle")
+                    self._mark_articles_processed(unprocessed_articles)
+                    return
+            else:
+                log_info("⏭️ Step 3.5: Fundamental filtering disabled, skipping...")
+            
+            tickers_after_filtering = len(ticker_buckets)
+            
             # Step 4: Prioritize tickers
-            log_info("🎯 Step 4: Prioritizing tickers for analysis...")
+            log_info("🎯 Step 4: Prioritizing tickers for enhanced analysis...")
             prioritized_tickers = self.ticker_aggregator.prioritize_tickers(ticker_buckets)
             
-            # Step 5: Analyze each ticker (now with configurable limit)
-            log_info(f"🧠 Step 5: Analyzing {len(prioritized_tickers)} tickers...")
-            ticker_analyses = await self._analyze_tickers(prioritized_tickers, ticker_buckets)
+            # Step 5: Enhanced neural analysis of each ticker
+            log_info(f"🧠 Step 5: Enhanced neural analysis of {len(prioritized_tickers)} tickers...")
+            ticker_analyses = await self._analyze_tickers_enhanced(prioritized_tickers, ticker_buckets)
             
-            # Step 6: Make trading decisions
-            log_info("⚖️ Step 6: Making trading decisions...")
+            # Step 6: Make trading decisions with enhanced confidence
+            log_info("⚖️ Step 6: Making enhanced trading decisions...")
             decisions = self.decision_engine.batch_process_decisions(ticker_analyses)
             decisions_made = len(decisions)
             
-            # Step 6.5: ADD ENTRY PRICES BEFORE CSV LOGGING (with configurable intervals)
+            # Step 6.5: Add entry prices before CSV logging
             if decisions:
-                log_info("💰 Step 6.5: Adding entry prices to all trading decisions...")
+                log_info("💰 Step 6.5: Adding entry prices to trading decisions...")
                 await self._add_entry_prices_to_decisions(decisions)
             
-            # Step 7: Log decisions with entry prices already included
+            # Step 7: Log decisions with enhanced metrics
             if decisions:
-                log_info(f"📝 Step 7: Logging {decisions_made} trading decisions with entry prices...")
+                log_info(f"📝 Step 7: Logging {decisions_made} enhanced trading decisions...")
                 logged_count = self.csv_logger.log_decisions_batch(decisions)
                 
-                # Add configurable price tracking for LONG/SHORT decisions
+                # Add price tracking for LONG/SHORT decisions
                 tracking_added = 0
                 for decision in decisions:
                     if decision.decision in ['LONG', 'SHORT']:
-                        # Check if we have a valid entry price before adding tracking
                         if hasattr(decision, 'recommendation_price') and decision.recommendation_price:
                             self.tracking_scheduler.add_tracking(decision)
                             tracking_added += 1
                         else:
                             log_warning(f"Skipping price tracking for {decision.ticker} - no entry price available")
                 
-                log_info(f"✅ Successfully logged {logged_count} decisions with entry prices")
-                log_info(f"📊 Added configurable price tracking for {tracking_added} LONG/SHORT positions")
+                log_info(f"✅ Successfully logged {logged_count} decisions with enhanced analysis")
+                log_info(f"📊 Added price tracking for {tracking_added} LONG/SHORT positions")
                 
-                # Print summary of decisions with configurable intervals
-                self._print_decisions_summary(decisions)
+                # Print enhanced decision summary
+                self._print_enhanced_decisions_summary(decisions)
             else:
                 log_info("📝 Step 7: No high-confidence decisions to log")
                 
-                # Debug: Show what decisions were generated but not logged
-                log_info("🔍 Debug: Checking all generated decisions...")
-                all_decisions = []
-                for ticker, analysis_data in ticker_analyses.items():
-                    news_prediction = analysis_data.get('news_prediction')
-                    technical_signal = analysis_data.get('technical_signal')
-                    article_count = analysis_data.get('article_count', 0)
-                    
-                    decision = self.decision_engine.make_decision(ticker, news_prediction, technical_signal, article_count)
-                    all_decisions.append(decision)
-                
-                log_info(f"Generated {len(all_decisions)} total decisions:")
-                for decision in all_decisions[:10]:  # Show first 10
-                    log_info(f"  {decision.ticker}: {decision.decision} (conf: {decision.confidence:.3f}) - {decision.reasoning[:100]}")
+                # Debug: Show what decisions were made (even low confidence ones)
+                if decisions_made > 0:
+                    log_debug(f"Made {decisions_made} total decisions, but none met confidence threshold of {Config.MIN_CONFIDENCE_THRESHOLD}")
             
             # Step 8: Mark articles as processed
             log_info("✅ Step 8: Marking articles as processed...")
-            self._mark_articles_processed(all_articles, decisions)
+            self._mark_articles_processed(unprocessed_articles, decisions)
             
             # Update last successful run time
             self.last_successful_run = datetime.now(timezone.utc)
             
-            # Cycle summary with configurable tracking info
-            cycle_duration = (datetime.now() - cycle_start).total_seconds()
-            log_info(f"🏁 Cycle #{self.cycle_count} completed in {cycle_duration:.1f} seconds")
-            log_info(f"📈 Results: {articles_fetched} fetched → {articles_processed} processed → {decisions_made} high-confidence decisions")
+            # Enhanced cycle summary
+            self._print_enhanced_cycle_summary(
+                cycle_start, articles_fetched, articles_processed, 
+                tickers_before_filtering, tickers_after_filtering, 
+                decisions_made, earnings_transcripts_processed
+            )
             
-            # Show service usage statistics
-            service_status = self.llm_analyzer.get_service_status()
-            log_info("🤖 Service usage this cycle:")
-            for service_name, status in service_status.items():
-                if status['available']:
-                    requests = status.get('requests_today', 0)
-                    limit = status.get('daily_limit', 0)
-                    log_info(f"  {service_name}: {requests}/{limit} requests")
-            
-            # Show configurable price tracking statistics
-            tracking_summary = self.tracking_scheduler.get_tracking_summary()
-            pending_tracks = tracking_summary['total_pending_tracks']
-            if pending_tracks > 0:
-                intervals = ", ".join(tracking_summary['configuration']['check_intervals'])
-                log_info(f"📊 Active price tracking: {pending_tracks} positions being monitored across intervals: {intervals}")
-            
-            # Cleanup old data periodically
-            if self.cycle_count % 10 == 0:
-                self._periodic_cleanup()
-                
         except Exception as e:
-            log_error(f"Error in processing cycle: {e}")
-            # Still mark articles as processed to avoid reprocessing
-            if 'unprocessed_articles' in locals():
-                self._mark_articles_processed(unprocessed_articles)
+            log_error(f"Error in enhanced analysis cycle: {e}")
+            raise
+    
+    async def _analyze_tickers_enhanced(self, prioritized_tickers: List[str], 
+                                       ticker_buckets: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Dict[str, Any]]:
+        """Enhanced ticker analysis using neural networks and comprehensive data"""
+        ticker_analyses = {}
+        
+        # Use configurable limit
+        max_tickers = Config.MAX_TICKERS_TO_ANALYZE
+        tickers_to_analyze = prioritized_tickers[:max_tickers]
+        
+        for i, ticker in enumerate(tickers_to_analyze, 1):
+            try:
+                log_debug(f"🧠 Enhanced analysis {ticker} ({i}/{len(tickers_to_analyze)})")
+                
+                articles = ticker_buckets[ticker]
+                
+                # Enhanced news analysis (includes neural networks)
+                news_prediction = self.llm_analyzer.analyze_news_direction(ticker, articles)
+                
+                # Technical analysis
+                technical_signal = self.technical_analyzer.analyze_ticker(ticker)
+                
+                # Check if this ticker has earnings transcript data
+                earnings_articles = [a for a in articles if 'transcript' in a.get('source', '')]
+                has_earnings_data = len(earnings_articles) > 0
+                
+                ticker_analyses[ticker] = {
+                    'news_prediction': news_prediction,
+                    'technical_signal': technical_signal,
+                    'article_count': len(articles),
+                    'has_earnings_data': has_earnings_data,
+                    'earnings_article_count': len(earnings_articles)
+                }
+                
+                # Enhanced logging for high-value analysis
+                if news_prediction and hasattr(news_prediction, 'source'):
+                    if 'enhanced_neural' in news_prediction.source:
+                        log_debug(f"✨ {ticker}: Enhanced neural analysis with {news_prediction.confidence:.3f} confidence")
+                    if has_earnings_data:
+                        log_debug(f"🎙️ {ticker}: Includes {len(earnings_articles)} earnings transcript articles")
+                
+                # Small delay to be respectful to APIs
+                await asyncio.sleep(0.3)  # Reduced delay since enhanced neural is local
+                
+            except Exception as e:
+                log_error(f"Error in enhanced analysis for {ticker}: {e}")
+                continue
+        
+        return ticker_analyses
     
     async def _add_entry_prices_to_decisions(self, decisions: List) -> None:
-        """Add entry prices to all decisions before CSV logging"""
-        current_time = datetime.now(timezone.utc)
+        """Add current market prices to all trading decisions as entry prices"""
         prices_added = 0
         prices_failed = 0
         
-        # Test API connection first
-        log_debug("Testing price API connection...")
-        test_price = self.price_tracker.get_current_price('AAPL')
-        if test_price:
-            log_debug(f"Price API test successful: AAPL = ${test_price:.2f}")
-        else:
-            log_warning("Price API test failed - price tracking may not work properly")
-        
         for decision in decisions:
             try:
-                # Get current price for ALL decisions (not just LONG/SHORT)
-                current_price = self.price_tracker.get_current_price(decision.ticker)
-                
-                if current_price and current_price > 0:
+                current_price = await self.price_tracker.get_current_price(decision.ticker)
+                if current_price:
                     decision.recommendation_price = current_price
-                    decision.recommendation_timestamp = current_time
+                    decision.recommendation_timestamp = datetime.now()
                     prices_added += 1
-                    log_debug(f"✅ Added entry price ${current_price:.2f} to {decision.ticker} {decision.decision}")
+                    log_debug(f"💰 Added entry price for {decision.ticker}: ${current_price:.2f}")
                 else:
-                    log_warning(f"❌ Could not get valid entry price for {decision.ticker} (got: {current_price})")
-                    decision.recommendation_price = None
-                    decision.recommendation_timestamp = None
+                    log_warning(f"Could not get entry price for {decision.ticker}")
                     prices_failed += 1
-                    
             except Exception as e:
                 log_error(f"Error getting entry price for {decision.ticker}: {e}")
-                decision.recommendation_price = None
-                decision.recommendation_timestamp = None
                 prices_failed += 1
                 
         log_info(f"💰 Entry price capture: {prices_added} successful, {prices_failed} failed")
         
         if prices_failed > 0:
             log_warning(f"⚠️ {prices_failed} decisions will be logged without entry prices")
-    
-    async def _analyze_tickers(self, prioritized_tickers: List[str], 
-                              ticker_buckets: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Dict[str, Any]]:
-        """Analyze each ticker with news and technical analysis"""
-        ticker_analyses = {}
-        
-        # Use configurable limit instead of hardcoded 50
-        max_tickers = Config.MAX_TICKERS_TO_ANALYZE
-        tickers_to_analyze = prioritized_tickers[:max_tickers]
-        
-        for i, ticker in enumerate(tickers_to_analyze, 1):
-            try:
-                log_debug(f"Analyzing {ticker} ({i}/{len(tickers_to_analyze)})")
-                
-                articles = ticker_buckets[ticker]
-                
-                # News analysis
-                news_prediction = self.llm_analyzer.analyze_news_direction(ticker, articles)
-                
-                # Technical analysis
-                technical_signal = self.technical_analyzer.analyze_ticker(ticker)
-                
-                ticker_analyses[ticker] = {
-                    'news_prediction': news_prediction,
-                    'technical_signal': technical_signal,
-                    'article_count': len(articles)
-                }
-                
-                # Small delay to be respectful to APIs
-                await asyncio.sleep(0.5)
-                
-            except Exception as e:
-                log_error(f"Error analyzing {ticker}: {e}")
-                continue
-        
-        return ticker_analyses
     
     def _mark_articles_processed(self, articles: List[Dict[str, Any]], 
                                 decisions: List = None) -> None:
@@ -480,153 +451,237 @@ class FinancialNewsAnalyzer:
                 confidence = decision.confidence if decision else 0.0
                 
                 self.article_tracker.mark_article_processed(
-                    article, decision_str, confidence
+                    article=article.get('id', ''),
+                    url=article.get('url', ''),
+                    decision=decision_str,
+                    confidence=confidence
                 )
                 
+            log_debug(f"Marked {len(articles)} articles as processed")
+            
         except Exception as e:
             log_error(f"Error marking articles as processed: {e}")
     
-    def _print_decisions_summary(self, decisions: List) -> None:
-        """Print summary of trading decisions with configurable interval info"""
+    def _print_enhanced_decisions_summary(self, decisions: List) -> None:
+        """Print enhanced summary of decisions including neural analysis insights"""
         if not decisions:
             return
         
-        stats = self.decision_engine.get_decision_statistics(decisions)
+        # Filter for high-confidence decisions
+        high_conf_decisions = [d for d in decisions if d.confidence >= Config.MIN_CONFIDENCE_THRESHOLD]
         
-        log_info("📈 TRADING DECISIONS SUMMARY:")
-        log_info(f"   Total decisions: {stats['total_decisions']}")
-        log_info(f"   LONG positions: {stats['long_decisions']}")
-        log_info(f"   SHORT positions: {stats['short_decisions']}")
-        log_info(f"   Average confidence: {stats['avg_confidence']:.3f}")
+        if not high_conf_decisions:
+            return
         
-        # Show multi-source statistics if available
-        if 'avg_sources_per_decision' in stats:
-            log_info(f"   Average sources per decision: {stats['avg_sources_per_decision']:.1f}")
+        log_info("📊 Enhanced trading decisions summary:")
         
-        if 'source_usage_frequency' in stats and stats['source_usage_frequency']:
-            log_info("   Service usage:")
-            for service, count in stats['source_usage_frequency'].items():
-                log_info(f"     {service}: {count} decisions")
+        # Analyze decision sources
+        neural_decisions = []
+        traditional_decisions = []
         
-        # Show top decisions with entry prices and configurable intervals
-        top_decisions = sorted(decisions, key=lambda x: x.confidence, reverse=True)[:5]
-        intervals = Config.get_price_check_labels()
-        log_info("   Top decisions:")
-        for decision in top_decisions:
-            # Show sources used if available
-            sources_info = ""
-            if hasattr(decision, 'sources_used') and decision.sources_used:
-                sources_info = f" (sources: {len(decision.sources_used)})"
-            
-            # Show entry price if available
-            price_info = ""
-            if hasattr(decision, 'recommendation_price') and decision.recommendation_price:
-                price_info = f" @ ${decision.recommendation_price:.2f}"
-            
-            # Show which intervals will be tracked
-            tracking_info = ""
-            if decision.decision in ['LONG', 'SHORT']:
-                tracking_info = f" [tracking: {', '.join(intervals)}]"
-            
-            log_info(f"     {decision.ticker}: {decision.decision} (conf: {decision.confidence:.3f}){price_info}{sources_info}{tracking_info}")
+        for decision in high_conf_decisions:
+            if hasattr(decision, 'news_prediction') and decision.news_prediction:
+                if 'enhanced_neural' in str(decision.news_prediction.source):
+                    neural_decisions.append(decision)
+                else:
+                    traditional_decisions.append(decision)
+        
+        # Log enhanced neural performance
+        if neural_decisions:
+            avg_neural_confidence = sum(d.confidence for d in neural_decisions) / len(neural_decisions)
+            log_info(f"   🚀 Enhanced neural decisions: {len(neural_decisions)} (avg confidence: {avg_neural_confidence:.3f})")
+        
+        if traditional_decisions:
+            avg_traditional_confidence = sum(d.confidence for d in traditional_decisions) / len(traditional_decisions)
+            log_info(f"   🤖 Traditional model decisions: {len(traditional_decisions)} (avg confidence: {avg_traditional_confidence:.3f})")
+        
+        # Group by decision type
+        long_decisions = [d for d in high_conf_decisions if d.decision == 'LONG']
+        short_decisions = [d for d in high_conf_decisions if d.decision == 'SHORT']
+        
+        if long_decisions:
+            log_info(f"   📈 LONG positions ({len(long_decisions)}):")
+            for decision in sorted(long_decisions, key=lambda x: x.confidence, reverse=True)[:5]:
+                price_info = f" @ ${decision.recommendation_price:.2f}" if hasattr(decision, 'recommendation_price') and decision.recommendation_price else ""
+                neural_flag = "🚀" if decision in neural_decisions else "🤖"
+                log_info(f"      {neural_flag} {decision.ticker}: {decision.confidence:.3f}{price_info}")
+        
+        if short_decisions:
+            log_info(f"   📉 SHORT positions ({len(short_decisions)}):")
+            for decision in sorted(short_decisions, key=lambda x: x.confidence, reverse=True)[:5]:
+                price_info = f" @ ${decision.recommendation_price:.2f}" if hasattr(decision, 'recommendation_price') and decision.recommendation_price else ""
+                neural_flag = "🚀" if decision in neural_decisions else "🤖"
+                log_info(f"      {neural_flag} {decision.ticker}: {decision.confidence:.3f}{price_info}")
+        
+        # Show price tracking info with enhanced features
+        tracking_decisions = [d for d in high_conf_decisions if d.decision in ['LONG', 'SHORT']]
+        if tracking_decisions:
+            checkpoint_info = Config.get_checkpoint_info()
+            intervals_str = ", ".join([cp['short_label'] for cp in checkpoint_info])
+            log_info(f"   📊 Enhanced price tracking: {len(tracking_decisions)} positions at {intervals_str}")
     
-    def _periodic_cleanup(self) -> None:
-        """Perform periodic cleanup tasks"""
-        try:
-            log_info("🧹 Performing periodic cleanup...")
-            
-            # Cleanup old articles
-            deleted_articles = self.article_tracker.cleanup_old_articles(days=30)
-            if deleted_articles > 0:
-                log_info(f"   Cleaned up {deleted_articles} old articles")
-            
-            # Get and log statistics
-            db_stats = self.article_tracker.get_statistics()
-            csv_stats = self.csv_logger.get_csv_statistics()
-            
-            log_info("📊 System Statistics:")
-            log_info(f"   Database: {db_stats.get('total_articles', 0)} articles, {db_stats.get('unique_tickers', 0)} tickers")
-            log_info(f"   CSV: {csv_stats.get('total_decisions', 0)} decisions logged")
-            
-            # Enhanced price tracking statistics with configurable intervals
-            if 'tracking_statistics' in csv_stats:
-                tracking_stats = csv_stats['tracking_statistics']
-                log_info(f"   Price tracking: {tracking_stats.get('completed', 0)} completed, {tracking_stats.get('pending', 0)} pending")
-            
-            if 'interval_configuration' in csv_stats:
-                interval_config = csv_stats['interval_configuration']
-                log_info(f"   Current intervals: {', '.join(interval_config.get('configured_intervals', []))}")
-            
-        except Exception as e:
-            log_error(f"Error in periodic cleanup: {e}")
+    def _print_enhanced_cycle_summary(self, cycle_start: datetime, articles_fetched: int, 
+                                    articles_processed: int, tickers_before_filtering: int, 
+                                    tickers_after_filtering: int, decisions_made: int, 
+                                    earnings_transcripts_processed: int) -> None:
+        """Print comprehensive cycle summary with enhanced metrics"""
+        cycle_duration = (datetime.now() - cycle_start).total_seconds()
+        
+        log_info("🏁 Enhanced Cycle Summary:")
+        log_info(f"   📰 Articles fetched: {articles_fetched}")
+        log_info(f"   🎙️ Earnings transcripts: {earnings_transcripts_processed}")
+        log_info(f"   📄 Articles processed: {articles_processed}")
+        log_info(f"   📊 Tickers before filtering: {tickers_before_filtering}")
+        log_info(f"   🔍 Tickers after filtering: {tickers_after_filtering}")
+        log_info(f"   ⚖️ Trading decisions made: {decisions_made}")
+        log_info(f"   ⏱️ Cycle duration: {cycle_duration:.1f} seconds")
+        
+        # Show filtering and enhancement efficiency
+        if Config.ENABLE_FUNDAMENTAL_FILTERING and tickers_before_filtering > 0:
+            filter_efficiency = (tickers_before_filtering - tickers_after_filtering) / tickers_before_filtering * 100
+            log_info(f"   🔍 Filter efficiency: {filter_efficiency:.1f}% of tickers filtered out")
+        
+        if earnings_transcripts_processed > 0:
+            transcript_ratio = (earnings_transcripts_processed / articles_fetched) * 100
+            log_info(f"   🎙️ Transcript coverage: {transcript_ratio:.1f}% of articles from earnings calls")
+        
+        # Performance metrics
+        if articles_processed > 0:
+            processing_speed = articles_processed / cycle_duration
+            log_info(f"   ⚡ Processing speed: {processing_speed:.1f} articles/second")
     
     async def _shutdown(self) -> None:
-        """Graceful shutdown with configurable interval statistics"""
-        log_info("🛑 Initiating graceful shutdown...")
+        """Graceful shutdown with enhanced cleanup"""
+        log_info("🔄 Shutting down enhanced analyzer...")
+        
+        # Enhanced cleanup for neural models
+        if hasattr(self, 'llm_analyzer') and self.llm_analyzer.enhanced_neural:
+            log_info("🧠 Cleaning up enhanced neural analyzer...")
+            try:
+                # Clear GPU memory if using CUDA
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    log_debug("✅ CUDA memory cache cleared")
+            except:
+                pass  # Fail silently if torch not available
+        
+        # Standard cleanup
+        if hasattr(self, 'article_tracker'):
+            pass  # Article tracker uses context managers, no explicit cleanup needed
+        
+        log_info("✅ Enhanced shutdown complete")
+    
+    async def run(self) -> None:
+        """Main application loop with enhanced features"""
+        log_info("🚀 Starting Enhanced Financial News Analyzer...")
+        
+        # Print enhanced startup information
+        self._print_enhanced_startup_info()
+        
+        # Start price tracking scheduler as background task
+        tracking_task = asyncio.create_task(self.tracking_scheduler.run_scheduler())
         
         try:
-            # Print final statistics
-            db_stats = self.article_tracker.get_statistics()
-            csv_stats = self.csv_logger.get_csv_statistics()
-            service_status = self.llm_analyzer.get_service_status()
-            
-            log_info("📊 FINAL STATISTICS:")
-            log_info(f"   Cycles completed: {self.cycle_count}")
-            log_info(f"   Articles processed: {db_stats.get('total_articles', 0)}")
-            log_info(f"   Decisions logged: {csv_stats.get('total_decisions', 0)}")
-            log_info(f"   Unique tickers analyzed: {db_stats.get('unique_tickers', 0)}")
-            
-            # Enhanced price tracking final stats with configurable intervals
-            tracking_summary = self.tracking_scheduler.get_tracking_summary()
-            pending_tracks = tracking_summary['total_pending_tracks']
-            if pending_tracks > 0:
-                intervals = ", ".join(tracking_summary['configuration']['check_intervals'])
-                log_info(f"   Price tracking: {pending_tracks} positions still being monitored across intervals: {intervals}")
+            while self.running:
+                await self._process_cycle()
                 
-                # Show details of pending positions
-                for position in tracking_summary['active_positions'][:5]:  # Show first 5
-                    completed_checkpoints = len(position['checkpoints_completed'])
-                    total_checkpoints = len(Config.get_checkpoint_info())
-                    log_info(f"     {position['ticker']}: {completed_checkpoints}/{total_checkpoints} checkpoints completed")
-            
-            # Service usage
-            for service_name, status in service_status.items():
-                if status['available']:
-                    requests = status.get('requests_today', 0)
-                    limit = status.get('daily_limit', 0)
-                    log_info(f"   {service_name}: {requests}/{limit} requests used")
-            
-            # Final configuration summary
-            config_summary = Config.get_config_summary()
-            log_info(f"   Final configuration: {config_summary.get('price_check_intervals', 'N/A')} intervals")
-            
-            log_info("✅ Shutdown completed successfully")
-            
+                if self.running:
+                    log_info("✅ Enhanced cycle completed, waiting 5 minutes before next run...")
+                    await asyncio.sleep(300)  # Wait 5 minutes between cycles
+                    
+        except KeyboardInterrupt:
+            log_info("⚠️ Interrupted by user")
         except Exception as e:
-            log_error(f"Error during shutdown: {e}")
+            log_error(f"💥 Fatal error in enhanced main loop: {e}")
+            raise
+        finally:
+            # Stop price tracking scheduler
+            self.tracking_scheduler.running = False
+            tracking_task.cancel()
+            
+            await self._shutdown()
+    
+    def _print_enhanced_startup_info(self) -> None:
+        """Print enhanced startup information with neural analysis and earnings transcript details"""
+        # Get last run info for dynamic time display
+        time_since_last = datetime.now(timezone.utc) - self.last_successful_run
+        
+        log_info("=" * 90)
+        log_info("🚀 ENHANCED FINANCIAL NEWS ANALYSIS SYSTEM")
+        log_info("   RoBERTa+LSTM/CNN Neural Networks + Earnings Transcript Analysis")
+        log_info("=" * 90)
+        
+        log_info(f"🔑 Enhanced Configuration:")
+        log_info(f"   Min confidence threshold: {Config.MIN_CONFIDENCE_THRESHOLD}")
+        log_info(f"   Max tickers to analyze: {Config.MAX_TICKERS_TO_ANALYZE}")
+        log_info(f"   Last successful run: {self.last_successful_run.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+        
+        # Show actual lookback that will be used
+        cutoff_time = self._get_dynamic_news_cutoff_time()
+        actual_lookback = (datetime.now(timezone.utc) - cutoff_time).total_seconds() / 3600
+        log_info(f"   Actual lookback: {actual_lookback:.1f} hours")
+        
+        log_info(f"   Max articles per cycle: {Config.MAX_NEWS_ARTICLES}")
+        log_info(f"   Output file: {Config.CSV_OUTPUT_PATH}")
+        log_info(f"   Database: {Config.SQLITE_DB_PATH}")
+        
+        # Enhanced AI service status
+        service_status = self.llm_analyzer.get_service_status()
+        log_info(f"🧠 Enhanced AI Analysis:")
+        
+        # Enhanced neural status
+        if 'enhanced_neural' in service_status:
+            neural_info = service_status['enhanced_neural']
+            if neural_info.get('available'):
+                log_info(f"   🚀 Enhanced Neural: {neural_info.get('accuracy', 'N/A')} on {neural_info.get('device', 'CPU')}")
+                log_info(f"      Parameters: {neural_info.get('parameters', 'N/A'):,}")
+            else:
+                log_info(f"   ❌ Enhanced Neural: Not available")
+        
+        # Traditional services
+        traditional_services = [name for name, status in service_status.items() 
+                              if name != 'enhanced_neural' and status.get('available')]
+        log_info(f"   🤖 Traditional services: {', '.join(traditional_services)}")
+        
+        # Earnings transcript status
+        if Config.ENABLE_EARNINGS_TRANSCRIPTS:
+            log_info(f"🎙️ Earnings Transcript Analysis:")
+            log_info(f"   Max transcripts per cycle: {Config.MAX_EARNINGS_TRANSCRIPTS_PER_CYCLE}")
+            log_info(f"   Max tickers for transcripts: {Config.MAX_TICKERS_FOR_TRANSCRIPTS}")
+            log_info(f"   Lookback quarters: {Config.EARNINGS_TRANSCRIPT_LOOKBACK_QUARTERS}")
+        else:
+            log_info(f"🎙️ Earnings Transcript Analysis: DISABLED")
+        
+        # Fundamental filtering status
+        if Config.ENABLE_FUNDAMENTAL_FILTERING:
+            log_info(f"🔍 Fundamental Filtering: ENABLED")
+            log_info(f"   Price range: ${Config.MIN_STOCK_PRICE:.2f} - ${Config.MAX_STOCK_PRICE:.2f}")
+            log_info(f"   Min market cap: ${Config.MIN_MARKET_CAP:,}")
+            log_info(f"   Allowed exchanges: {', '.join(Config.ALLOWED_EXCHANGES)}")
+        else:
+            log_info(f"🔍 Fundamental Filtering: DISABLED")
+        
+        # Enhanced price tracking intervals
+        checkpoint_info = Config.get_checkpoint_info()
+        intervals_str = ", ".join([cp['short_label'] for cp in checkpoint_info])
+        log_info(f"📈 Enhanced Price Tracking: {intervals_str}")
+        
+        log_info("=" * 90)
 
 
-async def main() -> int:
-    """Main entry point"""
+async def main():
+    """Enhanced main entry point"""
     try:
-        # Create and run the analyzer
-        analyzer = FinancialNewsAnalyzer()
+        analyzer = EnhancedFinancialNewsAnalyzer()
         await analyzer.run()
-        return 0
-        
     except KeyboardInterrupt:
-        log_info("Application interrupted by user")
-        return 0
-        
+        log_info("🛑 Enhanced application terminated by user")
     except Exception as e:
-        log_error(f"Fatal application error: {e}")
-        return 1
+        log_error(f"💥 Enhanced application failed: {e}")
+        traceback.print_exc()  # ADD THIS LINE
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    try:
-        exit_code = asyncio.run(main())
-        sys.exit(exit_code)
-    except Exception as e:
-        print(f"Failed to start application: {e}")
-        sys.exit(1)
+    asyncio.run(main())
