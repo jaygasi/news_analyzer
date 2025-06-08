@@ -128,6 +128,14 @@ class Config:
     # Earnings analysis confidence thresholds
     MIN_EARNINGS_CONFIDENCE: float = float(os.getenv('MIN_EARNINGS_CONFIDENCE', '0.6'))
     
+    # 2-way scoring weights (traditional: news + technical)
+    NEWS_WEIGHT_2WAY: float = float(os.getenv('NEWS_WEIGHT_2WAY', '0.70'))
+    TECHNICAL_WEIGHT_2WAY: float = float(os.getenv('TECHNICAL_WEIGHT_2WAY', '0.30'))
+
+    # Component-specific confidence thresholds
+    MIN_NEWS_CONFIDENCE: float = float(os.getenv('MIN_NEWS_CONFIDENCE', '0.5'))
+    MIN_TECHNICAL_CONFIDENCE: float = float(os.getenv('MIN_TECHNICAL_CONFIDENCE', '0.4'))
+
     # Scoring weights for 3-way analysis
     NEWS_WEIGHT_3WAY: float = float(os.getenv('NEWS_WEIGHT_3WAY', '0.40'))
     EARNINGS_WEIGHT_3WAY: float = float(os.getenv('EARNINGS_WEIGHT_3WAY', '0.30'))
@@ -197,6 +205,11 @@ class Config:
     # COST: Free (runs locally on CPU/GPU)
     # PERFORMANCE: ~2-4GB RAM, 15-20 sec/ticker, GPU accelerated
     ENABLE_ENHANCED_NEURAL: bool = os.getenv('ENABLE_ENHANCED_NEURAL', 'true').lower() == 'true'
+    
+    # Enhanced Neural Analyzer Settings
+    ENHANCED_NEURAL_MIXED_PRECISION: bool = True  # Use mixed precision if CUDA available
+    ENHANCED_NEURAL_GRADIENT_ACCUMULATION: int = 4  # Gradient accumulation steps
+    ENHANCED_NEURAL_WARMUP: bool = True  # Enable model warming
     
     # 🤖 FinBERT Financial Sentiment Analysis - HIGH ACCURACY
     # CURRENT: ENABLED (~85% accuracy)

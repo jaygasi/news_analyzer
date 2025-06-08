@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from core.decision_engine import TradingDecision, DirectionalPrediction, TechnicalSignal
 from utils.simple_logger import log_info, log_debug, log_warning
+from config import Config
 
 
 @dataclass 
@@ -32,25 +33,41 @@ class EnhancedTradingDecision(TradingDecision):
 class EnhancedDecisionEngine:
     """Enhanced decision engine with earnings integration"""
     
+    # REPLACE the entire __init__ method with this:
+
     def __init__(self):
-        # Scoring weights - adjusted for 3-way scoring
-        self.news_weight_2way = 0.70      # Original 2-way weights
-        self.technical_weight_2way = 0.30
+        """Initialize decision engine with ALL values from config (no hardcoding!)"""
+        from config import Config
         
-        self.news_weight_3way = 0.40      # New 3-way weights  
-        self.earnings_weight_3way = 0.30
-        self.technical_weight_3way = 0.30
+        # FIXED: All scoring weights now come from config/environment
+        self.news_weight_2way = Config.NEWS_WEIGHT_2WAY           # Was: 0.70 (hardcoded)
+        self.technical_weight_2way = Config.TECHNICAL_WEIGHT_2WAY # Was: 0.30 (hardcoded)
         
-        # Confidence thresholds
-        self.min_confidence = 0.6
-        self.min_news_confidence = 0.5
-        self.min_earnings_confidence = 0.6
+        self.news_weight_3way = Config.NEWS_WEIGHT_3WAY           # Was: 0.40 (hardcoded)
+        self.earnings_weight_3way = Config.EARNINGS_WEIGHT_3WAY   # Was: 0.30 (hardcoded)
+        self.technical_weight_3way = Config.TECHNICAL_WEIGHT_3WAY # Was: 0.30 (hardcoded)
         
-        log_info(f"Enhanced decision engine initialized:")
+        # FIXED: All confidence thresholds now come from config/environment
+        self.min_confidence = Config.MIN_CONFIDENCE_THRESHOLD     # Was: 0.6 (hardcoded)
+        self.min_news_confidence = Config.MIN_NEWS_CONFIDENCE     # Was: 0.5 (hardcoded)
+        self.min_earnings_confidence = Config.MIN_EARNINGS_CONFIDENCE # Was: 0.6 (hardcoded)
+        
+        # Validation: Ensure weights add up correctly
+        two_way_total = self.news_weight_2way + self.technical_weight_2way
+        three_way_total = self.news_weight_3way + self.earnings_weight_3way + self.technical_weight_3way
+        
+        if abs(two_way_total - 1.0) > 0.01:
+            log_warning(f"2-way weights don't sum to 1.0: {two_way_total:.3f}")
+        
+        if abs(three_way_total - 1.0) > 0.01:
+            log_warning(f"3-way weights don't sum to 1.0: {three_way_total:.3f}")
+        
+        # Enhanced logging with actual values from config
+        log_info(f"Enhanced decision engine initialized (ALL values from config):")
         log_info(f"  2-way weights: news={self.news_weight_2way}, technical={self.technical_weight_2way}")
         log_info(f"  3-way weights: news={self.news_weight_3way}, earnings={self.earnings_weight_3way}, technical={self.technical_weight_3way}")
-        log_info(f"  Min confidence: {self.min_confidence}")
-    
+        log_info(f"  Confidence thresholds: overall={self.min_confidence}, news={self.min_news_confidence}, earnings={self.min_earnings_confidence}")
+        
     def make_enhanced_decision(self, ticker: str, 
                              news_prediction: Optional[DirectionalPrediction],
                              earnings_analysis: Optional['EarningsAnalysis'],
