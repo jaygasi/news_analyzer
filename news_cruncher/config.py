@@ -560,6 +560,29 @@ class Config:
         
         return issues
 
+# ================================================================
+# 🧠 ADAPTIVE LEARNING CONFIGURATION
+# ================================================================
+    ENABLE_ADAPTIVE_LEARNING: bool = os.getenv('ENABLE_ADAPTIVE_LEARNING', 'False').lower() == 'true'
+    ADAPTIVE_LEARNING_MIN_TRADES: int = int(os.getenv('ADAPTIVE_LEARNING_MIN_TRADES', '10'))
+    ADAPTIVE_LEARNING_CHECK_HOURS: int = int(os.getenv('ADAPTIVE_LEARNING_CHECK_HOURS', '6'))
+    ADAPTIVE_LEARNING_BATCH_SIZE: int = int(os.getenv('ADAPTIVE_LEARNING_BATCH_SIZE', '8'))
+    ADAPTIVE_LEARNING_LEARNING_RATE: float = float(os.getenv('ADAPTIVE_LEARNING_LEARNING_RATE', '2e-5'))
+    ADAPTIVE_LEARNING_EPOCHS: int = int(os.getenv('ADAPTIVE_LEARNING_EPOCHS', '3'))
+
+    # Thresholds for performance label creation in multi_modal_learning_system.py
+    # These define what constitutes a 'poor', 'good', or 'excellent' trade based on 'price_close_change_pct'
+    ADAPTIVE_PROFIT_THRESHOLD: float = float(os.getenv('ADAPTIVE_PROFIT_THRESHOLD', '0.0')) # Trades >= this are 'good' (label 1)
+    ADAPTIVE_GOOD_TRADE_THRESHOLD: float = float(os.getenv('ADAPTIVE_GOOD_TRADE_THRESHOLD', '2.0')) # Trades >= this are 'excellent' (label 2)
+                                                                                                   # Trades < ADAPTIVE_PROFIT_THRESHOLD are 'poor' (label 0)
+
+    # Mapping from model output indices (0, 1, 2 from create_performance_labels)
+    # to 'BUY', 'SELL', 'NEUTRAL' for the multi-modal model's inference.
+    # This MUST align with the labeling logic above.
+    ADAPTIVE_LABEL_MAP_POOR: str = os.getenv('ADAPTIVE_LABEL_MAP_POOR', 'SELL')         # Corresponds to label 0
+    ADAPTIVE_LABEL_MAP_GOOD: str = os.getenv('ADAPTIVE_LABEL_MAP_GOOD', 'NEUTRAL')    # Corresponds to label 1
+    ADAPTIVE_LABEL_MAP_EXCELLENT: str = os.getenv('ADAPTIVE_LABEL_MAP_EXCELLENT', 'BUY') # Corresponds to label 2
+
 
 # ================================================================
 # 📋 CONFIGURATION USAGE EXAMPLES & DOCUMENTATION
