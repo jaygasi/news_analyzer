@@ -13,9 +13,9 @@ from config import Config
 from database.article_tracker import ArticleTracker
 from data_loaders.news_fetcher import NewsFetcher
 from core.ticker_filter import TickerFilterEngine, FilterCriteria
-from earnings_event_system import EarningsIntegrationManager
+from earnings.earnings_integration import EarningsIntegrationManager
 from analysis.multi_llm_analyzer import MultiLLMAnalyzer
-from enhanced_decision_engine import EnhancedDecisionEngine
+from core.enhanced_decision_engine import EnhancedDecisionEngine
 from analysis.price_tracker import PriceTracker, TrackingScheduler
 from output.csv_logger import CSVLogger
 from core.ticker_aggregator import TickerAggregator
