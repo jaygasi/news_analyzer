@@ -8,7 +8,6 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
 from core.enhanced_decision_engine import TradingDecision
-from core.decision_engine import TradingDecision
 from config import Config
 from utils.simple_logger import log_info, log_error, log_debug, log_warning
 
