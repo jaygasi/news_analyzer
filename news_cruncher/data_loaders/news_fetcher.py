@@ -125,34 +125,45 @@ class NewsFetcher(BaseFMPLoader):
         except Exception as e:
             log_error(f"Error in earnings transcript fetching: {e}")
             return []
-    
     def _get_priority_tickers_for_transcripts(self) -> List[str]:
-        """Get list of priority tickers for earnings transcript analysis"""
-        # Define major companies likely to have transcripts available
-        # Focus on large-cap, well-covered companies
-        priority_tickers = [
-            # Technology
-            'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'TSLA', 'NVDA', 'NFLX', 'ADBE', 'CRM',
-            'ORCL', 'IBM', 'INTC', 'CSCO', 'QCOM', 'AVGO', 'TXN', 'MU', 'AMAT', 'LRCX',
+        """Get tickers from earnings calendar, prioritizing US major companies"""
+        try:
+            from data_loaders.earnings_integration_manager import EarningsIntegrationManager
             
-            # Financial Services
-            'JPM', 'BAC', 'WFC', 'C', 'GS', 'MS', 'AXP', 'V', 'MA', 'PYPL',
-            'COF', 'USB', 'PNC', 'TFC', 'BK', 'STT', 'BLK', 'SCHW', 'SPGI', 'MCO',
+            # Use same earnings manager that found CODI
+            earnings_manager = EarningsIntegrationManager(self)
+            earnings_manager._refresh_earnings_cache()
             
-            # Healthcare & Pharmaceuticals
-            'JNJ', 'PFE', 'UNH', 'MRCK', 'ABBV', 'TMO', 'DHR', 'BMY', 'AMGN', 'GILD',
-            'CVS', 'CI', 'ANTM', 'HUM', 'WBA', 'CVX', 'ABT', 'MDT', 'LLY', 'ISRG',
+            if not earnings_manager.earnings_cache:
+                return self._get_fallback_transcript_tickers()
             
-            # Consumer Goods & Retail
-            'WMT', 'HD', 'PG', 'KO', 'PEP', 'COST', 'NKE', 'SBUX', 'MCD', 'DIS',
-            'LOW', 'TGT', 'TJX', 'ROST', 'JCP', 'M', 'KSS', 'BBY', 'GPS', 'ANF',
+            # Filter for US companies most likely to have transcripts
+            us_major_tickers = []
+            all_calendar_tickers = list(earnings_manager.earnings_cache.keys())
             
-            # Industrial & Energy
-            'GE', 'CAT', 'BA', 'MMM', 'HON', 'UPS', 'FDX', 'LMT', 'RTX', 'NOC',
-            'XOM', 'CVX', 'COP', 'EOG', 'SLB', 'HAL', 'OXY', 'KMI', 'WMB', 'EPD'
-        ]
-        
-        return priority_tickers
+            # Prioritize US-listed major companies
+            for ticker in all_calendar_tickers:
+                # Skip international exchanges and small companies
+                if (not any(suffix in ticker for suffix in ['.L', '.SS', '.HE', '.V', '.NZ']) and
+                    len(ticker) <= 5 and  # Skip very long ticker symbols
+                    not any(char in ticker for char in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'])):  # Skip numeric tickers
+                    us_major_tickers.append(ticker)
+            
+            if us_major_tickers:
+                limited = us_major_tickers[:Config.MAX_EARNINGS_EVENTS_PER_CYCLE]
+                log_info(f"📅 Using {len(limited)} US calendar tickers: {', '.join(limited[:10])}")
+                return limited
+            else:
+                log_warning("📅 No suitable US companies in calendar, using fallback")
+                return self._get_fallback_transcript_tickers()
+                
+        except Exception as e:
+            log_error(f"Error getting calendar tickers: {e}")
+            return self._get_fallback_transcript_tickers()
+
+    def _get_fallback_transcript_tickers(self) -> List[str]:
+        """Fallback to major US companies with reliable transcript coverage"""
+        return ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'NFLX', 'JPM', 'BAC']
 
     # === STOCK NEWS (ENHANCED) ===
     

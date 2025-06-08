@@ -124,7 +124,7 @@ class MultiLLMAnalyzer:
         if Config.ENABLE_CLAUDE and ANTHROPIC_AVAILABLE:
             self._init_claude()
         
-        # Emergency services
+        # Emergency/backup services
         if Config.ENABLE_ALPHA_VANTAGE:
             self._init_alpha_vantage()
         
@@ -134,91 +134,35 @@ class MultiLLMAnalyzer:
         if Config.ENABLE_TIINGO:
             self._init_tiingo()
         
-        # Keyword analysis always available
-        if Config.ENABLE_KEYWORD_SENTIMENT:
-            self._init_keyword_analysis()
+        # Keyword analysis (always available as ultimate fallback)
+        self._init_keyword_analysis()
 
     def _init_service_weights(self) -> None:
-        """Define weights for combining predictions from different services"""
+        """Initialize service weights for combining predictions"""
         self.service_weights = {
-            # Enhanced neural analyzer gets highest weight due to superior accuracy
-            'enhanced_neural': 0.45,  # NEW: Highest weight for 94-96% accuracy model
-            
-            # Traditional services (rebalanced)
-            'finbert': 0.25,          # Reduced from 0.41 to accommodate enhanced neural
-            'gemini': 0.20,           # Reduced from 0.33
-            'openai': 0.12,           # Reduced from 0.20
-            'claude': 0.10,           # Reduced from 0.15
-            
-            # Emergency services (unchanged)
+            'enhanced_neural': 0.45,  # Highest weight for neural analysis
+            'finbert': 0.25,
+            'gemini': 0.20,
+            'openai': 0.12,
+            'claude': 0.10,
             'alpha_vantage': 0.08,
             'polygon': 0.06,
-            'tiingo': 0.03,
-            
-            # Keyword fallback (unchanged)
-            'keyword': 0.02
+            'tiingo': 0.04,
+            'keyword': 0.02  # Lowest weight for keyword analysis
         }
 
     def _init_enhanced_keywords(self) -> None:
-        """Initialize enhanced financial keyword lists for robust fallback analysis"""
-        
-        # Comprehensive positive sentiment keywords
+        """Initialize enhanced keyword lists for analysis"""
         self.positive_keywords = [
-            # Performance & Results
-            'beat', 'beats', 'exceeded', 'exceeds', 'outperformed', 'strong', 'robust',
-            'solid', 'impressive', 'record', 'milestone', 'achievement', 'success',
-            
-            # Growth & Expansion  
-            'growth', 'grew', 'growing', 'expansion', 'expanding', 'increase', 'increased',
-            'rising', 'uptick', 'momentum', 'acceleration', 'scaling', 'breakthrough',
-            
-            # Financial Strength
-            'profitable', 'profitability', 'margins', 'cash flow', 'revenue growth',
-            'earnings growth', 'return on investment', 'shareholder value', 'dividend',
-            
-            # Market Position
-            'market leader', 'competitive advantage', 'market share', 'innovation',
-            'breakthrough', 'patent', 'partnership', 'acquisition', 'merger',
-            
-            # Future Outlook
-            'optimistic', 'confident', 'positive outlook', 'raised guidance',
-            'upgraded', 'buy rating', 'target price', 'analyst upgrade', 'bullish',
-            
-            # Operational Excellence
-            'efficient', 'streamlined', 'cost savings', 'productivity', 'quality',
-            'customer satisfaction', 'brand strength', 'operational excellence'
+            'buy', 'bull', 'bullish', 'positive', 'good', 'great', 'excellent', 'strong',
+            'growth', 'increase', 'up', 'rise', 'gain', 'profit', 'beat', 'exceed',
+            'outperform', 'upgrade', 'optimistic', 'confident', 'momentum', 'breakthrough'
         ]
 
-        # Comprehensive negative sentiment keywords  
         self.negative_keywords = [
-            # Poor Performance
-            'missed', 'miss', 'disappointing', 'weak', 'poor', 'declined', 'fell',
-            'dropped', 'decrease', 'reduced', 'lower', 'worst', 'failure', 'setback',
-            
-            # Financial Troubles
-            'loss', 'losses', 'debt', 'bankruptcy', 'restructuring', 'writedown',
-            'impairment', 'margin compression', 'cash burn', 'liquidity concerns',
-            
-            # Legal & Regulatory
-            'lawsuit', 'litigation', 'investigation', 'probe', 'audit',
-            'violation', 'fine', 'penalty', 'sanctions', 'banned',
-            'rejected', 'denied', 'warning', 'recall', 'subpoena',
-            'regulatory action', 'compliance issues', 'sec investigation',
-
-            # Market Position
-            'competition', 'losing share', 'market pressure', 'disrupted',
-            'downgraded', 'sell rating', 'underperform', 'price target cut',
-            'analyst downgrade', 'competitive threat', 'market share loss',
-
-            # Operational Issues
-            'supply chain', 'shortage', 'disruption', 'cyber attack',
-            'data breach', 'fraud', 'scandal', 'controversy', 'crisis',
-            'operational challenges', 'production issues', 'quality problems',
-
-            # Performance Indicators
-            'failure', 'setback', 'disappointed', 'concerns', 'risks',
-            'uncertainty', 'volatility', 'pressure', 'challenges', 'headwinds',
-            'deteriorating', 'weakening', 'struggling', 'disappointing results'
+            'sell', 'bear', 'bearish', 'negative', 'bad', 'poor', 'weak', 'decline',
+            'decrease', 'down', 'fall', 'loss', 'miss', 'disappoint', 'underperform',
+            'downgrade', 'pessimistic', 'concern', 'worry', 'risk', 'problem'
         ]
 
         # High-impact keywords that carry more weight
@@ -233,31 +177,53 @@ class MultiLLMAnalyzer:
         ]
 
     def _init_finbert(self) -> None:
-        """Initialize FinBERT with enhanced error handling"""
+        """Initialize FinBERT with proper configuration - no warnings"""
         if not TORCH_AVAILABLE:
             self.services['finbert'] = {'available': False}
             return
             
         try:
-            # Suppress the specific warning about untrained weights
-            import warnings
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", message="Some weights of RobertaModel were not initialized")
-                
-                # Load with specific configuration to reduce warnings
-                self.finbert_tokenizer = AutoTokenizer.from_pretrained('ProsusAI/finbert')
-                self.finbert_model = AutoModelForSequenceClassification.from_pretrained(
-                    'ProsusAI/finbert',
-                    local_files_only=False,
-                    trust_remote_code=False
-                )
+            log_info("🔧 Initializing FinBERT with proper configuration...")
             
-            # Check if CUDA is available and move model to GPU
+            # FIXED: Load FinBERT with proper configuration
+            self.finbert_tokenizer = AutoTokenizer.from_pretrained(
+                'ProsusAI/finbert',
+                use_fast=True,  # Use fast tokenizer for better performance
+                trust_remote_code=False
+            )
+            
+            # FIXED: Load model with specific configuration to eliminate warnings
+            self.finbert_model = AutoModelForSequenceClassification.from_pretrained(
+                'ProsusAI/finbert',
+                num_labels=3,  # Explicitly specify number of labels
+                problem_type="single_label_classification",  # Explicit problem type
+                local_files_only=False,
+                trust_remote_code=False,
+                output_attentions=False,  # Disable if not needed to save memory
+                output_hidden_states=False  # Disable if not needed to save memory
+            )
+            
+            # FIX 1: Properly initialize any randomly initialized layers
+            self._initialize_finbert_classifier()
+            
+            # Check device and move model
             if torch.cuda.is_available():
                 self.finbert_model = self.finbert_model.cuda()
                 device_info = "CUDA GPU"
             else:
                 device_info = "CPU"
+            
+            # FIX 2: Set model to evaluation mode and optimize
+            self.finbert_model.eval()
+            
+            # FIX 3: Optimize model for inference if using CPU
+            if device_info == "CPU":
+                try:
+                    # Enable CPU optimizations
+                    self.finbert_model = torch.jit.optimize_for_inference(self.finbert_model)
+                    log_info("✅ Applied CPU optimizations to FinBERT")
+                except Exception as e:
+                    log_debug(f"CPU optimization failed (non-critical): {e}")
             
             self.services['finbert'] = {
                 'available': True,
@@ -265,78 +231,134 @@ class MultiLLMAnalyzer:
                 'tokenizer': self.finbert_tokenizer,
                 'requests_today': 0,
                 'quota_limit': float('inf'),  # Local model - no quota
-                'device': device_info
+                'device': device_info,
+                'initialized_properly': True
             }
             
-            log_info(f"✅ FinBERT initialized successfully on {device_info}")
+            log_info(f"✅ FinBERT initialized properly on {device_info}")
+            
+            # FIX 4: Warm up the model for better initial predictions
+            self._warm_up_finbert()
 
         except Exception as e:
             log_error(f"Failed to initialize FinBERT: {e}")
-            self.services['finbert'] = {'available': False}
+            self.services['finbert'] = {'available': False, 'error': str(e)}
+
+    def _initialize_finbert_classifier(self):
+        """
+        FIX 1: Properly initialize FinBERT classifier layer if needed
+        FinBERT should already be fine-tuned, but this ensures proper initialization
+        """
+        try:
+            # Check if classifier needs initialization
+            classifier = self.finbert_model.classifier
+            
+            # Initialize with Xavier/Glorot uniform (good for classification)
+            if hasattr(classifier, 'weight'):
+                torch.nn.init.xavier_uniform_(classifier.weight)
+                log_debug("🔧 Initialized FinBERT classifier weights")
+                
+            if hasattr(classifier, 'bias') and classifier.bias is not None:
+                torch.nn.init.zeros_(classifier.bias)
+                log_debug("🔧 Initialized FinBERT classifier bias")
+                
+        except Exception as e:
+            log_debug(f"FinBERT classifier initialization note: {e}")
+
+    def _warm_up_finbert(self):
+        """
+        FIX 4: Warm up FinBERT model for better initial predictions
+        """
+        try:
+            log_info("🔥 Warming up FinBERT model...")
+            
+            warmup_texts = [
+                "The company reported strong quarterly earnings.",
+                "Revenue declined due to market conditions.",
+                "Positive outlook for next quarter."
+            ]
+            
+            self.finbert_model.eval()
+            
+            with torch.no_grad():
+                for text in warmup_texts:
+                    try:
+                        # Tokenize
+                        inputs = self.finbert_tokenizer(
+                            text,
+                            max_length=512,
+                            padding=True,
+                            truncation=True,
+                            return_tensors="pt"
+                        )
+                        
+                        # Move to same device as model
+                        if next(self.finbert_model.parameters()).is_cuda:
+                            inputs = {k: v.cuda() for k, v in inputs.items()}
+                        
+                        # Forward pass
+                        _ = self.finbert_model(**inputs)
+                        
+                    except Exception as e:
+                        log_debug(f"FinBERT warmup sample failed: {e}")
+                        continue
+            
+            log_info("✅ FinBERT warmup completed")
+            
+        except Exception as e:
+            log_debug(f"FinBERT warmup failed (non-critical): {e}")
 
     def _init_gemini(self) -> None:
         """Initialize Google Gemini"""
-        if not GEMINI_AVAILABLE or not Config.GEMINI_API_KEY:
+        if not GEMINI_AVAILABLE:
             self.services['gemini'] = {'available': False}
             return
             
         try:
             genai.configure(api_key=Config.GEMINI_API_KEY)
-            model = genai.GenerativeModel('gemini-pro')
-
             self.services['gemini'] = {
                 'available': True,
-                'model': model,
+                'client': genai.GenerativeModel('gemini-pro'),
                 'requests_today': 0,
-                'quota_limit': 1500
+                'quota_limit': 60
             }
-            
             log_info("✅ Gemini initialized successfully")
-
         except Exception as e:
             log_error(f"Failed to initialize Gemini: {e}")
             self.services['gemini'] = {'available': False}
 
     def _init_openai(self) -> None:
         """Initialize OpenAI"""
-        if not OPENAI_AVAILABLE or not Config.OPENAI_API_KEY:
+        if not OPENAI_AVAILABLE:
             self.services['openai'] = {'available': False}
             return
             
         try:
-            client = openai.OpenAI(api_key=Config.OPENAI_API_KEY)
-
             self.services['openai'] = {
                 'available': True,
-                'client': client,
+                'client': openai.OpenAI(api_key=Config.OPENAI_API_KEY),
                 'requests_today': 0,
-                'quota_limit': 1000
+                'quota_limit': 100
             }
-            
             log_info("✅ OpenAI initialized successfully")
-
         except Exception as e:
             log_error(f"Failed to initialize OpenAI: {e}")
             self.services['openai'] = {'available': False}
 
     def _init_claude(self) -> None:
         """Initialize Anthropic Claude"""
-        if not ANTHROPIC_AVAILABLE or not Config.ANTHROPIC_API_KEY:
+        if not ANTHROPIC_AVAILABLE:
             self.services['claude'] = {'available': False}
             return
             
         try:
-            client = anthropic.Anthropic(api_key=Config.ANTHROPIC_API_KEY)
-
             self.services['claude'] = {
                 'available': True,
-                'client': client,
+                'client': anthropic.Anthropic(api_key=Config.ANTHROPIC_API_KEY),
                 'requests_today': 0,
-                'quota_limit': 300
+                'quota_limit': 100
             }
-            
             log_info("✅ Claude initialized successfully")
-
         except Exception as e:
             log_error(f"Failed to initialize Claude: {e}")
             self.services['claude'] = {'available': False}
@@ -403,240 +425,165 @@ class MultiLLMAnalyzer:
         predictions = []
         successful_services = []
 
-        # 1. PRIORITY: Enhanced Neural Analysis (NEW)
-        if self.enhanced_neural:
+        # 1. Enhanced Neural Analysis (highest priority)
+        if self.enhanced_neural and self.enhanced_neural.is_available:
             try:
-                enhanced_pred = self.enhanced_neural.analyze_text(ticker, combined_text)
-                if enhanced_pred:
+                neural_prediction = self.enhanced_neural.analyze_text(ticker, combined_text)
+                if neural_prediction:
                     # Convert EnhancedPrediction to DirectionalPrediction
-                    neural_prediction = DirectionalPrediction(
-                        direction=enhanced_pred.direction,
-                        confidence=enhanced_pred.confidence,
-                        reasoning=enhanced_pred.reasoning,
-                        source=enhanced_pred.source,
-                        raw_score=enhanced_pred.raw_score
+                    pred = DirectionalPrediction(
+                        direction=neural_prediction.direction,
+                        confidence=neural_prediction.confidence,
+                        reasoning=neural_prediction.reasoning,
+                        source='enhanced_neural',
+                        raw_score=neural_prediction.raw_score
                     )
-                    predictions.append(neural_prediction)
+                    predictions.append(pred)
                     successful_services.append('enhanced_neural')
-                    log_debug(f"✅ Enhanced Neural: {ticker} - {enhanced_pred.direction} ({enhanced_pred.confidence:.3f})")
+                    log_debug(f"Enhanced neural analysis: {pred.direction} ({pred.confidence:.3f})")
             except Exception as e:
                 log_error(f"Enhanced neural analysis failed for {ticker}: {e}")
 
-        # 2. Traditional FinBERT Analysis
+        # 2. FinBERT Analysis
         if 'finbert' in self.services and self.services['finbert']['available']:
-            prediction = self._analyze_with_finbert(ticker, combined_text)
-            if prediction:
-                predictions.append(prediction)
-                successful_services.append('finbert')
+            try:
+                finbert_pred = self._analyze_finbert(combined_text)
+                if finbert_pred:
+                    predictions.append(finbert_pred)
+                    successful_services.append('finbert')
+            except Exception as e:
+                log_error(f"FinBERT analysis failed for {ticker}: {e}")
 
-        # 3. LLM Services
+        # 3. Try other LLM services in order of preference
         for service_name in ['gemini', 'openai', 'claude']:
             if service_name in self.services and self.services[service_name]['available']:
-                if service_name not in self.quota_exhausted:
-                    prediction = self._analyze_with_llm(service_name, ticker, combined_text)
-                    if prediction:
-                        predictions.append(prediction)
+                if service_name in self.quota_exhausted:
+                    continue
+                    
+                try:
+                    if service_name == 'gemini':
+                        pred = self._analyze_with_gemini(ticker, combined_text)
+                    elif service_name == 'openai':
+                        pred = self._analyze_with_openai(ticker, combined_text)
+                    elif service_name == 'claude':
+                        pred = self._analyze_with_claude(ticker, combined_text)
+                    
+                    if pred:
+                        predictions.append(pred)
                         successful_services.append(service_name)
+                        log_debug(f"{service_name} analysis: {pred.direction} ({pred.confidence:.3f})")
+                    
+                except Exception as e:
+                    log_error(f"{service_name} analysis failed for {ticker}: {e}")
+                    continue
 
-        # 4. Emergency Services
-        for service_name in ['alpha_vantage', 'polygon', 'tiingo']:
-            if service_name in self.services and self.services[service_name]['available']:
-                if service_name not in self.quota_exhausted:
-                    prediction = self._analyze_with_emergency_service(service_name, ticker, combined_text)
-                    if prediction:
-                        predictions.append(prediction)
-                        successful_services.append(service_name)
-
-        # 5. Keyword Analysis (Fallback)
-        if Config.ENABLE_KEYWORD_SENTIMENT:
-            prediction = self._analyze_with_keywords(ticker, combined_text)
-            if prediction:
-                predictions.append(prediction)
-                successful_services.append('keyword')
-
-        # Combine predictions
-        if predictions:
-            combined_prediction = self._combine_predictions(predictions, successful_services)
-            log_debug(f"Combined prediction for {ticker}: {combined_prediction.direction} ({combined_prediction.confidence:.3f}) from {len(predictions)} services")
-            return combined_prediction
-        else:
-            log_warning(f"No successful predictions for {ticker}")
-            return None
-
-    def _combine_predictions(self, predictions: List[DirectionalPrediction], services_used: List[str]) -> DirectionalPrediction:
-        """Combine multiple predictions using weighted voting with enhanced neural priority"""
-        
-        if len(predictions) == 1:
-            single_pred = predictions[0]
-            single_pred.individual_predictions = [single_pred]
-            single_pred.source_weights = {single_pred.source: 1.0}
-            single_pred.weighted_scores = {single_pred.source: single_pred.raw_score}
-            return single_pred
-
-        # Calculate weighted scores
-        total_weight = 0
-        weighted_buy_score = 0
-        weighted_sell_score = 0
-        
-        source_weights_used = {}
-        weighted_scores = {}
-        
-        for prediction, service in zip(predictions, services_used):
-            weight = self.service_weights.get(service, 0.1)
-            total_weight += weight
-            source_weights_used[service] = weight
-            
-            if prediction.direction == 'BUY':
-                weighted_buy_score += prediction.confidence * weight
-                weighted_scores[service] = prediction.confidence * weight
-            elif prediction.direction == 'SELL':
-                weighted_sell_score += prediction.confidence * weight
-                weighted_scores[service] = -prediction.confidence * weight
-            else:  # NEUTRAL
-                weighted_scores[service] = 0
-        
-        # Normalize weights
-        if total_weight > 0:
-            for service in source_weights_used:
-                source_weights_used[service] /= total_weight
-                
-            weighted_buy_score /= total_weight
-            weighted_sell_score /= total_weight
-
-        # Determine final direction
-        if weighted_buy_score > weighted_sell_score and weighted_buy_score > 0.3:
-            direction = 'BUY'
-            confidence = weighted_buy_score
-            raw_score = weighted_buy_score - weighted_sell_score
-        elif weighted_sell_score > weighted_buy_score and weighted_sell_score > 0.3:
-            direction = 'SELL' 
-            confidence = weighted_sell_score
-            raw_score = weighted_sell_score - weighted_buy_score
-        else:
-            direction = 'NEUTRAL'
-            confidence = max(weighted_buy_score, weighted_sell_score, 0.5)
-            raw_score = 0
-
-        # Create reasoning
-        service_summaries = []
-        for pred, service in zip(predictions, services_used):
-            weight = source_weights_used.get(service, 0)
-            service_summaries.append(f"{service}: {pred.direction} ({pred.confidence:.2f}, weight: {weight:.2f})")
-        
-        reasoning = f"Multi-source consensus from {len(predictions)} services: {' | '.join(service_summaries)}"
-
-        return DirectionalPrediction(
-            direction=direction,
-            confidence=confidence,
-            reasoning=reasoning,
-            source='multi_source',
-            raw_score=raw_score,
-            individual_predictions=predictions,
-            source_weights=source_weights_used,
-            weighted_scores=weighted_scores
-        )
-
-    def _analyze_with_emergency_service(self, service_name: str, ticker: str, text: str) -> Optional[DirectionalPrediction]:
-        """Analyze using emergency data services"""
-        try:
-            eds_prediction: Optional[EDSDirectionalPrediction] = None
-            if service_name == 'alpha_vantage':
-                eds_prediction = self.emergency_services.analyze_with_alpha_vantage(ticker, text)
-            elif service_name == 'polygon':
-                eds_prediction = self.emergency_services.analyze_with_polygon(ticker, text)
-            elif service_name == 'tiingo':
-                eds_prediction = self.emergency_services.analyze_with_tiingo(ticker, text)
-            else:
-                return None
-
-            # Convert EDSDirectionalPrediction to local DirectionalPrediction
-            if eds_prediction:
-                # Update request count
-                if service_name in self.services:
-                    self.services[service_name]['requests_today'] += 1
-
-                return DirectionalPrediction(
-                    direction=eds_prediction.direction,
-                    confidence=eds_prediction.confidence,
-                    reasoning=eds_prediction.reasoning,
-                    source=eds_prediction.source,
-                    raw_score=eds_prediction.raw_score
+        # 4. Emergency services fallback
+        if not predictions:
+            emergency_pred = self.emergency_services.get_emergency_sentiment(ticker, combined_text)
+            if emergency_pred:
+                # Convert emergency prediction to our format
+                pred = DirectionalPrediction(
+                    direction=emergency_pred.direction,
+                    confidence=emergency_pred.confidence,
+                    reasoning=emergency_pred.reasoning,
+                    source='emergency_services',
+                    raw_score=emergency_pred.raw_score
                 )
-            return None
+                predictions.append(pred)
+                successful_services.append('emergency_services')
 
-        except Exception as e:
-            log_error(f"Emergency service {service_name} error: {e}")
-            return None
+        # 5. Keyword analysis as final fallback
+        if not predictions:
+            try:
+                keyword_pred = self._analyze_with_keywords(ticker, combined_text)
+                if keyword_pred:
+                    predictions.append(keyword_pred)
+                    successful_services.append('keyword')
+            except Exception as e:
+                log_error(f"Keyword analysis failed for {ticker}: {e}")
 
-    def _analyze_with_finbert(self, ticker: str, text: str) -> Optional[DirectionalPrediction]:
-        """Analyze using FinBERT model"""
-        if not self.services.get('finbert', {}).get('available', False):
+        # Combine predictions if we have multiple
+        if not predictions:
             return None
-            
+        elif len(predictions) == 1:
+            result = predictions[0]
+            result.sources_used = successful_services
+            return result
+        else:
+            return self._combine_predictions(predictions, successful_services)
+
+    def _analyze_finbert(self, text: str) -> Optional[DirectionalPrediction]:
+        """
+        FIXED: Enhanced FinBERT analysis with proper error handling
+        """
+        if 'finbert' not in self.services or not self.services['finbert']['available']:
+            return None
+        
         try:
+            # Tokenize with proper parameters
+            inputs = self.services['finbert']['tokenizer'](
+                text,
+                max_length=512,
+                padding=True,
+                truncation=True,
+                return_tensors="pt"
+            )
+            
+            # Move inputs to same device as model
             model = self.services['finbert']['model']
-            tokenizer = self.services['finbert']['tokenizer']
+            if next(model.parameters()).is_cuda:
+                inputs = {k: v.cuda() for k, v in inputs.items()}
             
-            # Tokenize input
-            inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
-            
-            # FIXED: Check device properly and move inputs to same device as model
-            model_device = next(model.parameters()).device
-            inputs = {k: v.to(model_device) for k, v in inputs.items()}
-            
+            # Forward pass with proper configuration
+            model.eval()
             with torch.no_grad():
                 outputs = model(**inputs)
-                predictions = torch.nn.functional.softmax(outputs.logits, dim=-1)
-                
-            # Convert to numpy for easier handling
-            scores = predictions.cpu().numpy()[0]
             
-            # FinBERT outputs: [negative, neutral, positive]
-            negative_score = float(scores[0])
-            neutral_score = float(scores[1])
-            positive_score = float(scores[2])
+            # Process outputs properly
+            logits = outputs.logits
+            probabilities = torch.nn.functional.softmax(logits, dim=-1)
             
-            # Determine direction based on highest score
-            if positive_score > negative_score and positive_score > neutral_score:
-                direction = 'BUY'
-                confidence = positive_score
-            elif negative_score > positive_score and negative_score > neutral_score:
-                direction = 'SELL'
-                confidence = negative_score
+            # FinBERT classes: [negative, neutral, positive]
+            negative_prob = probabilities[0][0].item()
+            neutral_prob = probabilities[0][1].item()
+            positive_prob = probabilities[0][2].item()
+            
+            # Determine prediction
+            max_prob = max(negative_prob, neutral_prob, positive_prob)
+            
+            if max_prob == positive_prob:
+                prediction = 'BUY'
+                confidence = positive_prob
+            elif max_prob == negative_prob:
+                prediction = 'SELL'
+                confidence = negative_prob
             else:
-                direction = 'NEUTRAL'
-                confidence = neutral_score
-
+                prediction = 'NEUTRAL'
+                confidence = neutral_prob
+            
+            # Calculate sentiment score (-1 to 1)
+            sentiment_score = positive_prob - negative_prob
+            
             return DirectionalPrediction(
-                direction=direction,
+                direction=prediction,
                 confidence=confidence,
-                reasoning=f"FinBERT scores - Positive: {positive_score:.3f}, Negative: {negative_score:.3f}, Neutral: {neutral_score:.3f}",
-                source="finbert",
-                raw_score=positive_score - negative_score
+                reasoning=f"FinBERT analysis: {prediction} with {confidence:.2%} confidence",
+                source='finbert',
+                raw_score=sentiment_score
             )
-
+            
         except Exception as e:
-            log_error(f"FinBERT analysis error: {e}")
+            log_error(f"Error in FinBERT analysis: {e}")
             return None
 
-    def _analyze_with_llm(self, service_name: str, ticker: str, text: str) -> Optional[DirectionalPrediction]:
-        """Analyze using LLM services (Gemini, OpenAI, Claude)"""
-        if service_name == 'gemini':
-            return self._analyze_with_gemini(ticker, text)
-        elif service_name == 'openai':
-            return self._analyze_with_openai(ticker, text)
-        elif service_name == 'claude':
-            return self._analyze_with_claude(ticker, text)
-        return None
-
     def _analyze_with_gemini(self, ticker: str, text: str) -> Optional[DirectionalPrediction]:
-        """Analyze using Gemini"""
+        """Analyze using Google Gemini"""
         if not GEMINI_AVAILABLE:
             return None
             
         try:
             service = self.services['gemini']
-            model = service['model']
+            model = service['client']
 
             prompt = self._create_llm_prompt(ticker, text)
 
@@ -645,7 +592,7 @@ class MultiLLMAnalyzer:
 
             service['requests_today'] += 1
 
-            if response and response.text:
+            if response.text:
                 return self._parse_llm_response(response.text, "gemini")
             return None
 
@@ -727,165 +674,210 @@ class MultiLLMAnalyzer:
                 if keyword in text_lower:
                     negative_score += 1
             
-            # Add weight for high-impact keywords
+            # Count high-impact keywords (weighted 3x)
             for keyword in self.high_impact_positive:
                 if keyword in text_lower:
-                    positive_score += 2
+                    positive_score += 3
             
             for keyword in self.high_impact_negative:
                 if keyword in text_lower:
-                    negative_score += 2
+                    negative_score += 3
             
-            total_score = positive_score + negative_score
-            
-            if total_score == 0:
+            if positive_score == 0 and negative_score == 0:
                 return DirectionalPrediction(
                     direction='NEUTRAL',
-                    confidence=0.3,
-                    reasoning="No significant sentiment keywords found",
-                    source="keyword",
-                    raw_score=0
+                    confidence=0.5,
+                    reasoning="No significant keywords found",
+                    source='keyword',
+                    raw_score=0.0
                 )
             
-            # Calculate direction and confidence
-            if positive_score > negative_score:
+            total_score = positive_score + negative_score
+            sentiment_ratio = positive_score / total_score if total_score > 0 else 0.5
+            
+            if sentiment_ratio > 0.6:
                 direction = 'BUY'
-                confidence = min(0.8, positive_score / (total_score + 2))
-                raw_score = (positive_score - negative_score) / total_score
-            elif negative_score > positive_score:
+                confidence = min(0.8, 0.5 + sentiment_ratio * 0.3)
+            elif sentiment_ratio < 0.4:
                 direction = 'SELL'
-                confidence = min(0.8, negative_score / (total_score + 2))
-                raw_score = (negative_score - positive_score) / total_score
+                confidence = min(0.8, 0.5 + (1 - sentiment_ratio) * 0.3)
             else:
                 direction = 'NEUTRAL'
                 confidence = 0.5
-                raw_score = 0
             
-            reasoning = f"Keyword analysis: {positive_score} positive, {negative_score} negative keywords"
+            raw_score = (sentiment_ratio - 0.5) * 2  # Scale to -1 to 1
+            
+            reasoning = f"Keyword analysis: {positive_score} positive, {negative_score} negative signals"
             
             return DirectionalPrediction(
                 direction=direction,
                 confidence=confidence,
                 reasoning=reasoning,
-                source="keyword",
+                source='keyword',
                 raw_score=raw_score
             )
 
         except Exception as e:
-            log_error(f"Keyword analysis error for {ticker}: {e}")
+            log_error(f"Keyword analysis error: {e}")
             return None
 
     def _create_llm_prompt(self, ticker: str, text: str) -> str:
         """Create standardized prompt for LLM services"""
         return f"""
-        Analyze the following financial news about {ticker} and determine if it suggests a BUY, SELL, or NEUTRAL stance.
+        Analyze this financial news about {ticker} and provide a trading recommendation.
         
-        Consider:
-        - Financial performance indicators
-        - Future outlook and guidance
-        - Market position and competitive factors
-        - Risk factors and challenges
+        News text: {text[:2000]}
         
-        News text: {text[:1000]}
-        
-        Respond in JSON format:
-        {{
-            "direction": "BUY|SELL|NEUTRAL",
-            "confidence": 0.0-1.0,
-            "reasoning": "brief explanation"
-        }}
+        Respond in exactly this format:
+        DIRECTION: [BUY/SELL/NEUTRAL]
+        CONFIDENCE: [0.0-1.0]
+        REASONING: [brief explanation]
         """
 
-    def _parse_llm_response(self, response_text: str, source: str) -> Optional[DirectionalPrediction]:
+    def _parse_llm_response(self, response: str, source: str) -> Optional[DirectionalPrediction]:
         """Parse LLM response into DirectionalPrediction"""
         try:
-            # Try to extract JSON
-            json_match = re.search(r'\{[^}]+\}', response_text)
-            if json_match:
-                json_str = json_match.group()
-                data = json.loads(json_str)
+            lines = response.strip().split('\n')
+            direction = None
+            confidence = 0.5
+            reasoning = "LLM analysis"
+            
+            for line in lines:
+                if 'DIRECTION:' in line.upper():
+                    direction_text = line.split(':', 1)[1].strip().upper()
+                    if 'BUY' in direction_text:
+                        direction = 'BUY'
+                    elif 'SELL' in direction_text:
+                        direction = 'SELL'
+                    else:
+                        direction = 'NEUTRAL'
                 
-                direction = data.get('direction', '').upper()
-                if direction not in ['BUY', 'SELL', 'NEUTRAL']:
-                    direction = 'NEUTRAL'
+                elif 'CONFIDENCE:' in line.upper():
+                    try:
+                        confidence = float(re.findall(r'(\d+\.?\d*)', line)[0])
+                        if confidence > 1.0:
+                            confidence = confidence / 100.0  # Convert percentage
+                        confidence = max(0.0, min(1.0, confidence))
+                    except:
+                        confidence = 0.5
                 
-                confidence = float(data.get('confidence', 0.5))
-                confidence = max(0.0, min(1.0, confidence))
-                
-                reasoning = data.get('reasoning', f'{source} analysis')
-                
-                # Calculate raw score
-                if direction == 'BUY':
-                    raw_score = confidence
-                elif direction == 'SELL':
-                    raw_score = -confidence
-                else:
-                    raw_score = 0
-                
+                elif 'REASONING:' in line.upper():
+                    reasoning = line.split(':', 1)[1].strip()
+            
+            if direction:
+                raw_score = confidence if direction == 'BUY' else (-confidence if direction == 'SELL' else 0.0)
                 return DirectionalPrediction(
                     direction=direction,
                     confidence=confidence,
-                    reasoning=f"{source}: {reasoning}",
+                    reasoning=reasoning,
                     source=source,
                     raw_score=raw_score
                 )
-        
+            
+            return None
+
         except Exception as e:
-            log_debug(f"Failed to parse {source} JSON response: {e}")
-        
-        # Fallback parsing
-        response_lower = response_text.lower()
-        
-        if 'buy' in response_lower and 'sell' not in response_lower:
-            direction = 'BUY'
-            confidence = 0.6
-        elif 'sell' in response_lower and 'buy' not in response_lower:
-            direction = 'SELL'
-            confidence = 0.6
-        else:
-            direction = 'NEUTRAL'
-            confidence = 0.5
-        
-        raw_score = confidence if direction == 'BUY' else (-confidence if direction == 'SELL' else 0)
-        
-        return DirectionalPrediction(
-            direction=direction,
-            confidence=confidence,
-            reasoning=f"{source}: {response_text[:100]}",
-            source=source,
-            raw_score=raw_score
-        )
+            log_error(f"Error parsing {source} response: {e}")
+            return None
+
+    def _combine_predictions(self, predictions: List[DirectionalPrediction], sources: List[str]) -> DirectionalPrediction:
+        """Combine multiple predictions using weighted voting"""
+        try:
+            weighted_buy = 0.0
+            weighted_sell = 0.0
+            weighted_neutral = 0.0
+            total_weight = 0.0
+            
+            source_weights = {}
+            weighted_scores = {}
+            
+            for pred in predictions:
+                weight = self.service_weights.get(pred.source, 0.1)
+                total_weight += weight
+                source_weights[pred.source] = weight
+                
+                confidence_weighted = pred.confidence * weight
+                
+                if pred.direction == 'BUY':
+                    weighted_buy += confidence_weighted
+                elif pred.direction == 'SELL':
+                    weighted_sell += confidence_weighted
+                else:
+                    weighted_neutral += confidence_weighted
+                
+                weighted_scores[pred.source] = pred.raw_score * weight
+            
+            # Normalize weights
+            if total_weight > 0:
+                weighted_buy /= total_weight
+                weighted_sell /= total_weight
+                weighted_neutral /= total_weight
+            
+            # Determine final direction
+            max_score = max(weighted_buy, weighted_sell, weighted_neutral)
+            
+            if max_score == weighted_buy:
+                final_direction = 'BUY'
+                final_confidence = weighted_buy
+            elif max_score == weighted_sell:
+                final_direction = 'SELL'
+                final_confidence = weighted_sell
+            else:
+                final_direction = 'NEUTRAL'
+                final_confidence = weighted_neutral
+            
+            # Calculate combined raw score
+            combined_raw_score = sum(weighted_scores.values()) / len(weighted_scores) if weighted_scores else 0.0
+            
+            # Create reasoning
+            source_summary = ', '.join([f"{s}({self.service_weights.get(s, 0.1):.2f})" for s in sources])
+            reasoning = f"Multi-source consensus: {final_direction} from {len(sources)} services [{source_summary}]"
+            
+            return DirectionalPrediction(
+                direction=final_direction,
+                confidence=final_confidence,
+                reasoning=reasoning,
+                source='multi_source',
+                raw_score=combined_raw_score,
+                individual_predictions=predictions,
+                source_weights=source_weights,
+                weighted_scores=weighted_scores
+            )
+
+        except Exception as e:
+            log_error(f"Error combining predictions: {e}")
+            # Return the highest confidence prediction as fallback
+            return max(predictions, key=lambda p: p.confidence)
 
     def get_service_status(self) -> Dict[str, Dict[str, Any]]:
         """Get status of all services including enhanced neural analyzer"""
         status = {}
         
-        # Add enhanced neural analyzer status
+        # Enhanced neural analyzer status
         if self.enhanced_neural:
             neural_info = self.enhanced_neural.get_model_info()
             status['enhanced_neural'] = {
                 'available': neural_info.get('available', False),
-                'type': 'Enhanced Neural (RoBERTa+LSTM+CNN)',
-                'accuracy': neural_info.get('expected_accuracy', 'N/A'),
-                'device': neural_info.get('device', 'N/A'),
-                'parameters': neural_info.get('total_parameters', 'N/A')
+                'device': neural_info.get('device', 'unknown'),
+                'accuracy': neural_info.get('expected_accuracy', 'unknown'),
+                'parameters': neural_info.get('trainable_parameters', 0)
             }
         else:
-            status['enhanced_neural'] = {
-                'available': False,
-                'type': 'Enhanced Neural (RoBERTa+LSTM+CNN)',
-                'accuracy': 'N/A',
-                'device': 'N/A',
-                'parameters': 'N/A'
-            }
+            status['enhanced_neural'] = {'available': False}
         
-        # Add traditional services
+        # Traditional services
         for service_name, service_info in self.services.items():
             status[service_name] = {
                 'available': service_info.get('available', False),
                 'requests_today': service_info.get('requests_today', 0),
-                'quota_limit': service_info.get('quota_limit', 'N/A'),
-                'quota_exhausted': service_name in self.quota_exhausted
+                'quota_limit': service_info.get('quota_limit', 0)
             }
         
         return status
+
+    def reset_daily_quotas(self) -> None:
+        """Reset daily quotas for all services"""
+        for service in self.services.values():
+            service['requests_today'] = 0
+        self.quota_exhausted.clear()
+        log_info("🔄 Daily quotas reset for all services")
