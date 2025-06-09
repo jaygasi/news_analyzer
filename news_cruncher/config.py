@@ -100,7 +100,7 @@ class Config:
     MAX_REJECTED_STOCKS_TO_LOG = 30  # Number of rejected stocks to log (set to 0 to disable)
     
     # NEW: CSV logging configuration  
-    ONLY_LOG_TRADING_DECISIONS = True  # Only log LONG/SHORT decisions, skip NONE
+    ONLY_LOG_TRADING_DECISIONS = False  # Only log LONG/SHORT decisions, skip NONE
     
     # NEW: Price tracking scheduler configuration
     START_SCHEDULER_ON_FIRST_DECISION = True  # Wait for first trading decision before starting scheduler

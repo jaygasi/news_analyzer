@@ -8,6 +8,7 @@ import re
 from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime
+import pickle
 
 # Core imports that should always work
 from config import Config

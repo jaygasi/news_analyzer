@@ -21,7 +21,7 @@ class PriceTracker:
         
         # Log current configuration
         checkpoint_info = Config.get_checkpoint_info()
-        intervals = [f"{info['short_label']} ({info.get('minutes', 'close')})" for info in checkpoint_info]
+        intervals = [info['short_label'] for info in checkpoint_info]
         log_info(f"Price tracker initialized with configurable intervals: {', '.join(intervals)}")
         
     def is_market_hours(self, dt: datetime) -> bool:
