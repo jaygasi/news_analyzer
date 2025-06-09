@@ -144,6 +144,13 @@ class Config:
     # Cache settings for earnings data
     EARNINGS_CACHE_HOURS: int = int(os.getenv('EARNINGS_CACHE_HOURS', '6'))
     
+    # NEW: Earnings Integration Manager specific configurations
+    EARNINGS_CALENDAR_RETRY_MINUTES: int = int(os.getenv('EARNINGS_CALENDAR_RETRY_MINUTES', '30'))
+    FAILED_EARNINGS_CACHE_FILENAME: str = os.getenv('FAILED_EARNINGS_CACHE_FILENAME', 'failed_earnings_cache.json')
+    FAILED_EARNINGS_CACHE_EXPIRY_HOURS: int = int(os.getenv('FAILED_EARNINGS_CACHE_EXPIRY_HOURS', '24'))
+    EARNINGS_TRANSCRIPT_LOOKBACK_QUARTERS: int = int(os.getenv('EARNINGS_TRANSCRIPT_LOOKBACK_QUARTERS', '2'))
+
+
     @classmethod
     def _get_tolerance_settings(cls): # New helper method to return tolerance for cleaner use
         return {

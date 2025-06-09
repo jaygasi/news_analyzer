@@ -51,12 +51,7 @@ class EnhancedFinancialSentimentModel(nn.Module):
             output_hidden_states=False,
             attn_implementation="eager"
         )
-        # Fix pooler initialization to eliminate warnings
-        if hasattr(self.roberta, 'pooler') and self.roberta.pooler is not None:
-            torch.nn.init.xavier_uniform_(self.roberta.pooler.dense.weight)
-            torch.nn.init.zeros_(self.roberta.pooler.dense.bias)
-            log_info("✅ Pooler weights properly initialized")
-        else:
+        if not (hasattr(self.roberta, 'pooler') and self.roberta.pooler is not None):
             log_warning("⚠️ RoBERTa pooler not found - may be using different model variant")
         self.roberta_dim = self.roberta.config.hidden_size  # 768 for roberta-base
         

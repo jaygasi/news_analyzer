@@ -1,9 +1,10 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone, timedelta
 from data_loaders.earnings_transcript_fetcher import EarningsTranscriptFetcher
 from data_loaders.base_fmp_loader import BaseFMPLoader
 from utils.simple_logger import log_info, log_error, log_debug # Add other loggers if needed
 from config import Config # Assuming Config is used for EARNINGS_LOOKBACK_DAYS etc.
+import json # Added for failed cache handling
 
 class EarningsIntegrationManager:
     """Simplified earnings integration manager"""
@@ -13,7 +14,7 @@ class EarningsIntegrationManager:
         self.fmp_api_key = fmp_api_key
         self.earnings_fetcher = EarningsTranscriptFetcher(fmp_api_key)  # Single instance
         self.earnings_cache: Dict[str, Any] = {} # Cache for earnings calendar data
-        self.cache_expiry: datetime = None
+        self.cache_expiry: Optional[datetime] = None # Type hint for cache_expiry
         
         log_info("✅ Earnings integration manager initialized")
     
@@ -32,11 +33,9 @@ class EarningsIntegrationManager:
             end_date = now + timedelta(days=Config.EARNINGS_LOOKAHEAD_DAYS)
             
             # Make API request directly (remove NewsFetcher dependency)
+            # MODIFIED: Use self.earnings_fetcher for the API call
             try:
-                # api_loader is used here to make the request, ensuring it uses the FMP base URL and API key logic
-                api_loader = BaseFMPLoader(self.fmp_api_key) 
-                
-                earnings_data = api_loader.make_request("earning_calendar", {
+                earnings_data = self.earnings_fetcher.make_request("earning_calendar", {
                     "from": start_date.strftime('%Y-%m-%d'),
                     "to": end_date.strftime('%Y-%m-%d')
                 })
@@ -50,12 +49,12 @@ class EarningsIntegrationManager:
                 else:
                     log_info("⚠️ No data returned for earnings calendar, cache not updated.")
                     # Potentially set a shorter expiry to retry sooner
-                    self.cache_expiry = now + timedelta(minutes=30) 
+                    self.cache_expiry = now + timedelta(minutes=Config.EARNINGS_CALENDAR_RETRY_MINUTES)
 
             except Exception as e:
                 log_info(f"❌ Error refreshing earnings calendar cache: {e}")
                 # Potentially set a shorter expiry to retry sooner
-                self.cache_expiry = now + timedelta(minutes=30)
+                self.cache_expiry = now + timedelta(minutes=Config.EARNINGS_CALENDAR_RETRY_MINUTES)
     
     def analyze_tickers_for_earnings(self, ticker_buckets: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
         """Analyze tickers for earnings events with improved caching"""
@@ -69,7 +68,7 @@ class EarningsIntegrationManager:
         max_to_process = Config.MAX_EARNINGS_EVENTS_PER_CYCLE
         
         # Create failed cache to avoid repeated attempts
-        failed_cache_file = Config.DATA_DIR / "failed_earnings_cache.json"
+        failed_cache_file = Config.DATA_DIR / Config.FAILED_EARNINGS_CACHE_FILENAME
         failed_cache = {}
         
         # Load existing failed cache
@@ -88,8 +87,8 @@ class EarningsIntegrationManager:
             # Check if this ticker failed recently (within 24 hours)
             cache_key = f"{ticker}_{datetime.now().strftime('%Y-%m-%d')}"
             if cache_key in failed_cache:
-                hours_since_failure = (datetime.now() - datetime.fromisoformat(failed_cache[cache_key])).total_seconds() / 3600
-                if hours_since_failure < 24:
+                hours_since_failure = (datetime.now(timezone.utc) - datetime.fromisoformat(failed_cache[cache_key])).total_seconds() / 3600
+                if hours_since_failure < Config.FAILED_EARNINGS_CACHE_EXPIRY_HOURS:
                     log_debug(f"⏭️ Skipping {ticker} - failed recently")
                     continue
             
@@ -100,7 +99,7 @@ class EarningsIntegrationManager:
                     
                     # Fetch recent transcripts
                     transcript_analyses = self.earnings_fetcher.fetch_recent_transcripts(
-                        ticker, lookback_quarters=2
+                        ticker, lookback_quarters=Config.EARNINGS_TRANSCRIPT_LOOKBACK_QUARTERS
                     )
                     
                     if transcript_analyses and any(analysis.transcript_length > 0 for analysis in transcript_analyses):
@@ -128,17 +127,17 @@ class EarningsIntegrationManager:
                     else:
                         log_info(f"⚠️ No recent transcripts found for {ticker}")
                         # Cache the failure
-                        failed_cache[cache_key] = datetime.now().isoformat()
+                        failed_cache[cache_key] = datetime.now(timezone.utc).isoformat()
                         
                 except Exception as e:
                     log_error(f"Error processing earnings for {ticker}: {e}")
                     # Cache the failure
-                    failed_cache[cache_key] = datetime.now().isoformat()
+                    failed_cache[cache_key] = datetime.now(timezone.utc).isoformat()
         
         # Save updated failed cache
         try:
             with open(failed_cache_file, 'w') as f:
-                json.dump(failed_cache, f)
+                json.dump(failed_cache, f, indent=2) # Added indent for readability
         except Exception as e:
             log_debug(f"Could not save failed earnings cache: {e}")
         
