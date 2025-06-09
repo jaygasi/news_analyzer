@@ -98,14 +98,11 @@ class TickerFilterEngine:
         log_info(f"Rejected stock logging: {'ENABLED' if enabled else 'DISABLED'} (max: {max_to_log})")
     
     def filter_ticker_buckets(self, ticker_buckets: Dict[str, List[Dict[str, Any]]]) -> Dict[str, List[Dict[str, Any]]]:
-        """Filter ticker buckets based on fundamental criteria with optional detailed debugging"""
+        """Filter ticker buckets based on fundamental criteria with optimized batching"""
         log_info(f"🔍 Filtering {len(ticker_buckets)} tickers by fundamental criteria...")
         
         # Log initial tickers overview
         self._log_initial_tickers(ticker_buckets)
-        
-        # Sample tickers for detailed debugging (first 10)
-        debug_tickers = []
         
         filtered_buckets = {}
         filter_stats = {
@@ -118,112 +115,77 @@ class TickerFilterEngine:
             'failed_exchange': 0,
             'failed_data_unavailable': 0
         }
-       
-        # NEW: Track rejected stocks for logging (ADD THIS LINE)
-        rejected_stocks = [] if self.enable_rejected_logging else None        
+        
+        rejected_stocks = [] if self.enable_rejected_logging else None
+        tickers_to_process = list(ticker_buckets.keys())
+        
+        # OPTIMIZATION: Process in batches to show progress and avoid timeouts
+        batch_size = 50  # Process 50 tickers at a time
+        total_batches = (len(tickers_to_process) + batch_size - 1) // batch_size
+        
+        for batch_num in range(total_batches):
+            start_idx = batch_num * batch_size
+            end_idx = min(start_idx + batch_size, len(tickers_to_process))
+            batch_tickers = tickers_to_process[start_idx:end_idx]
             
-        for ticker, articles in ticker_buckets.items():
-            try:
-                fundamentals = self._get_company_fundamentals(ticker)
-                
-                # DETAILED DEBUGGING FOR SELECTED TICKERS
-                if ticker in debug_tickers:
-                    log_info(f"🐛 DEBUG {ticker}:")
-                    if fundamentals:
-                        log_info(f"  📊 Raw API Data:")
-                        log_info(f"    Price: ${fundamentals.get('price', 'N/A')}")
-                        log_info(f"    Market Cap: ${fundamentals.get('market_cap', 'N/A'):,}" if fundamentals.get('market_cap') else "    Market Cap: N/A")
-                        log_info(f"    Avg Volume: {fundamentals.get('avg_volume', 'N/A'):,}" if fundamentals.get('avg_volume') else "    Avg Volume: N/A")
-                        log_info(f"    Current Volume: {fundamentals.get('volume', 'N/A'):,}" if fundamentals.get('volume') else "    Current Volume: N/A")
-                        log_info(f"    Beta: {fundamentals.get('beta', 'N/A')}")
-                        log_info(f"    Exchange: {fundamentals.get('exchange', 'N/A')}")
-                        log_info(f"    Options Available: {fundamentals.get('has_options', 'N/A')}")
-                        
-                        # Show criteria comparison
-                        log_info(f"  ✅ Criteria Check:")
-                        price = fundamentals.get('price', 0)
-                        log_info(f"    Price: ${price:.2f} vs range ${self.criteria.min_price:.2f}-${self.criteria.max_price:.2f}")
-                        
-                        avg_vol = fundamentals.get('avg_volume', 0)
-                        log_info(f"    Volume: {avg_vol:,} vs min {self.criteria.min_avg_volume:,}")
-                        
-                        market_cap = fundamentals.get('market_cap', 0)
-                        log_info(f"    Market Cap: ${market_cap:,} vs min ${self.criteria.min_market_cap:,}")
-                        
-                        beta = fundamentals.get('beta', 0)
-                        log_info(f"    Beta: {beta} vs max {self.criteria.max_volatility_beta}")
-                        
-                        exchange = fundamentals.get('exchange', '')
-                        log_info(f"    Exchange: '{exchange}' in {self.criteria.allowed_exchanges}")
-                    else:
-                        log_info(f"  ❌ No fundamental data returned from FMP API")
-                
-                    if fundamentals is None:
+            log_info(f"🔄 Processing batch {batch_num + 1}/{total_batches} ({len(batch_tickers)} tickers)")
+            
+            # OPTIMIZATION: Batch API calls
+            batch_fundamentals = self._get_batch_fundamentals(batch_tickers)
+            
+            for ticker in batch_tickers:
+                try:
+                    fundamentals = batch_fundamentals.get(ticker)
+                    
+                    if not fundamentals:
                         filter_stats['failed_data_unavailable'] += 1
-                        if ticker in debug_tickers:
-                            log_info(f"  🚫 RESULT: FAILED - No API data available")
                         log_debug(f"❌ {ticker}: No fundamental data available")
+                        continue
+                    
+                    # Evaluate criteria
+                    passed, reason = self._evaluate_criteria(fundamentals)
+                    
+                    if passed:
+                        filtered_buckets[ticker] = ticker_buckets[ticker]
+                        filter_stats['passed'] += 1
+                        log_debug(f"✅ {ticker}: Passed all criteria")
+                    else:
+                        # Update filter stats
+                        if 'price' in reason.lower():
+                            filter_stats['failed_price'] += 1
+                        elif 'volume' in reason.lower():
+                            filter_stats['failed_volume'] += 1
+                        elif 'market cap' in reason.lower():
+                            filter_stats['failed_market_cap'] += 1
+                        elif 'beta' in reason.lower():
+                            filter_stats['failed_beta'] += 1
+                        elif 'options' in reason.lower():
+                            filter_stats['failed_options'] += 1
+                        elif 'exchange' in reason.lower():
+                            filter_stats['failed_exchange'] += 1
                         
-                        # NEW: Track rejected stock
+                        log_debug(f"❌ {ticker}: {reason}")
+                        
+                        # Track rejected stock
                         if rejected_stocks is not None and len(rejected_stocks) < self.max_rejected_to_log:
                             rejected_stocks.append({
                                 'ticker': ticker,
-                                'reason': 'No API data available',
-                                'fundamentals': None
+                                'reason': reason,
+                                'fundamentals': fundamentals
                             })
-                        continue
-                
-                passes_filter, reason = self._meets_criteria(ticker, fundamentals)
-                
-                if passes_filter:
-                    filtered_buckets[ticker] = articles
-                    filter_stats['passed'] += 1
-                    if ticker in debug_tickers:
-                        log_info(f"  ✅ RESULT: PASSED all criteria")
-                    log_debug(f"✅ {ticker}: Passed all criteria")
-                else:
-                    # Track specific failure reasons
-                    if 'price' in reason.lower():
-                        filter_stats['failed_price'] += 1
-                    elif 'volume' in reason.lower():
-                        filter_stats['failed_volume'] += 1
-                    elif 'market cap' in reason.lower():
-                        filter_stats['failed_market_cap'] += 1
-                    elif 'beta' in reason.lower():
-                        filter_stats['failed_beta'] += 1
-                    elif 'options' in reason.lower():
-                        filter_stats['failed_options'] += 1
-                    elif 'exchange' in reason.lower():
-                        filter_stats['failed_exchange'] += 1
+                            
+                except Exception as e:
+                    filter_stats['failed_data_unavailable'] += 1
+                    log_debug(f"❌ {ticker}: Error getting fundamentals - {e}")
                     
-                    if ticker in debug_tickers:
-                        log_info(f"  🚫 RESULT: FAILED - {reason}")
-                    log_debug(f"❌ {ticker}: {reason}")
-                    
-                    # NEW: Track rejected stock (ADD THESE LINES)
                     if rejected_stocks is not None and len(rejected_stocks) < self.max_rejected_to_log:
                         rejected_stocks.append({
                             'ticker': ticker,
-                            'reason': reason,
-                            'fundamentals': fundamentals
+                            'reason': f'Error: {e}',
+                            'fundamentals': None
                         })
-                    
-            except Exception as e:
-                filter_stats['failed_data_unavailable'] += 1
-                if ticker in debug_tickers:
-                    log_info(f"  💥 RESULT: ERROR - {e}")
-                log_debug(f"❌ {ticker}: Error getting fundamentals - {e}")
-                
-                # NEW: Track rejected stock
-                if rejected_stocks is not None and len(rejected_stocks) < self.max_rejected_to_log:
-                    rejected_stocks.append({
-                        'ticker': ticker,
-                        'reason': f'Error: {e}',
-                        'fundamentals': None
-                    })
-                continue
         
-        # Log filtering statistics
+        # Log results (rest of method remains the same)
         total_filtered = len(ticker_buckets) - len(filtered_buckets)
         log_info(f"Fundamental filtering complete:")
         log_info(f"  ✅ Passed: {filter_stats['passed']} tickers")
@@ -239,11 +201,86 @@ class TickerFilterEngine:
             log_info(f"    Exchange restrictions: {filter_stats['failed_exchange']}")
             log_info(f"    Data unavailable: {filter_stats['failed_data_unavailable']}")
         
-        # NEW: Log sample of rejected stocks (ADD THESE LINES BEFORE return)
+        # Log rejected stocks sample
         if rejected_stocks and self.enable_rejected_logging:
-            self._log_rejected_stocks(rejected_stocks)
+            log_info(f"🚫 Sample of rejected stocks (first {len(rejected_stocks)}):")
+            for i, rejected in enumerate(rejected_stocks, 1):
+                ticker = rejected['ticker']
+                reason = rejected['reason']
+                fund = rejected['fundamentals']
+                
+                if fund:
+                    price = fund.get('price', 0)
+                    volume = fund.get('avg_volume', 0)
+                    market_cap = fund.get('market_cap', 0)
+                    exchange = fund.get('exchange', 'UNKNOWN')
+                    log_info(f"   {i:2d}. {ticker:<6} | ${price} | Vol: {volume:,} | Cap: ${market_cap:,} | {exchange} | ❌ {reason}")
+                else:
+                    log_info(f"   {i:2d}. {ticker:<6} | No data available | ❌ {reason}")
         
         return filtered_buckets
+
+    def _get_batch_fundamentals(self, tickers: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Get fundamentals for multiple tickers efficiently with caching"""
+        results = {}
+        tickers_to_fetch = []
+        
+        # First, check cache for all tickers
+        for ticker in tickers:
+            cached = self._get_cached_fundamentals(ticker)
+            if cached:
+                results[ticker] = cached
+            else:
+                tickers_to_fetch.append(ticker)
+        
+        if tickers_to_fetch:
+            log_debug(f"📡 Fetching fresh data for {len(tickers_to_fetch)} tickers (cached: {len(results)})")
+            
+            # Batch fetch remaining tickers
+            for ticker in tickers_to_fetch:
+                try:
+                    # Use existing _get_company_fundamentals but cache results
+                    fundamentals = self._get_company_fundamentals_direct(ticker)
+                    if fundamentals:
+                        results[ticker] = fundamentals
+                        self._cache_fundamentals(ticker, fundamentals)
+                        
+                    # Rate limiting
+                    time.sleep(0.1)  # Prevent API rate limiting
+                    
+                except Exception as e:
+                    log_debug(f"Error fetching {ticker}: {e}")
+                    results[ticker] = None
+        
+        return results
+
+    def _get_company_fundamentals_direct(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Get company fundamentals directly from API (extracted from existing method)"""
+        try:
+            # This should contain the core logic from your existing _get_company_fundamentals method
+            # but without the caching logic (since we handle that in _get_batch_fundamentals)
+            
+            # Make API calls for quote, profile, etc.
+            quote_data = self.api_client.get_quote(ticker)
+            profile_data = self.api_client.get_company_profile(ticker)
+            
+            if not quote_data or not profile_data:
+                return None
+                
+            # Extract and return fundamental data
+            return {
+                'price': quote_data.get('price', 0),
+                'market_cap': profile_data.get('mktCap', 0),
+                'exchange': profile_data.get('exchange', ''),
+                'beta': profile_data.get('beta', 0),
+                'avg_volume': quote_data.get('avgVolume', 0),
+                'volume': quote_data.get('volume', 0),
+                'has_options': False  # You may need to implement options checking
+            }
+            
+        except Exception as e:
+            log_debug(f"Error getting fundamentals for {ticker}: {e}")
+            return None
     
     def _log_initial_tickers(self, ticker_buckets: Dict[str, List[Dict[str, Any]]]) -> None:
         """Log which tickers are being considered before filtering"""

@@ -54,6 +54,29 @@ class EarningsAnalysis:
     # Raw data
     full_transcript: str
     transcript_length: int
+    
+    @classmethod
+    def create_empty_analysis(cls, ticker: str, quarter: str, year: str) -> 'EarningsAnalysis':
+        """Create an empty EarningsAnalysis with default values"""
+        return cls(
+            ticker=ticker,
+            date=datetime.now().isoformat(),
+            quarter=quarter,
+            year=year,
+            executive_segments=[],
+            analyst_segments=[],
+            guidance_mentions=[],
+            financial_metrics={},
+            forward_looking_statements=[],
+            risk_factors=[],
+            overall_sentiment='neutral',
+            sentiment_confidence=0.0,
+            management_tone='neutral',
+            key_highlights=[],
+            analyst_concerns=[],
+            full_transcript='',
+            transcript_length=0
+        )
 
 
 class EarningsTranscriptFetcher(BaseFMPLoader):
@@ -142,13 +165,27 @@ class EarningsTranscriptFetcher(BaseFMPLoader):
         if cache_key in self.transcript_cache:
             cached_data = self.transcript_cache[cache_key]
             log_debug(f"📋 Using cached transcript for {ticker} Q{quarter} {year}")
-            # Create EarningsAnalysis from cached data
+            # Create EarningsAnalysis from cached data with ALL required fields
             analysis_data = cached_data['analysis']
             return EarningsAnalysis(
                 ticker=analysis_data.get('ticker', ticker),
                 date=analysis_data.get('date', ''),
                 quarter=analysis_data.get('quarter', str(quarter)),
-                year=analysis_data.get('year', str(year))
+                year=analysis_data.get('year', str(year)),
+                # Add the missing 13 required arguments with defaults
+                executive_segments=[],
+                analyst_segments=[],
+                guidance_mentions=[],
+                financial_metrics={},
+                forward_looking_statements=[],
+                risk_factors=[],
+                overall_sentiment='neutral',
+                sentiment_confidence=0.0,
+                management_tone='neutral',
+                key_highlights=[],
+                analyst_concerns=[],
+                full_transcript=analysis_data.get('content', ''),
+                transcript_length=len(analysis_data.get('content', ''))
             )
         
         try:

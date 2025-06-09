@@ -236,7 +236,11 @@ class MultiLLMAnalyzer:
                 'device': device_info,
                 'initialized_properly': True
             }
-            
+            # Initialize continuous learning status
+            self.finbert_continuous_learning_active = False
+
+            # Try to load adaptive checkpoint
+            self._load_adaptive_finbert_if_available()
             log_info(f"✅ FinBERT initialized properly on {device_info}")
             
             # FIX 4: Warm up the model for better initial predictions
@@ -874,7 +878,11 @@ class MultiLLMAnalyzer:
                 'requests_today': service_info.get('requests_today', 0),
                 'quota_limit': service_info.get('quota_limit', 0)
             }
-        
+            if service_name == 'finbert' and service_info.get('available'):
+                status[service_name].update({
+                    'continuous_learning': getattr(self, 'finbert_continuous_learning_active', False)
+                })
+                        
         return status
 
     def reset_daily_quotas(self) -> None:
@@ -885,27 +893,178 @@ class MultiLLMAnalyzer:
         log_info("🔄 Daily quotas reset for all services")
         
     def _load_adaptive_finbert_if_available(self):
-        """Load adaptive FinBERT checkpoint if available"""
+        """Load adaptive FinBERT checkpoint if available with proper continuous learning"""
         try:
             adaptive_checkpoint = Config.DATA_DIR / "finbert_multimodal_adaptive.pth"
-            if adaptive_checkpoint.exists():
-                log_info("🔄 Loading adaptive FinBERT checkpoint...")
+            standard_finbert_checkpoint = Config.DATA_DIR / "finbert_standard_adaptive.pth"
+            
+            # Try to load standard FinBERT checkpoint first (compatible architecture)
+            if standard_finbert_checkpoint.exists():
+                log_info("🔄 Loading standard FinBERT adaptive checkpoint...")
+                
+                checkpoint = torch.load(standard_finbert_checkpoint, map_location='cpu')
+                
+                if 'model_state_dict' in checkpoint:
+                    # Load model weights for continuous learning
+                    missing_keys, unexpected_keys = self.finbert_model.load_state_dict(
+                        checkpoint['model_state_dict'], strict=False
+                    )
+                    
+                    log_info(f"✅ FinBERT continuous learning activated from {standard_finbert_checkpoint}")
+                    
+                    if missing_keys:
+                        log_debug(f"Missing keys (normal for new layers): {missing_keys}")
+                    if unexpected_keys:
+                        log_debug(f"Unexpected keys: {unexpected_keys}")
+                        
+                    if 'training_samples' in checkpoint:
+                        log_info(f"   📊 Trained on {checkpoint['training_samples']} samples")
+                    if 'accuracy' in checkpoint:
+                        log_info(f"   🎯 Checkpoint accuracy: {checkpoint['accuracy']:.2%}")
+                        
+                    # Mark that continuous learning is active
+                    self.finbert_continuous_learning_active = True
+                
+            # Fall back to multimodal checkpoint (extract compatible weights)
+            elif adaptive_checkpoint.exists():
+                log_info("🔄 Loading multimodal FinBERT checkpoint (extracting compatible weights)...")
                 
                 checkpoint = torch.load(adaptive_checkpoint, map_location='cpu')
                 
-                # Load data processors
-                processors_path = Config.DATA_DIR / "data_processors.pkl"
-                if processors_path.exists():
-                    with open(processors_path, 'rb') as f:
-                        processors = pickle.load(f)
-                        log_info("✅ Adaptive FinBERT data processors loaded")
+                if 'model_state_dict' in checkpoint:
+                    # Extract only the FinBERT backbone weights (ignore multimodal layers)
+                    finbert_state_dict = {}
+                    for key, value in checkpoint['model_state_dict'].items():
+                        # Keep only the core FinBERT weights, skip multimodal additions
+                        if key.startswith('finbert.'):
+                            new_key = key.replace('finbert.', '')  # Remove 'finbert.' prefix
+                            finbert_state_dict[new_key] = value
+                    
+                    if finbert_state_dict:
+                        # Load extracted weights
+                        missing_keys, unexpected_keys = self.finbert_model.load_state_dict(
+                            finbert_state_dict, strict=False
+                        )
                         
-                        # Store processors for use during prediction
-                        self.adaptive_processors = processors
+                        log_info(f"✅ FinBERT backbone weights extracted from multimodal checkpoint")
+                        log_info(f"   📊 Loaded {len(finbert_state_dict)} compatible parameters")
                         
-                log_info(f"✅ Adaptive FinBERT checkpoint loaded from {adaptive_checkpoint}")
-                return True
+                        if missing_keys:
+                            log_debug(f"Missing keys (expected for multimodal extraction): {len(missing_keys)}")
+                        
+                        # Mark that partial continuous learning is active
+                        self.finbert_continuous_learning_active = True
+                    else:
+                        log_warning("⚠️ No compatible FinBERT weights found in multimodal checkpoint")
+            
+            # Load data processors regardless of model loading success
+            processors_path = Config.DATA_DIR / "data_processors.pkl"
+            if processors_path.exists():
+                with open(processors_path, 'rb') as f:
+                    processors = pickle.load(f)
+                    log_info("✅ Adaptive FinBERT data processors loaded")
+                    self.adaptive_processors = processors
+                    
+            return hasattr(self, 'finbert_continuous_learning_active')
+            
         except Exception as e:
             log_debug(f"No adaptive FinBERT checkpoint available: {e}")
-        
-        return False
+            self.finbert_continuous_learning_active = False
+            return False
+    def save_finbert_checkpoint(self, training_samples: int = 0, accuracy: float = 0.0):
+        """Save current FinBERT state for continuous learning"""
+        try:
+            checkpoint_path = Config.DATA_DIR / "finbert_standard_adaptive.pth"
+            
+            checkpoint = {
+                'model_state_dict': self.finbert_model.state_dict(),
+                'training_samples': training_samples,
+                'accuracy': accuracy,
+                'timestamp': datetime.now().isoformat(),
+                'model_type': 'standard_finbert'
+            }
+            
+            torch.save(checkpoint, checkpoint_path)
+            log_info(f"✅ FinBERT checkpoint saved: {training_samples} samples, {accuracy:.2%} accuracy")
+            
+        except Exception as e:
+            log_error(f"Failed to save FinBERT checkpoint: {e}")
+
+    def update_finbert_from_feedback(self, texts: List[str], actual_outcomes: List[str], 
+                                    predicted_outcomes: List[str]):
+        """Update FinBERT based on feedback (simple incremental learning)"""
+        try:
+            if not hasattr(self, 'finbert_model') or not self.services['finbert']['available']:
+                return False
+                
+            log_info(f"🎓 Updating FinBERT from {len(texts)} feedback samples...")
+            
+            # Convert outcomes to labels (you may need to adjust this mapping)
+            label_map = {'BUY': 2, 'NEUTRAL': 1, 'SELL': 0}  # Positive, Neutral, Negative
+            
+            try:
+                actual_labels = [label_map.get(outcome.upper(), 1) for outcome in actual_outcomes]
+                predicted_labels = [label_map.get(outcome.upper(), 1) for outcome in predicted_outcomes]
+            except:
+                log_warning("⚠️ Could not map outcomes to labels for FinBERT update")
+                return False
+            
+            # Quick fine-tuning setup
+            device = next(self.finbert_model.parameters()).device
+            self.finbert_model.train()
+            
+            optimizer = torch.optim.AdamW(self.finbert_model.parameters(), lr=1e-5)
+            criterion = torch.nn.CrossEntropyLoss()
+            
+            # Process in small batches
+            batch_size = min(4, len(texts))
+            total_loss = 0.0
+            
+            for i in range(0, len(texts), batch_size):
+                batch_texts = texts[i:i+batch_size]
+                batch_labels = actual_labels[i:i+batch_size]
+                
+                # Tokenize
+                inputs = self.finbert_tokenizer(
+                    batch_texts,
+                    max_length=512,
+                    padding=True,
+                    truncation=True,
+                    return_tensors="pt"
+                )
+                
+                # Move to device
+                inputs = {k: v.to(device) for k, v in inputs.items()}
+                labels_tensor = torch.LongTensor(batch_labels).to(device)
+                
+                # Forward pass
+                optimizer.zero_grad()
+                outputs = self.finbert_model(**inputs)
+                loss = criterion(outputs.logits, labels_tensor)
+                
+                # Backward pass
+                loss.backward()
+                optimizer.step()
+                
+                total_loss += loss.item()
+            
+            avg_loss = total_loss / max(1, len(texts) // batch_size)
+            
+            # Calculate simple accuracy
+            correct = sum(1 for actual, predicted in zip(actual_labels, predicted_labels) 
+                        if actual == predicted)
+            accuracy = correct / len(actual_labels) if actual_labels else 0.0
+            
+            # Save updated model
+            self.save_finbert_checkpoint(training_samples=len(texts), accuracy=accuracy)
+            
+            self.finbert_model.eval()
+            log_info(f"✅ FinBERT updated: loss={avg_loss:.4f}, accuracy={accuracy:.2%}")
+            
+            return True
+            
+        except Exception as e:
+            log_error(f"FinBERT feedback update failed: {e}")
+            if hasattr(self, 'finbert_model'):
+                self.finbert_model.eval()
+            return False

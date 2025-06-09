@@ -73,7 +73,7 @@ class EnhancedFinancialNewsAnalyzer:
         # Enhanced analysis components
         log_info("🧠 Initializing AI analysis components...")
         self.llm_analyzer = MultiLLMAnalyzer()
-        self.decision_engine = EnhancedDecisionEngine()
+        self.enhanced_analyzer = self.llm_analyzer.enhanced_neural
         
         # Enhanced price tracking components
         log_info("📈 Initializing price tracking components...")

@@ -134,11 +134,10 @@ class CSVLogger:
     def log_decision(self, decision: TradingDecision) -> bool:
         """Log a single trading decision to CSV"""
         try:
-            try:
-                # CONFIGURABLE FILTER: Skip NONE decisions if config is set
-                if Config.ONLY_LOG_TRADING_DECISIONS and decision.decision not in ['LONG', 'SHORT']:
-                    log_debug(f"Skipping {decision.ticker} - NONE decision (filtered by config)")
-                    return False
+            # CONFIGURABLE FILTER: Skip NONE decisions if config is set
+            if Config.ONLY_LOG_TRADING_DECISIONS and decision.decision not in ['LONG', 'SHORT']:
+                log_debug(f"Skipping {decision.ticker} - NONE decision (filtered by config)")
+                return False
             
             row_data = self._decision_to_row(decision)
 

@@ -26,7 +26,7 @@ class Config:
     OUTPUT_DIR: Path = BASE_DIR / 'output'
     
     # ADD THIS LINE:
-    LOG_FILE_PATH: Path = OUTPUT_DIR / 'system.log'
+    LOG_FILE_PATH: Path = OUTPUT_DIR / 'system.log'# Existing config variables
     
     # 📋 CSV Output File
     # EFFECT: Where trading decisions are logged
@@ -308,6 +308,7 @@ class Config:
     # EXAMPLE: 0.5 = more decisions, lower quality
     #          0.8 = fewer decisions, higher quality
     MIN_CONFIDENCE_THRESHOLD: float = float(os.getenv('MIN_CONFIDENCE_THRESHOLD', '0.6'))
+    DECISION_DEBUG_MODE: bool = os.getenv('DECISION_DEBUG_MODE', 'false').lower() == 'true'
     
     # 📰 News Article Limits
     # CURRENT: 1000 articles per cycle

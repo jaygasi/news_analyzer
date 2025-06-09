@@ -58,10 +58,7 @@ class EarningsIntegrationManager:
                 self.cache_expiry = now + timedelta(minutes=30)
     
     def analyze_tickers_for_earnings(self, ticker_buckets: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
-        """
-        Analyze tickers for earnings events and return earnings data
-        This is the missing method causing the AttributeError
-        """
+        """Analyze tickers for earnings events with improved caching"""
         log_info(f"📅 Analyzing {len(ticker_buckets)} tickers for earnings events...")
         
         # Refresh earnings calendar cache
@@ -71,11 +68,31 @@ class EarningsIntegrationManager:
         processed_count = 0
         max_to_process = Config.MAX_EARNINGS_EVENTS_PER_CYCLE
         
+        # Create failed cache to avoid repeated attempts
+        failed_cache_file = Config.DATA_DIR / "failed_earnings_cache.json"
+        failed_cache = {}
+        
+        # Load existing failed cache
+        try:
+            if failed_cache_file.exists():
+                with open(failed_cache_file, 'r') as f:
+                    failed_cache = json.load(f)
+        except Exception as e:
+            log_debug(f"Could not load failed earnings cache: {e}")
+        
         for ticker, articles in ticker_buckets.items():
             if processed_count >= max_to_process:
                 log_info(f"⏱️ Reached earnings processing limit ({max_to_process})")
                 break
                 
+            # Check if this ticker failed recently (within 24 hours)
+            cache_key = f"{ticker}_{datetime.now().strftime('%Y-%m-%d')}"
+            if cache_key in failed_cache:
+                hours_since_failure = (datetime.now() - datetime.fromisoformat(failed_cache[cache_key])).total_seconds() / 3600
+                if hours_since_failure < 24:
+                    log_debug(f"⏭️ Skipping {ticker} - failed recently")
+                    continue
+            
             # Check if ticker has earnings event
             if ticker in self.earnings_cache:
                 try:
@@ -86,33 +103,44 @@ class EarningsIntegrationManager:
                         ticker, lookback_quarters=2
                     )
                     
-                    if transcript_analyses:
+                    if transcript_analyses and any(analysis.transcript_length > 0 for analysis in transcript_analyses):
+                        # Success - remove from failed cache if present
+                        if cache_key in failed_cache:
+                            del failed_cache[cache_key]
+                        
                         # Convert to articles format for integration
                         earnings_articles = []
                         for analysis in transcript_analyses:
-                            articles_from_transcript = self.earnings_fetcher.create_earnings_articles(analysis)
-                            earnings_articles.extend(articles_from_transcript)
+                            if analysis.transcript_length > 0:  # Only process non-empty transcripts
+                                articles_from_transcript = self.earnings_fetcher.create_earnings_articles(analysis)
+                                earnings_articles.extend(articles_from_transcript)
                         
                         if earnings_articles:
                             earnings_analyses[ticker] = {
                                 'analyses': transcript_analyses,
-                                'articles': earnings_articles,
-                                'earnings_date': self.earnings_cache[ticker].get('date', ''),
-                                'quarter': self.earnings_cache[ticker].get('quarter', ''),
-                                'year': self.earnings_cache[ticker].get('year', '')
+                                'articles': earnings_articles
                             }
-                            log_info(f"✅ Generated {len(earnings_articles)} earnings articles for {ticker}")
+                            
+                            log_info(f"✅ Successfully processed earnings for {ticker}: {len(earnings_articles)} articles")
                             processed_count += 1
                         else:
-                            log_info(f"⚠️ No usable earnings data for {ticker}")
+                            log_info(f"⚠️ No articles generated from transcripts for {ticker}")
                     else:
                         log_info(f"⚠️ No recent transcripts found for {ticker}")
+                        # Cache the failure
+                        failed_cache[cache_key] = datetime.now().isoformat()
                         
                 except Exception as e:
-                    log_error(f"❌ Error processing earnings for {ticker}: {e}")
-                    continue
-            else:
-                log_debug(f"No earnings event found for {ticker}")
+                    log_error(f"Error processing earnings for {ticker}: {e}")
+                    # Cache the failure
+                    failed_cache[cache_key] = datetime.now().isoformat()
+        
+        # Save updated failed cache
+        try:
+            with open(failed_cache_file, 'w') as f:
+                json.dump(failed_cache, f)
+        except Exception as e:
+            log_debug(f"Could not save failed earnings cache: {e}")
         
         log_info(f"📅 Earnings analysis complete: {len(earnings_analyses)} tickers with earnings data")
         return earnings_analyses
