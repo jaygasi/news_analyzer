@@ -9,7 +9,7 @@ import sqlite3
 from pathlib import Path
 from data_loaders.base_fmp_loader import BaseFMPLoader
 from utils.simple_logger import log_info, log_debug, log_warning, log_error
-from config import Config  # ADD THIS LINE
+from config import Config
 
 
 @dataclass
@@ -256,32 +256,38 @@ class TickerFilterEngine:
 
     def _get_company_fundamentals_direct(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Get company fundamentals directly from API (extracted from existing method)"""
+        # CORRECTED: Use self.fmp_loader instead of self.api_client
         try:
-            # This should contain the core logic from your existing _get_company_fundamentals method
-            # but without the caching logic (since we handle that in _get_batch_fundamentals)
-            
-            # Make API calls for quote, profile, etc.
-            quote_data = self.api_client.get_quote(ticker)
-            profile_data = self.api_client.get_company_profile(ticker)
-            
-            if not quote_data or not profile_data:
+            # Fetch quote data
+            quote_response = self.fmp_loader.make_request(f"quote/{ticker}")
+            if not quote_response or not isinstance(quote_response, list) or len(quote_response) == 0:
+                log_debug(f"No quote data for {ticker} from fmp_loader")
                 return None
-                
+            quote_data = quote_response[0]
+
+            # Fetch profile data
+            profile_response = self.fmp_loader.make_request(f"profile/{ticker}")
+            if not profile_response or not isinstance(profile_response, list) or len(profile_response) == 0:
+                log_debug(f"No profile data for {ticker} from fmp_loader")
+                return None
+            profile_data = profile_response[0]
+            
+            # Options availability check
+            has_options = self._check_options_availability(ticker)
+
             # Extract and return fundamental data
             return {
-                'price': quote_data.get('price', 0),
-                'market_cap': profile_data.get('mktCap', 0),
-                'exchange': profile_data.get('exchange', ''),
-                'beta': profile_data.get('beta', 0),
-                'avg_volume': quote_data.get('avgVolume', 0),
-                'volume': quote_data.get('volume', 0),
-                'has_options': False  # You may need to implement options checking
+                'price': float(profile_data.get('price', 0) or quote_data.get('price', 0)),
+                'market_cap': int(profile_data.get('mktCap', 0) or 0),
+                'exchange': str(profile_data.get('exchangeShortName', '') or profile_data.get('exchange', '')),
+                'beta': float(profile_data.get('beta', 0) or 0),
+                'avg_volume': int(quote_data.get('avgVolume', 0) or quote_data.get('volume', 0)),
+                'volume': int(quote_data.get('volume', 0) or 0),
+                'has_options': has_options
             }
-            
         except Exception as e:
-            log_debug(f"Error getting fundamentals for {ticker}: {e}")
+            log_error(f"Error getting fundamentals for {ticker} via fmp_loader: {e}") # Changed to log_error
             return None
-    
     def _log_initial_tickers(self, ticker_buckets: Dict[str, List[Dict[str, Any]]]) -> None:
         """Log which tickers are being considered before filtering"""
         log_info(f"📊 Initial tickers before filtering ({len(ticker_buckets)}):")
