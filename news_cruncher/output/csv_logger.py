@@ -174,7 +174,9 @@ class CSVLogger:
                 for decision in decisions:
                     try:
                         # CONFIGURABLE FILTER: Check config setting for logging behavior
-                        if Config.ONLY_LOG_TRADING_DECISIONS and decision.decision not in ['LONG', 'SHORT']:
+                        should_skip_none = Config.ONLY_LOG_TRADING_DECISIONS and decision.decision not in ['LONG', 'SHORT']
+
+                        if should_skip_none:
                             skipped_none_decisions += 1
                             log_debug(f"Skipping {decision.ticker} - NONE decision (confidence: {decision.confidence:.3f})")
                             continue
@@ -191,17 +193,22 @@ class CSVLogger:
                         log_error(f"Error logging decision for {decision.ticker}: {e}")
 
             # FIXED: Accurate logging messages
+            # FIXED: Accurate logging messages that match configuration
             if logged_count > 0:
-                log_info(f"✅ Logged {logged_count} trading decisions to CSV (LONG/SHORT only)")
+                decision_type_desc = "LONG/SHORT only" if Config.ONLY_LOG_TRADING_DECISIONS else "all decisions"
+                log_info(f"✅ Logged {logged_count} trading decisions to CSV ({decision_type_desc})")
                 log_info(f"💰 {decisions_with_prices}/{logged_count} logged decisions have entry prices")
                 
                 if decisions_with_prices < logged_count:
                     log_warning(f"⚠️ {logged_count - decisions_with_prices} decisions logged without entry prices")
             else:
-                log_info(f"📝 No LONG/SHORT decisions to log to CSV")
+                if Config.ONLY_LOG_TRADING_DECISIONS:
+                    log_info(f"📝 No LONG/SHORT decisions to log to CSV")
+                else:
+                    log_info(f"📝 No decisions to log to CSV (unexpected)")
                 
             if skipped_none_decisions > 0:
-                log_info(f"⏭️ Skipped {skipped_none_decisions} NONE decisions (confidence too low for trading)")
+                log_info(f"⏭️ Skipped {skipped_none_decisions} NONE decisions (ONLY_LOG_TRADING_DECISIONS = {Config.ONLY_LOG_TRADING_DECISIONS})")
             
             return logged_count
 

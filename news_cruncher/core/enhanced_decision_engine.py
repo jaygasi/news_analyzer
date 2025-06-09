@@ -1,11 +1,11 @@
 """
 Enhanced Decision Engine with 3-way scoring: News + Earnings + Technical
 """
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from core.decision_engine import TradingDecision, DirectionalPrediction, TechnicalSignal
-from utils.simple_logger import log_info, log_debug, log_warning
+from utils.simple_logger import log_info, log_debug, log_warning, log_error
 from config import Config
 
 
@@ -223,6 +223,30 @@ class EnhancedDecisionEngine:
             news_prediction, earnings_analysis, technical_signal, 
             news_score, earnings_score, technical_score, scoring_method
         )
+        if abs(final_confidence - 0.500) < 0.001:
+            log_warning(f"⚠️ {ticker}: SUSPICIOUS 0.500 confidence detected!")
+            log_warning(f"   News prediction: {news_prediction.direction if news_prediction else 'None'} "
+                    f"(conf: {news_prediction.confidence if news_prediction else 'N/A'})")
+            log_warning(f"   Combined score: {combined_score:.3f}")
+            log_warning(f"   Decision path: {decision}")
+            log_warning(f"   This suggests model is defaulting instead of making real predictions")
+        
+        # Enhanced logging for all decisions when debug mode enabled
+        if hasattr(Config, 'DECISION_DEBUG_MODE') and Config.DECISION_DEBUG_MODE:
+            debug_info = [
+                f"{ticker}: {decision} (conf: {final_confidence:.3f})",
+                f"combined_score: {combined_score:.3f}",
+                f"method: {scoring_method}"
+            ]
+            
+            if news_prediction:
+                debug_info.append(f"news: {news_prediction.direction} ({news_prediction.confidence:.3f})")
+            if earnings_analysis:
+                debug_info.append(f"earnings: {earnings_analysis.direction} ({earnings_analysis.confidence:.3f})")
+            if technical_signal:
+                debug_info.append(f"tech: {technical_signal.direction} ({technical_signal.strength:.3f})")
+                
+            log_debug(" | ".join(debug_info))
         
         return decision, final_confidence, reasoning
     

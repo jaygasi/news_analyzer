@@ -14,6 +14,7 @@ from database.article_tracker import ArticleTracker
 from data_loaders.news_fetcher import NewsFetcher
 from core.ticker_filter import TickerFilterEngine, FilterCriteria
 from data_loaders.earnings_integration_manager import EarningsIntegrationManager
+from data_loaders.earnings_transcript_fetcher import EarningsAnalysis # Added import
 from analysis.multi_llm_analyzer import MultiLLMAnalyzer
 from core.enhanced_decision_engine import EnhancedDecisionEngine
 from analysis.price_tracker import PriceTracker, TrackingScheduler
@@ -257,11 +258,67 @@ class EnhancedFinancialNewsAnalyzer:
                 tickers_after_filtering = tickers_before_filtering
                 log_info("🔍 Step 3.5: Fundamental filtering disabled")
             
-            # Step 3.75: Analyze earnings events if enabled
-            earnings_analyses = {}
+            # Step 3.75: Analyze earnings events if enabled and prepare for decision engine
+            # raw_earnings_data will be Dict[str, {'analyses': List[EarningsAnalysis], ...}]
+            raw_earnings_data: Dict[str, Dict[str, Any]] = {}
             if Config.ENABLE_EARNINGS_EVENTS and self.earnings_manager:
                 log_info("📅 Step 3.75: Analyzing earnings events...")
-                earnings_analyses = self.earnings_manager.analyze_tickers_for_earnings(ticker_buckets)
+                raw_earnings_data = self.earnings_manager.analyze_tickers_for_earnings(ticker_buckets)
+
+            # Prepare earnings data for decision engine and debugging: Dict[str, Optional[EarningsAnalysis]]
+            # This 'prepared_earnings_analyses' will hold the single representative EarningsAnalysis object per ticker.
+            prepared_earnings_analyses: Dict[str, Optional[EarningsAnalysis]] = {}
+            if raw_earnings_data:
+                for ticker, ticker_data_item in raw_earnings_data.items():
+                    if ticker_data_item and ticker_data_item.get('analyses') and \
+                       isinstance(ticker_data_item['analyses'], list) and ticker_data_item['analyses']:
+                        # Take the first (assumed most recent/relevant) EarningsAnalysis object
+                        prepared_earnings_analyses[ticker] = ticker_data_item['analyses'][0]
+                    else:
+                        prepared_earnings_analyses[ticker] = None
+            
+            # ENHANCED DEBUGGING: Detailed earnings analysis logging
+            log_debug(f"Earnings Debug: Candidate tickers for earnings analysis (from ticker_buckets): {len(ticker_buckets)}")
+            log_debug(f"Earnings Debug: Tickers with raw data from EarningsIntegrationManager: {len(raw_earnings_data)}")
+            log_debug(f"Earnings Debug: Tickers with a prepared representative analysis for decision engine: {len(prepared_earnings_analyses)}")
+
+            earnings_with_valid_data = 0
+            earnings_processed_tickers = []
+
+            # Iterate over all candidate tickers to provide comprehensive debugging
+            for ticker in ticker_buckets.keys():
+                analysis_obj = prepared_earnings_analyses.get(ticker) 
+                
+                if analysis_obj is not None:
+                    earnings_with_valid_data += 1
+                    earnings_processed_tickers.append(ticker)
+                    
+                    reasoning_summary_parts = []
+                    if analysis_obj.key_highlights:
+                        reasoning_summary_parts.append(f"Highlights: {', '.join(analysis_obj.key_highlights[:2])}")
+                    reasoning_summary_parts.append(f"Tone: {analysis_obj.management_tone}")
+                    reasoning_summary = ('. '.join(reasoning_summary_parts) + '.')[:100]
+
+                    log_info(f"📊 Earnings Debug for {ticker}: Sentiment: {analysis_obj.overall_sentiment} "
+                             f"(conf: {analysis_obj.sentiment_confidence:.3f}) - {reasoning_summary}...")
+                else:
+                    # This ticker was a candidate, but no representative analysis was found for it.
+                    if ticker in raw_earnings_data:
+                        log_debug(f"📊 Earnings Debug for {ticker}: Raw data existed from manager, but no valid 'analyses' list found or list was empty.")
+                    else:
+                        log_debug(f"📊 Earnings Debug for {ticker}: No earnings data returned by manager (ticker not in raw_earnings_data).")
+            
+            candidate_tickers_count = len(ticker_buckets)
+            log_info(f"📅 Earnings analysis debug summary: {earnings_with_valid_data} tickers (out of {candidate_tickers_count} candidates) have a valid representative earnings analysis.")
+
+            if Config.ENABLE_EARNINGS_EVENTS and candidate_tickers_count > 0 and earnings_with_valid_data == 0:
+                log_warning("⚠️ No valid representative earnings analysis was made available for the decision engine for any candidate ticker.")
+                log_warning("   This could mean: earnings events not found for these tickers by the manager, transcript fetching failed for all, or analysis of transcripts failed.")
+                log_warning("   Check: EarningsIntegrationManager logs, FMP API responses for transcripts.")
+            elif earnings_with_valid_data > 0:
+                log_info(f"✅ Representative earnings analysis available for: {', '.join(earnings_processed_tickers[:5])}"
+                         f"{'...' if len(earnings_processed_tickers) > 5 else ''}")
+            # --- END OF ENHANCED DEBUGGING ---
             
             # Step 4: Prioritize tickers for analysis
             log_info("🎯 Step 4: Prioritizing tickers for enhanced analysis...")
@@ -273,7 +330,7 @@ class EnhancedFinancialNewsAnalyzer:
             
             # Step 6: Make enhanced trading decisions
             log_info("⚖️ Step 6: Making enhanced trading decisions with earnings integration...")
-            decisions = self.decision_engine.batch_process_enhanced_decisions(ticker_analyses, earnings_analyses)
+            decisions = self.decision_engine.batch_process_enhanced_decisions(ticker_analyses, prepared_earnings_analyses)
             decisions_made = len(decisions)
             
             # Step 6.5: Add entry prices before CSV logging - FIXED: Remove await
@@ -284,30 +341,46 @@ class EnhancedFinancialNewsAnalyzer:
             # Step 7: Log decisions with enhanced metrics
             if decisions:
                 log_info(f"📝 Step 7: Processing {len(decisions)} enhanced trading decisions...")
+                
+                # Count actual LONG/SHORT decisions before logging
+                tradeable_decisions = [d for d in decisions if d.decision in ['LONG', 'SHORT']]
+                
+                # Log decisions (respects ONLY_LOG_TRADING_DECISIONS configuration)
                 logged_count = self.csv_logger.log_decisions_batch(decisions)
                 
-                # NEW: Start price tracking scheduler when we have actual LONG/SHORT decisions that got logged
-                if logged_count > 0 and not self.scheduler_started:
-                    log_info("📈 Starting price tracking scheduler (first LONG/SHORT decisions logged)")
+                # FIXED: Only start scheduler if we have actual tradeable decisions
+                if len(tradeable_decisions) > 0 and not self.scheduler_started:
+                    log_info("📈 Starting price tracking scheduler (tradeable decisions available)")
                     self._start_background_scheduler()
+                    self.scheduler_started = True
                 
                 # Add price tracking for LONG/SHORT decisions
                 tracking_added = 0
-                for decision in decisions:
-                    if decision.decision in ['LONG', 'SHORT']:
-                        if hasattr(decision, 'recommendation_price') and decision.recommendation_price:
-                            self.tracking_scheduler.add_tracking(decision)
-                            tracking_added += 1
-                        else:
-                            log_warning(f"Skipping price tracking for {decision.ticker} - no entry price available")
+                for decision in tradeable_decisions:
+                    if hasattr(decision, 'recommendation_price') and decision.recommendation_price:
+                        self.tracking_scheduler.add_tracking(decision)
+                        tracking_added += 1
+                    else:
+                        log_warning(f"Skipping price tracking for {decision.ticker} - no entry price available")
                 
-                # FIXED: Accurate summary messages
-                if logged_count > 0:
-                    log_info(f"✅ Successfully logged {logged_count} LONG/SHORT decisions to CSV")
-                    log_info(f"📊 Added price tracking for {tracking_added} positions")
+                # CORRECTED: Accurate summary messages
+                if len(tradeable_decisions) > 0:
+                    log_info(f"✅ CSV processed {logged_count} decisions, tracking {tracking_added}/{len(tradeable_decisions)} LONG/SHORT positions")
+                    
+                    if logged_count != len(tradeable_decisions) and Config.ONLY_LOG_TRADING_DECISIONS:
+                        log_warning(f"⚠️ Mismatch: {len(tradeable_decisions)} tradeable decisions but {logged_count} logged")
                 else:
-                    log_info(f"✅ Analysis complete - no LONG/SHORT decisions met criteria for logging")
-                    log_info(f"📊 All {len(decisions)} decisions were NONE (confidence too low)")
+                    # All decisions were NONE
+                    decision_counts = {}
+                    for d in decisions:
+                        decision_counts[d.decision] = decision_counts.get(d.decision, 0) + 1
+                    
+                    count_str = ", ".join([f"{k}: {v}" for k, v in decision_counts.items()])
+                    log_info(f"📊 All decisions below threshold - {count_str}")
+                    log_info(f"🎯 Consider lowering MIN_CONFIDENCE_THRESHOLD (currently {Config.MIN_CONFIDENCE_THRESHOLD})")
+                    
+                    if logged_count > 0:
+                        log_info(f"📝 Note: {logged_count} NONE decisions were logged to CSV (ONLY_LOG_TRADING_DECISIONS = {Config.ONLY_LOG_TRADING_DECISIONS})")
                 
                 # Print enhanced decision summary
                 self._print_enhanced_decisions_summary(decisions)

@@ -507,6 +507,23 @@ class EnhancedNeuralAnalyzer:
                     direction, class_confidence, volatility, uncertainty, text
                 )
                 
+                # ADD VALIDATION AT THE END BEFORE RETURN:
+                
+                # Validate neural model predictions
+                # Use class_confidence for 'confidence' and sentiment_intensity for 'raw_score' in validation
+                if ticker and hasattr(Config, 'DECISION_DEBUG_MODE') and Config.DECISION_DEBUG_MODE:
+                    log_debug(f"🧠 Neural prediction for {ticker}: {direction} (conf: {class_confidence:.3f}, raw: {sentiment_intensity:.3f})")
+                    
+                    # Detect potential model defaulting behavior
+                    if abs(class_confidence - 0.5) < 0.01:
+                        log_warning(f"⚠️ Neural model may be defaulting for {ticker} - confidence ({class_confidence:.3f}) too close to 0.5")
+                        log_warning(f"   Raw score: {sentiment_intensity:.3f}, processed confidence: {class_confidence:.3f}")
+                        log_warning(f"   This suggests input preprocessing or model inference issues")
+                    
+                    # Validate reasoning is meaningful
+                    if not reasoning or len(reasoning.strip()) < 10:
+                        log_warning(f"⚠️ {ticker}: Neural reasoning is empty or too short ('{reasoning}') - may indicate processing issues")
+                
                 return EnhancedPrediction(
                     direction=direction,
                     confidence=class_confidence,
