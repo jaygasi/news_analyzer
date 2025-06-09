@@ -66,7 +66,9 @@ class MultiModalFinBERT(nn.Module):
         
         # Load FinBERT
         self.finbert = AutoModelForSequenceClassification.from_pretrained(
-            finbert_model_name, num_labels=num_classes
+            finbert_model_name, 
+            num_labels=num_classes,
+            attn_implementation="eager"
         )
         
         # Freeze FinBERT initially (we'll fine-tune later)
@@ -349,9 +351,8 @@ class MultiModalLearningSystem:
             log_error(f"FinBERT multi-modal training failed: {e}")
             return False
     
-    def train_enhanced_neural_multimodal(self, texts: List[str], numerical_features: np.ndarray, 
-                                        categorical_features: Dict[str, np.ndarray], labels: np.ndarray) -> bool:
-        """Train enhanced neural analyzer on CSV data"""
+    def train_enhanced_neural_multimodal(self, texts: List[str], numerical_features: np.ndarray, categorical_features: Dict[str, np.ndarray], labels: np.ndarray) -> bool:
+        """Train enhanced neural analyzer on CSV data with proper model updating"""
         try:
             # Initialize enhanced analyzer if not already done
             if self.enhanced_analyzer is None:
@@ -361,41 +362,100 @@ class MultiModalLearningSystem:
                 log_error("Enhanced Neural Analyzer not available")
                 return False
             
-            # For now, train on text + create rich features
-            # This is a simplified version - in practice, you'd modify the EnhancedNeuralAnalyzer 
-            # to accept numerical and categorical features like FinBERT above
-            
             # Create rich text features by incorporating numerical data
             enriched_texts = []
             for i, text in enumerate(texts):
-                # Add numerical context to text
-                numerical_context = f" confidence={numerical_features[i][0]:.2f}"
+                # Add numerical context to text for richer training
+                numerical_context = ""
+                if len(numerical_features[i]) > 0:
+                    numerical_context += f" [CONFIDENCE: {numerical_features[i][0]:.2f}]"
                 if len(numerical_features[i]) > 1:
-                    numerical_context += f" news_score={numerical_features[i][1]:.2f}"
+                    numerical_context += f" [NEWS_SCORE: {numerical_features[i][1]:.2f}]"
                 if len(numerical_features[i]) > 2:
-                    numerical_context += f" technical_score={numerical_features[i][2]:.2f}"
+                    numerical_context += f" [TECH_SCORE: {numerical_features[i][2]:.2f}]"
                 
                 enriched_texts.append(text + numerical_context)
             
-            # Simple training on enriched text (this is a placeholder)
-            # In a full implementation, you'd modify EnhancedNeuralAnalyzer to accept multimodal inputs
-            log_info("🧠 Enhanced Neural multimodal training (text enrichment approach)")
+            # Prepare for training
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            model = self.enhanced_analyzer.model
+            model.train()
             
+            # Training setup
+            optimizer = torch.optim.AdamW(model.parameters(), lr=self.learning_rate)
+            criterion = nn.CrossEntropyLoss()
+            
+            # Simple batch training on enriched text
+            log_info(f"🧠 Enhanced Neural training on {len(enriched_texts)} enriched samples")
+            
+            # Convert texts to training batches
+            tokenizer = self.enhanced_analyzer.tokenizer
+            batch_size = min(self.batch_size, len(enriched_texts))
+            
+            total_loss = 0
+            num_batches = 0
+            
+            for epoch in range(self.epochs):
+                epoch_loss = 0
+                
+                for i in range(0, len(enriched_texts), batch_size):
+                    batch_texts = enriched_texts[i:i+batch_size]
+                    batch_labels = labels[i:i+batch_size]
+                    
+                    # Tokenize batch
+                    inputs = tokenizer(
+                        batch_texts,
+                        padding=True,
+                        truncation=True,
+                        max_length=512,
+                        return_tensors='pt'
+                    ).to(device)
+                    
+                    labels_tensor = torch.LongTensor(batch_labels).to(device)
+                    
+                    # Forward pass through enhanced model
+                    outputs = model(inputs['input_ids'], inputs['attention_mask'])
+                    
+                    # Get sentiment logits for loss calculation
+                    if isinstance(outputs, dict) and 'sentiment_logits' in outputs:
+                        logits = outputs['sentiment_logits']
+                    else:
+                        # Fallback if model returns different format
+                        logits = outputs
+                    
+                    loss = criterion(logits, labels_tensor)
+                    
+                    # Backward pass
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+                    
+                    epoch_loss += loss.item()
+                    num_batches += 1
+                
+                avg_epoch_loss = epoch_loss / max(1, (len(enriched_texts) // batch_size))
+                log_info(f"✅ Enhanced Neural Epoch {epoch+1}/{self.epochs}, Loss: {avg_epoch_loss:.4f}")
+                total_loss += avg_epoch_loss
+            
+            # Save trained model
             save_path = self.model_save_dir / "enhanced_neural_multimodal_adaptive.pth"
             
-            # Save metadata indicating multimodal training occurred
-            # Note: Actual model training for EnhancedNeuralAnalyzer is not implemented here yet.
-            # This part would require significant changes to EnhancedNeuralAnalyzer itself.
             torch.save({
-                'enriched_training': True,
-                # 'numerical_scaler': self.numerical_scaler, # Already saved in data_processors.pkl
-                # 'categorical_encoders': self.categorical_encoders, # Already saved in data_processors.pkl
+                'model_state_dict': model.state_dict(),
                 'training_timestamp': datetime.now().isoformat(),
-                'num_samples': len(texts)
+                'num_samples': len(texts),
+                'final_loss': total_loss / self.epochs if self.epochs > 0 else 0,
+                'text_enrichment_applied': True,
+                'training_completed': True,
+                'epochs_trained': self.epochs
             }, save_path)
             
-            log_info(f"💾 Enhanced Neural multimodal metadata saved to: {save_path}")
-            return True # Placeholder success
+            log_info(f"💾 Enhanced Neural model trained and saved to: {save_path}")
+            
+            # Return model to eval mode
+            model.eval()
+            
+            return True
             
         except Exception as e:
             log_error(f"Enhanced Neural multimodal training failed: {e}", exc_info=True)

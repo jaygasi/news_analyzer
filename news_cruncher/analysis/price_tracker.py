@@ -194,9 +194,51 @@ class TrackingScheduler:
             log_info(f"📈 Updated prices for: {', '.join(updated_tracks)}")
         
         # Clean up completed tracks
+        # Clean up completed tracks
         for decision_id in completed_tracks:
             completed_decision = self.pending_tracks.pop(decision_id)
             log_info(f"🏁 Removed completed tracking for {completed_decision.ticker}")
+            
+            # NEW: Update models with trading results for learning
+            try:
+                # Calculate final performance from close price
+                if hasattr(completed_decision, 'price_close_change_pct') and completed_decision.price_close_change_pct is not None:
+                    performance_pct = completed_decision.price_close_change_pct
+                    
+                    # Determine actual outcome based on performance
+                    if performance_pct > 2.0:
+                        actual_outcome = 'BUY'
+                    elif performance_pct < -2.0:
+                        actual_outcome = 'SELL'  
+                    else:
+                        actual_outcome = 'NEUTRAL'
+                    
+                    # Update Enhanced Neural Analyzer if available
+                    from analysis.enhanced_neural_analyzer import create_enhanced_analyzer
+                    enhanced_analyzer = create_enhanced_analyzer()
+                    
+                    if enhanced_analyzer and enhanced_analyzer.is_available:
+                        # Get original text from decision context
+                        original_text = getattr(completed_decision, 'reasoning', f"Analysis for {completed_decision.ticker}")
+                        
+                        # Create mock prediction object for compatibility
+                        mock_prediction = type('MockPrediction', (), {
+                            'direction': completed_decision.decision,
+                            'confidence': getattr(completed_decision, 'confidence', 0.5),
+                            'reasoning': original_text
+                        })()
+                        
+                        enhanced_analyzer.update_from_trading_result(
+                            original_text=original_text,
+                            prediction=mock_prediction,
+                            actual_outcome=actual_outcome,
+                            performance_score=performance_pct
+                        )
+                        
+                        log_debug(f"📚 Learning feedback: {completed_decision.ticker} predicted {completed_decision.decision}, actual {actual_outcome} ({performance_pct:+.2f}%)")
+                        
+            except Exception as e:
+                log_debug(f"Learning update failed for {completed_decision.ticker}: {e}")
     
     async def _check_decision_schedule(self, decision, now: datetime) -> bool:
         """Check and execute due price checkpoints with configurable intervals"""

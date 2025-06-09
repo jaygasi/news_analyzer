@@ -195,6 +195,7 @@ class MultiLLMAnalyzer:
             # FIXED: Load model with specific configuration to eliminate warnings
             self.finbert_model = AutoModelForSequenceClassification.from_pretrained(
                 'ProsusAI/finbert',
+                attn_implementation="eager",
                 num_labels=3,  # Explicitly specify number of labels
                 problem_type="single_label_classification",  # Explicit problem type
                 local_files_only=False,
@@ -239,7 +240,7 @@ class MultiLLMAnalyzer:
             
             # FIX 4: Warm up the model for better initial predictions
             self._warm_up_finbert()
-
+            self._load_adaptive_finbert_if_available()
         except Exception as e:
             log_error(f"Failed to initialize FinBERT: {e}")
             self.services['finbert'] = {'available': False, 'error': str(e)}
@@ -881,3 +882,29 @@ class MultiLLMAnalyzer:
             service['requests_today'] = 0
         self.quota_exhausted.clear()
         log_info("🔄 Daily quotas reset for all services")
+        
+    def _load_adaptive_finbert_if_available(self):
+        """Load adaptive FinBERT checkpoint if available"""
+        try:
+            adaptive_checkpoint = Config.DATA_DIR / "finbert_multimodal_adaptive.pth"
+            if adaptive_checkpoint.exists():
+                log_info("🔄 Loading adaptive FinBERT checkpoint...")
+                
+                checkpoint = torch.load(adaptive_checkpoint, map_location='cpu')
+                
+                # Load data processors
+                processors_path = Config.DATA_DIR / "data_processors.pkl"
+                if processors_path.exists():
+                    with open(processors_path, 'rb') as f:
+                        processors = pickle.load(f)
+                        log_info("✅ Adaptive FinBERT data processors loaded")
+                        
+                        # Store processors for use during prediction
+                        self.adaptive_processors = processors
+                        
+                log_info(f"✅ Adaptive FinBERT checkpoint loaded from {adaptive_checkpoint}")
+                return True
+        except Exception as e:
+            log_debug(f"No adaptive FinBERT checkpoint available: {e}")
+        
+        return False

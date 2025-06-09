@@ -582,6 +582,15 @@ class Config:
     ADAPTIVE_LABEL_MAP_POOR: str = os.getenv('ADAPTIVE_LABEL_MAP_POOR', 'SELL')         # Corresponds to label 0
     ADAPTIVE_LABEL_MAP_GOOD: str = os.getenv('ADAPTIVE_LABEL_MAP_GOOD', 'NEUTRAL')    # Corresponds to label 1
     ADAPTIVE_LABEL_MAP_EXCELLENT: str = os.getenv('ADAPTIVE_LABEL_MAP_EXCELLENT', 'BUY') # Corresponds to label 2
+    
+    MIN_TRADES_FOR_TRAINING: int = int(os.getenv('MIN_TRADES_FOR_TRAINING', '20'))
+    ADAPTIVE_LEARNING_INTERVAL_HOURS: int = int(os.getenv('ADAPTIVE_LEARNING_INTERVAL_HOURS', '24'))
+
+    # Model checkpoint paths for learning
+    FINBERT_ADAPTIVE_CHECKPOINT: Path = DATA_DIR / 'finbert_multimodal_adaptive.pth'
+    ENHANCED_NEURAL_ADAPTIVE_CHECKPOINT: Path = DATA_DIR / 'enhanced_neural_multimodal_adaptive.pth'
+    ADAPTIVE_PROCESSORS: Path = DATA_DIR / 'data_processors.pkl'
+    LAST_TRAINING_LOG: Path = DATA_DIR / 'last_training.json'
 
 
 # ================================================================

@@ -48,7 +48,8 @@ class EnhancedFinancialSentimentModel(nn.Module):
             roberta_model_name,
             add_pooling_layer=True,  # Keep pooler for full capabilities
             output_attentions=True,
-            output_hidden_states=False
+            output_hidden_states=False,
+            attn_implementation="eager"
         )
         
         self.roberta_dim = self.roberta.config.hidden_size  # 768 for roberta-base
@@ -322,9 +323,27 @@ class EnhancedNeuralAnalyzer:
         self.model.to(self.device)
         
         # Load checkpoint if available
-        if model_path and Path(model_path).exists():
+        adaptive_checkpoint = Config.DATA_DIR / "enhanced_neural_multimodal_adaptive.pth"
+        if adaptive_checkpoint.exists():
+            try:
+                self._load_checkpoint(str(adaptive_checkpoint))
+                log_info(f"✅ Loaded adaptive checkpoint: {adaptive_checkpoint}")
+            except Exception as e:
+                log_warning(f"Could not load adaptive checkpoint {adaptive_checkpoint}: {e}")
+                # Fall back to provided model_path
+                if model_path and Path(model_path).exists():
+                    try:
+                        self._load_checkpoint(model_path)
+                        log_info(f"✅ Loaded fallback checkpoint: {model_path}")
+                    except Exception as e2:
+                        log_warning(f"Could not load fallback checkpoint {model_path}: {e2}")
+                        log_info("Using properly initialized base model")
+                else:
+                    log_info("Using properly initialized base model")
+        elif model_path and Path(model_path).exists():
             try:
                 self._load_checkpoint(model_path)
+                log_info(f"✅ Loaded provided checkpoint: {model_path}")
             except Exception as e:
                 log_warning(f"Could not load checkpoint {model_path}: {e}")
                 log_info("Using properly initialized base model")
@@ -556,6 +575,112 @@ class EnhancedNeuralAnalyzer:
                 'Model warming for better predictions'
             ]
         }
+    
+    def update_from_trading_result(self, original_text: str, prediction: EnhancedPrediction, 
+                                actual_outcome: str, performance_score: float):
+        """Update model based on trading results for continuous learning"""
+        try:
+            if not self.is_available or performance_score is None:
+                return
+            
+            # Store learning data for batch updates
+            if not hasattr(self, '_learning_buffer'):
+                self._learning_buffer = []
+            
+            # Convert actual outcome to label
+            outcome_to_label = {'BUY': 2, 'SELL': 0, 'NEUTRAL': 1}
+            actual_label = outcome_to_label.get(actual_outcome, 1)
+            
+            # Calculate learning weight based on performance
+            learning_weight = abs(performance_score) / 100.0  # Normalize percentage to 0-1
+            
+            self._learning_buffer.append({
+                'text': original_text,
+                'predicted_direction': prediction.direction,
+                'actual_direction': actual_outcome,
+                'confidence': prediction.confidence,
+                'performance_score': performance_score,
+                'learning_weight': learning_weight,
+                'actual_label': actual_label,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+            log_debug(f"📚 Added learning sample: {prediction.direction} -> {actual_outcome} (score: {performance_score:.2f}%)")
+            
+            # Trigger learning if buffer is full
+            if len(self._learning_buffer) >= 10:  # Batch size for incremental learning
+                self._apply_incremental_learning()
+                
+        except Exception as e:
+            log_debug(f"Learning update failed: {e}")
+
+    def _apply_incremental_learning(self):
+        """Apply incremental learning from buffer"""
+        try:
+            if not hasattr(self, '_learning_buffer') or len(self._learning_buffer) == 0:
+                return
+            
+            log_info(f"🎓 Applying incremental learning from {len(self._learning_buffer)} samples")
+            
+            # Prepare training data
+            texts = [item['text'] for item in self._learning_buffer]
+            labels = [item['actual_label'] for item in self._learning_buffer]
+            weights = [item['learning_weight'] for item in self._learning_buffer]
+            
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            self.model.train()
+            
+            # Quick incremental update
+            optimizer = torch.optim.AdamW(self.model.parameters(), lr=1e-5)  # Lower LR for incremental
+            criterion = nn.CrossEntropyLoss(reduction='none')  # For weighted loss
+            
+            # Tokenize all texts
+            inputs = self.tokenizer(
+                texts,
+                padding=True,
+                truncation=True,
+                max_length=512,
+                return_tensors='pt'
+            ).to(device)
+            
+            labels_tensor = torch.LongTensor(labels).to(device)
+            weights_tensor = torch.FloatTensor(weights).to(device)
+            
+            # Single forward/backward pass
+            optimizer.zero_grad()
+            outputs = self.model(inputs['input_ids'], inputs['attention_mask'])
+            
+            if isinstance(outputs, dict) and 'sentiment_logits' in outputs:
+                logits = outputs['sentiment_logits']
+            else:
+                logits = outputs
+            
+            # Weighted loss
+            losses = criterion(logits, labels_tensor)
+            weighted_loss = (losses * weights_tensor).mean()
+            
+            weighted_loss.backward()
+            optimizer.step()
+            
+            self.model.eval()
+            
+            log_info(f"✅ Incremental learning applied, loss: {weighted_loss.item():.4f}")
+            
+            # Clear buffer
+            self._learning_buffer.clear()
+            
+            # Save updated model
+            checkpoint_path = Config.DATA_DIR / "enhanced_neural_incremental.pth"
+            torch.save({
+                'model_state_dict': self.model.state_dict(),
+                'incremental_update': True,
+                'timestamp': datetime.now().isoformat(),
+                'samples_learned': len(texts)
+            }, checkpoint_path)
+            
+        except Exception as e:
+            log_error(f"Incremental learning failed: {e}")
+            self.model.eval()  # Ensure model stays in eval mode
 
 
 # Factory function for integration with existing system
