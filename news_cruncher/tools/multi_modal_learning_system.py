@@ -325,7 +325,7 @@ class MultiModalLearningSystem:
                 avg_loss = total_loss / num_batches if num_batches > 0 else 0
                 log_info(f"✅ Epoch {epoch+1} completed. Average loss: {avg_loss:.4f}")
             
-            # Save model
+            # Save model to proper adaptive checkpoint path
             save_path = self.model_save_dir / "finbert_multimodal_adaptive.pth"
             # Save scalers and encoders
             with open(self.model_save_dir / "data_processors.pkl", "wb") as f:
@@ -336,12 +336,16 @@ class MultiModalLearningSystem:
                 }, f)
             log_info(f"💾 Data processors saved to: {self.model_save_dir / 'data_processors.pkl'}")
 
+            # Save complete model state for proper learning continuity
             torch.save({
                 'model_state_dict': model.state_dict(),
-                'tokenizer_name': 'ProsusAI/finbert', # Save tokenizer name instead of object
+                'tokenizer_name': 'ProsusAI/finbert',
                 'training_timestamp': datetime.now().isoformat(),
                 'num_samples': len(texts),
-                'performance': {'final_loss': avg_loss}
+                'performance': {'final_loss': avg_loss},
+                'categorical_vocab_sizes': categorical_vocab_sizes,  # IMPORTANT: Save vocab sizes for inference
+                'num_numerical_features': numerical_features.shape[1],  # IMPORTANT: Save feature count
+                'training_completed': True  # Mark as fully trained checkpoint
             }, save_path)
             
             log_info(f"💾 Multi-modal FinBERT saved to: {save_path}")

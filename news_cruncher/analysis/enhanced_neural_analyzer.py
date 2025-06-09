@@ -51,7 +51,13 @@ class EnhancedFinancialSentimentModel(nn.Module):
             output_hidden_states=False,
             attn_implementation="eager"
         )
-        
+        # Fix pooler initialization to eliminate warnings
+        if hasattr(self.roberta, 'pooler') and self.roberta.pooler is not None:
+            torch.nn.init.xavier_uniform_(self.roberta.pooler.dense.weight)
+            torch.nn.init.zeros_(self.roberta.pooler.dense.bias)
+            log_info("✅ Pooler weights properly initialized")
+        else:
+            log_warning("⚠️ RoBERTa pooler not found - may be using different model variant")
         self.roberta_dim = self.roberta.config.hidden_size  # 768 for roberta-base
         
         # FIX 2: Properly initialize the pooler layer that was randomly initialized
@@ -126,11 +132,14 @@ class EnhancedFinancialSentimentModel(nn.Module):
         self.confidence_estimator = nn.Linear(hidden_dim, 1)
         self.uncertainty_estimator = nn.Linear(hidden_dim, 1)  # Epistemic uncertainty
         
+        # FIX 2: Initialize pooler weights to eliminate warnings
+        self._pooler_needs_init = True
+
         # FIX 4: Initialize all our custom layers properly
         self._initialize_custom_layers()
-        
+
         log_info("✅ Enhanced Financial Sentiment Model initialized with proper pooler")
-    
+            
     def _initialize_pooler_weights(self):
         """
         FIX 2: Properly initialize the RoBERTa pooler that was randomly initialized
@@ -349,7 +358,9 @@ class EnhancedNeuralAnalyzer:
                 log_info("Using properly initialized base model")
         else:
             log_info("No checkpoint provided - using properly initialized base model")
-        
+            # Initialize pooler weights ONLY when no checkpoint was loaded
+            self._initialize_fresh_pooler()
+
         self.model.eval()
         
         # Model warming for better initial predictions
@@ -375,7 +386,10 @@ class EnhancedNeuralAnalyzer:
                     checkpoint['model_state_dict'], strict=False
                 )
                 log_info(f"✅ Loaded model checkpoint from {model_path}")
-                
+                # Mark that pooler was loaded from checkpoint (don't re-initialize)
+                if hasattr(self.model, '_pooler_needs_init'):
+                    self.model._pooler_needs_init = False
+                    log_info("✅ Pooler weights restored from checkpoint - continuous learning preserved")
                 if missing_keys:
                     log_debug(f"Missing keys (normal for new layers): {missing_keys}")
                 if unexpected_keys:
@@ -681,6 +695,18 @@ class EnhancedNeuralAnalyzer:
         except Exception as e:
             log_error(f"Incremental learning failed: {e}")
             self.model.eval()  # Ensure model stays in eval mode
+    def _initialize_fresh_pooler(self):
+        """Initialize pooler weights only when starting fresh (no checkpoint loaded)"""
+        if hasattr(self.model, '_pooler_needs_init') and self.model._pooler_needs_init:
+            if hasattr(self.model.roberta, 'pooler') and self.model.roberta.pooler is not None:
+                torch.nn.init.xavier_uniform_(self.model.roberta.pooler.dense.weight)
+                torch.nn.init.zeros_(self.model.roberta.pooler.dense.bias)
+                log_info("✅ Fresh pooler weights initialized (no checkpoint)")
+                self.model._pooler_needs_init = False
+            else:
+                log_warning("⚠️ Pooler not found for initialization")
+        else:
+            log_info("✅ Pooler weights preserved from checkpoint (continuous learning)")
 
 
 # Factory function for integration with existing system

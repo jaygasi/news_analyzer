@@ -1,8 +1,8 @@
-from typing import Dict, Any
+from typing import Dict, Any, List
 from datetime import datetime, timezone, timedelta
 from data_loaders.earnings_transcript_fetcher import EarningsTranscriptFetcher
 from data_loaders.base_fmp_loader import BaseFMPLoader
-from utils.simple_logger import log_info # Add other loggers if needed
+from utils.simple_logger import log_info, log_error, log_debug # Add other loggers if needed
 from config import Config # Assuming Config is used for EARNINGS_LOOKBACK_DAYS etc.
 
 class EarningsIntegrationManager:

@@ -207,10 +207,14 @@ class Config:
     ENABLE_ENHANCED_NEURAL: bool = os.getenv('ENABLE_ENHANCED_NEURAL', 'true').lower() == 'true'
     
     # Enhanced Neural Analyzer Settings
-    ENHANCED_NEURAL_MIXED_PRECISION: bool = True  # Use mixed precision if CUDA available
-    ENHANCED_NEURAL_GRADIENT_ACCUMULATION: int = 4  # Gradient accumulation steps
+    ENHANCED_NEURAL_MIXED_PRECISION: bool = os.getenv('ENHANCED_NEURAL_MIXED_PRECISION', 'true').lower() == 'true'
+    ENHANCED_NEURAL_GRADIENT_ACCUMULATION: int = int(os.getenv('ENHANCED_NEURAL_GRADIENT_ACCUMULATION', '4'))
     ENHANCED_NEURAL_WARMUP: bool = True  # Enable model warming
     
+    # ADD to config.py:
+    CUDA_VISIBLE_DEVICES: str = os.getenv('CUDA_VISIBLE_DEVICES', '0')
+    OMP_NUM_THREADS: int = int(os.getenv('OMP_NUM_THREADS', '8'))
+    MKL_NUM_THREADS: int = int(os.getenv('MKL_NUM_THREADS', '8'))
     # 🤖 FinBERT Financial Sentiment Analysis - HIGH ACCURACY
     # CURRENT: ENABLED (~85% accuracy)
     # EFFECT: Financial domain-specific BERT model for sentiment
@@ -224,7 +228,7 @@ class Config:
     # GET KEY: https://makersuite.google.com/app/apikey
     GEMINI_API_KEY: str = os.getenv('GEMINI_API_KEY', '')
     ENABLE_GEMINI: bool = os.getenv('ENABLE_GEMINI', 'false').lower() == 'true'
-    
+    GEMINI_MODEL: str = os.getenv('GEMINI_MODEL', 'gemini-pro')
     # 🔵 OpenAI GPT - OPTIONAL HIGH QUALITY
     # EFFECT: ChatGPT/GPT-4 for sentiment analysis
     # COST: Pay-per-use, typically $0.01-0.10 per ticker

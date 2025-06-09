@@ -240,7 +240,7 @@ class MultiLLMAnalyzer:
             
             # FIX 4: Warm up the model for better initial predictions
             self._warm_up_finbert()
-            self._load_adaptive_finbert_if_available()
+            
         except Exception as e:
             log_error(f"Failed to initialize FinBERT: {e}")
             self.services['finbert'] = {'available': False, 'error': str(e)}
@@ -319,11 +319,11 @@ class MultiLLMAnalyzer:
             genai.configure(api_key=Config.GEMINI_API_KEY)
             self.services['gemini'] = {
                 'available': True,
-                'client': genai.GenerativeModel('gemini-pro'),
+                'client': genai.GenerativeModel(Config.GEMINI_MODEL),  # CHANGED: Use config instead of hardcoded
                 'requests_today': 0,
                 'quota_limit': 60
             }
-            log_info("✅ Gemini initialized successfully")
+            log_info(f"✅ Gemini initialized successfully with model: {Config.GEMINI_MODEL}")
         except Exception as e:
             log_error(f"Failed to initialize Gemini: {e}")
             self.services['gemini'] = {'available': False}
