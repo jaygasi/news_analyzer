@@ -65,6 +65,18 @@ class EnhancedFinancialNewsAnalyzer:
             )
             self.ticker_filter = TickerFilterEngine(self.news_fetcher, filter_criteria)
             self.ticker_filter.set_debug_mode(True)  # Enable detailed debugging
+            
+            # ADD DIAGNOSTIC LOGGING:
+            log_info("📊 Fundamental Filter Diagnostics:")
+            log_info(f"   API Key configured: {'✅ Yes' if Config.FMP_API_KEY else '❌ No'}")
+            log_info(f"   Failed ticker cache: {'✅ Enabled' if Config.ENABLE_FAILED_TICKER_CACHE else '❌ Disabled (good for debugging)'}")
+            log_info(f"   Rejected logging: {'✅ Enabled' if Config.ENABLE_REJECTED_STOCK_LOGGING else '❌ Disabled'}")
+            
+            # Clear cache if debugging
+            if not Config.ENABLE_FAILED_TICKER_CACHE:
+                self.ticker_filter.clear_failed_ticker_cache()
+                log_info("🗑️ Cleared failed ticker cache for debugging")
+            
             log_info("✅ Fundamental filtering initialized")
         else:
             self.ticker_filter = None

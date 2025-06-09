@@ -2,6 +2,7 @@
 TickerFilterEngine for filtering tickers based on fundamental criteria
 Python 3.13.3 compatible
 """
+import time
 from typing import Dict, List, Any, Optional, Set
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -36,8 +37,8 @@ class TickerFilterEngine:
         self.fundamentals_cache = {}
         self.cache_db_path = Path('data/fundamentals_cache.db')
         
-        # Debug control - set to True to see detailed ticker analysis
-        self.enable_detailed_debug = False  # Permanently disabled - we only want rejected stock logging
+        # MODIFIED: Enable detailed debug temporarily for troubleshooting
+        self.enable_detailed_debug = True  # CHANGED from False to True
         
         # NEW: Control for logging rejected stocks (ADD THESE LINES)
         self.enable_rejected_logging = getattr(Config, 'ENABLE_REJECTED_STOCK_LOGGING', True)
@@ -54,6 +55,10 @@ class TickerFilterEngine:
         log_info(f"  Max beta: {self.criteria.max_volatility_beta}")
         log_info(f"  Require options: {self.criteria.require_options}")
         log_info(f"  Allowed exchanges: {', '.join(self.criteria.allowed_exchanges)}")
+        
+        # Log debug settings
+        log_info(f"Ticker filter debug mode: {'ENABLED' if self.enable_detailed_debug else 'DISABLED'}")
+        log_info(f"Rejected stock logging: {'ENABLED' if self.enable_rejected_logging else 'DISABLED'} (max: {self.max_rejected_to_log})")
     
     def _init_cache_database(self) -> None:
         """Initialize SQLite cache for fundamental data"""
@@ -98,7 +103,7 @@ class TickerFilterEngine:
         log_info(f"Rejected stock logging: {'ENABLED' if enabled else 'DISABLED'} (max: {max_to_log})")
     
     def filter_ticker_buckets(self, ticker_buckets: Dict[str, List[Dict[str, Any]]]) -> Dict[str, List[Dict[str, Any]]]:
-        """Filter ticker buckets based on fundamental criteria with optimized batching"""
+        """Filter ticker buckets based on fundamental criteria with enhanced logging"""
         log_info(f"🔍 Filtering {len(ticker_buckets)} tickers by fundamental criteria...")
         
         # Log initial tickers overview
@@ -116,8 +121,15 @@ class TickerFilterEngine:
             'failed_data_unavailable': 0
         }
         
-        rejected_stocks = [] if self.enable_rejected_logging else None
+        # ENHANCED: Always create rejected_stocks list for better diagnostics
+        rejected_stocks = []
         tickers_to_process = list(ticker_buckets.keys())
+        
+        # Log API diagnostic info
+        log_info(f"🔑 API Configuration Check:")
+        log_info(f"   FMP API Key: {'✅ Configured' if self.fmp_loader.api_key else '❌ Missing'}")
+        log_info(f"   Rate limit: {getattr(Config, 'FMP_REQUESTS_PER_MINUTE', 10)} req/min")
+        log_info(f"   Min interval: {getattr(Config, 'FMP_MIN_REQUEST_INTERVAL', 0.2)}s")
         
         # OPTIMIZATION: Process in batches to show progress and avoid timeouts
         batch_size = 50  # Process 50 tickers at a time
@@ -139,7 +151,15 @@ class TickerFilterEngine:
                     
                     if not fundamentals:
                         filter_stats['failed_data_unavailable'] += 1
-                        log_debug(f"❌ {ticker}: No fundamental data available")
+                        failure_reason = "No fundamental data available from FMP API"
+                        log_debug(f"❌ {ticker}: {failure_reason}")
+                        
+                        # ENHANCED: Always track data unavailable failures
+                        rejected_stocks.append({
+                            'ticker': ticker,
+                            'reason': failure_reason,
+                            'fundamentals': None
+                        })
                         continue
                     
                     # Evaluate criteria
@@ -167,25 +187,24 @@ class TickerFilterEngine:
                         log_debug(f"❌ {ticker}: {reason}")
                         
                         # Track rejected stock
-                        if rejected_stocks is not None and len(rejected_stocks) < self.max_rejected_to_log:
-                            rejected_stocks.append({
-                                'ticker': ticker,
-                                'reason': reason,
-                                'fundamentals': fundamentals
-                            })
+                        rejected_stocks.append({
+                            'ticker': ticker,
+                            'reason': reason,
+                            'fundamentals': fundamentals
+                        })
                             
                 except Exception as e:
                     filter_stats['failed_data_unavailable'] += 1
-                    log_debug(f"❌ {ticker}: Error getting fundamentals - {e}")
+                    error_reason = f"Error getting fundamentals - {e}"
+                    log_error(f"❌ {ticker}: {error_reason}")
                     
-                    if rejected_stocks is not None and len(rejected_stocks) < self.max_rejected_to_log:
-                        rejected_stocks.append({
-                            'ticker': ticker,
-                            'reason': f'Error: {e}',
-                            'fundamentals': None
-                        })
+                    rejected_stocks.append({
+                        'ticker': ticker,
+                        'reason': error_reason,
+                        'fundamentals': None
+                    })
         
-        # Log results (rest of method remains the same)
+        # Log results
         total_filtered = len(ticker_buckets) - len(filtered_buckets)
         log_info(f"Fundamental filtering complete:")
         log_info(f"  ✅ Passed: {filter_stats['passed']} tickers")
@@ -201,20 +220,32 @@ class TickerFilterEngine:
             log_info(f"    Exchange restrictions: {filter_stats['failed_exchange']}")
             log_info(f"    Data unavailable: {filter_stats['failed_data_unavailable']}")
         
-        # Log rejected stocks sample
-        if rejected_stocks and self.enable_rejected_logging:
-            log_info(f"🚫 Sample of rejected stocks (first {len(rejected_stocks)}):")
-            for i, rejected in enumerate(rejected_stocks, 1):
+        # ENHANCED: Always log rejected stocks sample (respecting config limits)
+        max_to_log = self.max_rejected_to_log if self.enable_rejected_logging else 5
+        if rejected_stocks:
+            log_info(f"🚫 Sample of rejected stocks (first {min(len(rejected_stocks), max_to_log)}):")
+            for i, rejected in enumerate(rejected_stocks[:max_to_log], 1):
                 ticker = rejected['ticker']
                 reason = rejected['reason']
                 fund = rejected['fundamentals']
                 
                 if fund:
-                    price = fund.get('price', 0)
-                    volume = fund.get('avg_volume', 0)
-                    market_cap = fund.get('market_cap', 0)
-                    exchange = fund.get('exchange', 'UNKNOWN')
-                    log_info(f"   {i:2d}. {ticker:<6} | ${price} | Vol: {volume:,} | Cap: ${market_cap:,} | {exchange} | ❌ {reason}")
+                    price = fund.get('price', 'N/A')
+                    volume = fund.get('avg_volume', 'N/A')
+                    market_cap = fund.get('market_cap', 'N/A')
+                    exchange = fund.get('exchange', 'N/A')
+                    
+                    if isinstance(volume, (int, float)) and volume > 0:
+                        volume_str = f"{volume:,}"
+                    else:
+                        volume_str = str(volume)
+                        
+                    if isinstance(market_cap, (int, float)) and market_cap > 0:
+                        market_cap_str = f"${market_cap:,}"
+                    else:
+                        market_cap_str = str(market_cap)
+                    
+                    log_info(f"   {i:2d}. {ticker:<6} | ${price} | Vol: {volume_str} | Cap: {market_cap_str} | {exchange} | ❌ {reason}")
                 else:
                     log_info(f"   {i:2d}. {ticker:<6} | No data available | ❌ {reason}")
         
@@ -240,7 +271,7 @@ class TickerFilterEngine:
             for ticker in tickers_to_fetch:
                 try:
                     # Use existing _get_company_fundamentals but cache results
-                    fundamentals = self._get_company_fundamentals_direct(ticker)
+                    fundamentals = self._get_company_fundamentals(ticker)
                     if fundamentals:
                         results[ticker] = fundamentals
                         self._cache_fundamentals(ticker, fundamentals)
@@ -254,40 +285,6 @@ class TickerFilterEngine:
         
         return results
 
-    def _get_company_fundamentals_direct(self, ticker: str) -> Optional[Dict[str, Any]]:
-        """Get company fundamentals directly from API (extracted from existing method)"""
-        # CORRECTED: Use self.fmp_loader instead of self.api_client
-        try:
-            # Fetch quote data
-            quote_response = self.fmp_loader.make_request(f"quote/{ticker}")
-            if not quote_response or not isinstance(quote_response, list) or len(quote_response) == 0:
-                log_debug(f"No quote data for {ticker} from fmp_loader")
-                return None
-            quote_data = quote_response[0]
-
-            # Fetch profile data
-            profile_response = self.fmp_loader.make_request(f"profile/{ticker}")
-            if not profile_response or not isinstance(profile_response, list) or len(profile_response) == 0:
-                log_debug(f"No profile data for {ticker} from fmp_loader")
-                return None
-            profile_data = profile_response[0]
-            
-            # Options availability check
-            has_options = self._check_options_availability(ticker)
-
-            # Extract and return fundamental data
-            return {
-                'price': float(profile_data.get('price', 0) or quote_data.get('price', 0)),
-                'market_cap': int(profile_data.get('mktCap', 0) or 0),
-                'exchange': str(profile_data.get('exchangeShortName', '') or profile_data.get('exchange', '')),
-                'beta': float(profile_data.get('beta', 0) or 0),
-                'avg_volume': int(quote_data.get('avgVolume', 0) or quote_data.get('volume', 0)),
-                'volume': int(quote_data.get('volume', 0) or 0),
-                'has_options': has_options
-            }
-        except Exception as e:
-            log_error(f"Error getting fundamentals for {ticker} via fmp_loader: {e}") # Changed to log_error
-            return None
     def _log_initial_tickers(self, ticker_buckets: Dict[str, List[Dict[str, Any]]]) -> None:
         """Log which tickers are being considered before filtering"""
         log_info(f"📊 Initial tickers before filtering ({len(ticker_buckets)}):")
@@ -319,24 +316,27 @@ class TickerFilterEngine:
                     log_info(f"    {i+1}. [{source}] {title}...")
     
     def _get_company_fundamentals(self, ticker: str) -> Optional[Dict[str, Any]]:
-        """Fetch company fundamental data with caching"""
+        """Fetch company fundamental data with enhanced error handling and logging"""
         # Check memory cache first
         if ticker in self.fundamentals_cache:
+            log_debug(f"📋 Using cached fundamentals for {ticker}")
             return self.fundamentals_cache[ticker]
         
         # Check database cache (24 hour expiry)
         cached_data = self._get_cached_fundamentals(ticker)
         if cached_data:
             self.fundamentals_cache[ticker] = cached_data
+            log_debug(f"💾 Using database cached fundamentals for {ticker}")
             return cached_data
         
-        # Fetch from API
+        # Fetch from API with enhanced error handling
         try:
+            log_debug(f"🔍 Fetching fresh fundamentals for {ticker}")
+            
             # Get company profile for basic info
             profile_data = self.fmp_loader.make_request(f"profile/{ticker}")
             if not profile_data or not isinstance(profile_data, list) or len(profile_data) == 0:
-                if self.enable_detailed_debug:
-                    log_debug(f"No profile data for {ticker}: {profile_data}")
+                log_warning(f"❌ No profile data for {ticker}: {profile_data}")
                 return None
             
             profile = profile_data[0]
@@ -344,8 +344,7 @@ class TickerFilterEngine:
             # Get current quote for volume data
             quote_data = self.fmp_loader.make_request(f"quote/{ticker}")
             if not quote_data or not isinstance(quote_data, list) or len(quote_data) == 0:
-                if self.enable_detailed_debug:
-                    log_debug(f"No quote data for {ticker}: {quote_data}")
+                log_warning(f"❌ No quote data for {ticker}: {quote_data}")
                 return None
             
             quote = quote_data[0]
@@ -359,19 +358,29 @@ class TickerFilterEngine:
                 'market_cap': int(profile.get('mktCap', 0) or 0),
                 'exchange': str(profile.get('exchangeShortName', '') or profile.get('exchange', '')),
                 'beta': float(profile.get('beta', 0) or 0),
-                'avg_volume': int(quote.get('avgVolume', 0) or quote.get('volume', 0)),
+                'avg_volume': int(profile.get('volAvg', 0) or quote.get('avgVolume', 0) or 0),
                 'volume': int(quote.get('volume', 0) or 0),
-                'has_options': has_options
+                'has_options': bool(has_options)
             }
             
-            # Cache the data
+            # Validate critical data
+            if fundamentals['price'] <= 0:
+                log_warning(f"❌ {ticker}: Invalid price data - {fundamentals['price']}")
+                return None
+            
+            if fundamentals['market_cap'] <= 0:
+                log_warning(f"❌ {ticker}: Invalid market cap data - {fundamentals['market_cap']}")
+                return None
+            
+            # Cache successful result
             self._cache_fundamentals(ticker, fundamentals)
             self.fundamentals_cache[ticker] = fundamentals
             
+            log_debug(f"✅ {ticker}: Successfully compiled fundamentals - Price: ${fundamentals['price']}, Cap: ${fundamentals['market_cap']:,}")
             return fundamentals
             
         except Exception as e:
-            log_debug(f"Error fetching fundamentals for {ticker}: {e}")
+            log_error(f"❌ Error compiling fundamentals for {ticker}: {e}")
             return None
     
     def _check_options_availability(self, ticker: str) -> bool:
@@ -388,7 +397,7 @@ class TickerFilterEngine:
             # This is a reasonable fallback for well-established companies
             return True
     
-    def _meets_criteria(self, ticker: str, fundamentals: Dict[str, Any]) -> tuple[bool, str]:
+    def _evaluate_criteria(self, fundamentals: Dict[str, Any]) -> tuple[bool, str]:
         """Check if ticker meets all filter criteria"""
         try:
             # Price range check
@@ -484,7 +493,12 @@ class TickerFilterEngine:
             log_debug(f"Error caching fundamentals for {ticker}: {e}")
     
     def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache statistics"""
+        """Get cache statistics for debugging"""
+        stats = {
+            'memory_cache_size': len(self.fundamentals_cache),
+            'memory_cached_tickers': list(self.fundamentals_cache.keys())[:10]  # First 10
+        }
+        
         try:
             with sqlite3.connect(self.cache_db_path) as conn:
                 cursor = conn.execute('SELECT COUNT(*) FROM fundamentals_cache')
@@ -496,41 +510,26 @@ class TickerFilterEngine:
                 ''')
                 valid_cached = cursor.fetchone()[0]
                 
-                return {
+                stats.update({
                     'total_entries': total_cached,
                     'valid_entries': valid_cached,
                     'cache_path': str(self.cache_db_path)
-                }
+                })
                 
+            if hasattr(self.fmp_loader, 'get_rate_limit_status'):
+                stats['rate_limit'] = self.fmp_loader.get_rate_limit_status()
         except Exception as e:
-            log_error(f"Error getting cache stats: {e}")
-            return {'error': str(e)}
-    
-    def _log_rejected_stocks(self, rejected_stocks: List[Dict[str, Any]]) -> None:
-        """Log sample of rejected stocks with their failure reasons"""
-        log_info(f"🚫 Sample of rejected stocks (first {len(rejected_stocks)}):")
+            stats['cache_error'] = str(e)
         
-        for i, rejected in enumerate(rejected_stocks[:self.max_rejected_to_log], 1):
-            ticker = rejected['ticker']
-            reason = rejected['reason']
-            fundamentals = rejected['fundamentals']
-            
-            if fundamentals:
-                price = fundamentals.get('price', 'N/A')
-                volume = fundamentals.get('avg_volume', 'N/A')
-                market_cap = fundamentals.get('market_cap', 'N/A')
-                exchange = fundamentals.get('exchange', 'N/A')
-                
-                if isinstance(volume, (int, float)) and volume > 0:
-                    volume_str = f"{volume:,.0f}"
-                else:
-                    volume_str = str(volume)
-                    
-                if isinstance(market_cap, (int, float)) and market_cap > 0:
-                    market_cap_str = f"${market_cap:,.0f}"
-                else:
-                    market_cap_str = str(market_cap)
-                
-                log_info(f"  {i:2d}. {ticker:6s} | ${price} | Vol: {volume_str} | Cap: {market_cap_str} | {exchange} | ❌ {reason}")
+        return stats
+    
+    def clear_failed_ticker_cache(self) -> None:
+        """Clear the failed ticker cache - useful for debugging"""
+        try:
+            if hasattr(self.fmp_loader, '_clear_failed_ticker_cache'):
+                self.fmp_loader._clear_failed_ticker_cache()
+                log_info("✅ Cleared failed ticker cache")
             else:
-                log_info(f"  {i:2d}. {ticker:6s} | No data available | ❌ {reason}")
+                log_warning("⚠️ Failed ticker cache clearing not available")
+        except Exception as e:
+            log_error(f"❌ Error clearing failed ticker cache: {e}")

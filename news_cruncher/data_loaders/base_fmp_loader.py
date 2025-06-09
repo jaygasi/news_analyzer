@@ -101,9 +101,19 @@ class BaseFMPLoader:
         # Extract ticker from endpoint for cache checking
         ticker = self._extract_ticker_from_endpoint(endpoint)
         
+        # ADD THIS DIAGNOSTIC BLOCK:
+        if ticker:
+            log_debug(f"🔍 API Request for {ticker}: endpoint={endpoint}")
+            
+            # Check if API key is available
+            if not self.api_key or self.api_key.strip() == '':
+                log_error(f"❌ Missing FMP API key for {ticker} request")
+                return None
+        
         # NEW: Check failed ticker cache first
         if ticker and self._is_ticker_cached_as_failed(ticker):
-            log_debug(f"⏭️ Skipping cached failed ticker {ticker} (endpoint: {endpoint})")
+            # ADD ENHANCED LOGGING FOR CACHE HITS:
+            log_warning(f"⏭️ Skipping cached failed ticker {ticker} (endpoint: {endpoint}) - Consider clearing cache if this seems wrong")
             return None
         
         # Rate limiting - ensure minimum interval between requests
@@ -122,9 +132,20 @@ class BaseFMPLoader:
             
             url = f"{self.base_url}/{endpoint}"
             
+            # ADD DIAGNOSTIC LOGGING:
+            log_debug(f"📡 Making request to: {url[:100]}...")
+            
             # Make request with timeout and retries
             response = requests.get(url, params=params, timeout=30)
             self.last_request_time = time.time()
+            
+            # ADD ENHANCED STATUS CODE LOGGING:
+            if response.status_code != 200:
+                log_warning(f"❌ API returned status {response.status_code} for {ticker or endpoint}")
+                if response.status_code == 401:
+                    log_error("🔑 AUTHENTICATION ERROR: Check your FMP_API_KEY in .env file")
+                elif response.status_code == 403:
+                    log_error("🚫 FORBIDDEN: Your FMP API key may have insufficient permissions")
             
             if response.status_code == 429:
                 retry_delay = getattr(Config, 'FMP_RETRY_DELAY', 60)
@@ -148,18 +169,27 @@ class BaseFMPLoader:
                 return None
             
             response.raise_for_status()
-            return response.json()
+            data = response.json()
+            
+            # ADD SUCCESS LOGGING:
+            if ticker and data:
+                log_debug(f"✅ Successfully fetched data for {ticker}")
+            
+            return data
             
         except requests.exceptions.RequestException as e:
+            # ENHANCED ERROR LOGGING:
+            error_msg = str(e)
+            log_error(f"❌ Request error for {endpoint} (ticker: {ticker}): {error_msg}")
+            
             # NEW: Cache tickers that consistently fail
-            if ticker and "429" in str(e):
+            if ticker and "429" in error_msg:
                 self._add_failed_ticker_to_cache(ticker, "request_error_429")
                 log_debug(f"🚫 Cached ticker {ticker} due to request errors")
             
-            log_error(f"Request error for {endpoint}: {e}")
             return None
         except Exception as e:
-            log_error(f"Unexpected error for {endpoint}: {e}")
+            log_error(f"❌ Unexpected error for {endpoint} (ticker: {ticker}): {e}")
             return None
     def get_rate_limit_status(self) -> Dict[str, Any]:
         """Get current rate limit status"""
