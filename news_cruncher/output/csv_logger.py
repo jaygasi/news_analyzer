@@ -159,6 +159,7 @@ class CSVLogger:
 
     def log_decisions_batch(self, decisions: List[TradingDecision]) -> int:
         """Log multiple trading decisions in batch with enhanced logging - ONLY LONG/SHORT"""
+        
         if not decisions:
             return 0
 

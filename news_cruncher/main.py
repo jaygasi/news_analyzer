@@ -86,7 +86,7 @@ class EnhancedFinancialNewsAnalyzer:
         log_info("🧠 Initializing AI analysis components...")
         self.llm_analyzer = MultiLLMAnalyzer()
         self.enhanced_analyzer = self.llm_analyzer.enhanced_neural
-        
+        self.decision_engine = EnhancedDecisionEngine()
         # Enhanced price tracking components
         log_info("📈 Initializing price tracking components...")
         self.price_tracker = PriceTracker(self.news_fetcher)  # Reuse news_fetcher for API access
