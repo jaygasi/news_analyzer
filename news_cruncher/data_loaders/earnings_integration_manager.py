@@ -57,24 +57,62 @@ class EarningsIntegrationManager:
                 # Potentially set a shorter expiry to retry sooner
                 self.cache_expiry = now + timedelta(minutes=30)
     
-    # You will need to add other methods here to handle:
-    # - Identifying relevant tickers (e.g., those with news AND earnings)
-    # - Calling self.earnings_fetcher.fetch_recent_transcripts(ticker) for those tickers
-    # - Processing/analyzing these transcripts as needed by your application
-    # Example (conceptual, you'll need to adapt it):
-    #
-    # def analyze_earnings_for_tickers(self, tickers: List[str]) -> List[Dict[str, Any]]:
-    #     """Fetches and analyzes earnings for a list of tickers."""
-    #     self._refresh_earnings_cache() # Ensure calendar is fresh
-    #     processed_articles = []
-    #     for ticker in tickers:
-    #         if ticker in self.earnings_cache: # Check if it has an upcoming/recent earning
-    #             log_info(f"Analyzing earnings for {ticker} based on calendar.")
-    #             # This is where you'd fetch and process transcripts
-    #             transcript_analyses = self.earnings_fetcher.fetch_recent_transcripts(ticker, lookback_quarters=2)
-    #             for analysis in transcript_analyses:
-    #                 articles = self.earnings_fetcher.create_earnings_articles(analysis)
-    #                 processed_articles.extend(articles)
-    #                 log_info(f"Generated {len(articles)} articles for {ticker} from transcript.")
-    #     return processed_articles
-
+    def analyze_tickers_for_earnings(self, ticker_buckets: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
+        """
+        Analyze tickers for earnings events and return earnings data
+        This is the missing method causing the AttributeError
+        """
+        log_info(f"📅 Analyzing {len(ticker_buckets)} tickers for earnings events...")
+        
+        # Refresh earnings calendar cache
+        self._refresh_earnings_cache()
+        
+        earnings_analyses = {}
+        processed_count = 0
+        max_to_process = Config.MAX_EARNINGS_EVENTS_PER_CYCLE
+        
+        for ticker, articles in ticker_buckets.items():
+            if processed_count >= max_to_process:
+                log_info(f"⏱️ Reached earnings processing limit ({max_to_process})")
+                break
+                
+            # Check if ticker has earnings event
+            if ticker in self.earnings_cache:
+                try:
+                    log_info(f"📊 Processing earnings for {ticker}...")
+                    
+                    # Fetch recent transcripts
+                    transcript_analyses = self.earnings_fetcher.fetch_recent_transcripts(
+                        ticker, lookback_quarters=2
+                    )
+                    
+                    if transcript_analyses:
+                        # Convert to articles format for integration
+                        earnings_articles = []
+                        for analysis in transcript_analyses:
+                            articles_from_transcript = self.earnings_fetcher.create_earnings_articles(analysis)
+                            earnings_articles.extend(articles_from_transcript)
+                        
+                        if earnings_articles:
+                            earnings_analyses[ticker] = {
+                                'analyses': transcript_analyses,
+                                'articles': earnings_articles,
+                                'earnings_date': self.earnings_cache[ticker].get('date', ''),
+                                'quarter': self.earnings_cache[ticker].get('quarter', ''),
+                                'year': self.earnings_cache[ticker].get('year', '')
+                            }
+                            log_info(f"✅ Generated {len(earnings_articles)} earnings articles for {ticker}")
+                            processed_count += 1
+                        else:
+                            log_info(f"⚠️ No usable earnings data for {ticker}")
+                    else:
+                        log_info(f"⚠️ No recent transcripts found for {ticker}")
+                        
+                except Exception as e:
+                    log_error(f"❌ Error processing earnings for {ticker}: {e}")
+                    continue
+            else:
+                log_debug(f"No earnings event found for {ticker}")
+        
+        log_info(f"📅 Earnings analysis complete: {len(earnings_analyses)} tickers with earnings data")
+        return earnings_analyses

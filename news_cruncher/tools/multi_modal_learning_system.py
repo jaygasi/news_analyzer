@@ -439,16 +439,27 @@ class MultiModalLearningSystem:
             
             # Save trained model
             save_path = self.model_save_dir / "enhanced_neural_multimodal_adaptive.pth"
-            
-            torch.save({
-                'model_state_dict': model.state_dict(),
-                'training_timestamp': datetime.now().isoformat(),
-                'num_samples': len(texts),
-                'final_loss': total_loss / self.epochs if self.epochs > 0 else 0,
-                'text_enrichment_applied': True,
-                'training_completed': True,
-                'epochs_trained': self.epochs
-            }, save_path)
+
+            # Save actual model state for learning continuity
+            if hasattr(self.enhanced_analyzer, 'model') and self.enhanced_analyzer.model is not None:
+                torch.save({
+                    'model_state_dict': self.enhanced_analyzer.model.state_dict(),
+                    'enriched_training': True,
+                    'training_timestamp': datetime.now().isoformat(),
+                    'num_samples': len(texts),
+                    'text_enrichment_applied': True,
+                    'training_completed': True
+                }, save_path)
+                log_info(f"💾 Enhanced Neural model state saved to: {save_path}")
+            else:
+                # Fallback metadata only
+                torch.save({
+                    'enriched_training': True,
+                    'training_timestamp': datetime.now().isoformat(),
+                    'num_samples': len(texts),
+                    'training_completed': True
+                }, save_path)
+                log_info(f"💾 Enhanced Neural training metadata saved to: {save_path}")
             
             log_info(f"💾 Enhanced Neural model trained and saved to: {save_path}")
             
@@ -540,6 +551,40 @@ class MultiModalLearningSystem:
         
         log_error("Adaptive learning cycle failed as no model could be trained.")
         return False
+    
+    def save_training_log(self, model_type: str, num_samples: int, performance_metrics: Dict[str, float] = None) -> None:
+        """Save training log for tracking learning progress"""
+        try:
+            log_path = Config.DATA_DIR / 'last_training.json'
+            
+            training_info = {
+                'timestamp': datetime.now().isoformat(),
+                'model_type': model_type,
+                'num_samples': num_samples,
+                'performance_metrics': performance_metrics or {},
+                'learning_enabled': True
+            }
+            
+            # Load existing log if it exists
+            existing_log = {}
+            if log_path.exists():
+                try:
+                    with open(log_path, 'r') as f:
+                        existing_log = json.load(f)
+                except:
+                    pass
+            
+            # Update with new training info
+            existing_log[model_type] = training_info
+            
+            # Save updated log
+            with open(log_path, 'w') as f:
+                json.dump(existing_log, f, indent=2)
+                
+            log_info(f"📝 Training log updated: {log_path}")
+            
+        except Exception as e:
+            log_error(f"Error saving training log: {e}")
 
 def main():
     """Main function for running adaptive learning"""
