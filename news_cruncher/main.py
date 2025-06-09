@@ -448,7 +448,7 @@ class EnhancedFinancialNewsAnalyzer:
                         log_debug(f"🎙️ {ticker}: Includes {len(earnings_articles)} earnings transcript articles")
                 
                 # Small delay to be respectful to APIs
-                await asyncio.sleep(0.3)  # Reduced delay since enhanced neural is local
+                await asyncio.sleep(Config.ANALYSIS_TICKER_DELAY)  # Configurable delay
                 
             except Exception as e:
                 log_error(f"Error in enhanced analysis for {ticker}: {e}")

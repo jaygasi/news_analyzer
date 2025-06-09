@@ -37,13 +37,16 @@ class EnhancedFinancialSentimentModel(nn.Module):
     FIXED: Proper RoBERTa initialization with pooler - maintains full capabilities
     """
     
-    def __init__(self, roberta_model_name: str = "roberta-base", 
+    def __init__(self, roberta_model_name: str = None, 
                  hidden_dim: int = 256, num_classes: int = 3,
                  dropout_rate: float = 0.3):
         super().__init__()
         
         # FIX 1: Load RoBERTa WITH pooler, then properly initialize it
-        log_info("🔧 Loading RoBERTa with proper pooler initialization...")
+        # Use config value if not specified
+        if roberta_model_name is None:
+            roberta_model_name = Config.ENHANCED_NEURAL_ROBERTA_MODEL
+        log_info(f"🔧 Loading RoBERTa with proper pooler initialization: {roberta_model_name}")
         self.roberta = RobertaModel.from_pretrained(
             roberta_model_name,
             add_pooling_layer=True,  # Keep pooler for full capabilities
@@ -305,8 +308,8 @@ class EnhancedNeuralAnalyzer:
         self.tokenizer = None
         
         # Training and optimization settings
-        self.gradient_accumulation_steps = 4
-        self.mixed_precision = torch.cuda.is_available()
+        self.gradient_accumulation_steps = Config.ENHANCED_NEURAL_GRADIENT_ACCUMULATION
+        self.mixed_precision = Config.ENHANCED_NEURAL_MIXED_PRECISION and torch.cuda.is_available()
         
         try:
             self._initialize_model(model_path)
@@ -319,11 +322,14 @@ class EnhancedNeuralAnalyzer:
         """
         log_info("🔧 Initializing Enhanced Neural Model with proper RoBERTa setup...")
         
+        # Get model name from config
+        roberta_model_name = Config.ENHANCED_NEURAL_ROBERTA_MODEL
+        
         # Initialize tokenizer
-        self.tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
+        self.tokenizer = RobertaTokenizer.from_pretrained(roberta_model_name)
         
         # Initialize model with proper pooler initialization
-        self.model = EnhancedFinancialSentimentModel()
+        self.model = EnhancedFinancialSentimentModel(roberta_model_name=roberta_model_name)
         self.model.to(self.device)
         
         # Load checkpoint if available
@@ -634,7 +640,7 @@ class EnhancedNeuralAnalyzer:
             log_debug(f"📚 Added learning sample: {prediction.direction} -> {actual_outcome} (score: {performance_score:.2f}%)")
             
             # Trigger learning if buffer is full
-            if len(self._learning_buffer) >= 10:  # Batch size for incremental learning
+            if len(self._learning_buffer) >= Config.ENHANCED_NEURAL_INCREMENTAL_BATCH_SIZE:  # Batch size for incremental learning
                 self._apply_incremental_learning()
                 
         except Exception as e:
@@ -657,7 +663,7 @@ class EnhancedNeuralAnalyzer:
             self.model.train()
             
             # Quick incremental update
-            optimizer = torch.optim.AdamW(self.model.parameters(), lr=1e-5)  # Lower LR for incremental
+            optimizer = torch.optim.AdamW(self.model.parameters(), lr=Config.ENHANCED_NEURAL_INCREMENTAL_LR)  # Lower LR for incremental
             criterion = nn.CrossEntropyLoss(reduction='none')  # For weighted loss
             
             # Tokenize all texts

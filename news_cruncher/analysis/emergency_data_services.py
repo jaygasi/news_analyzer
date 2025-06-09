@@ -53,7 +53,7 @@ class EmergencyDataServices:
             return None
         
         try:
-            self._rate_limit('alpha_vantage', 12.0)  # 5 calls per minute limit
+            self._rate_limit('alpha_vantage', Config.ALPHA_VANTAGE_DELAY)  # 5 calls per minute limit
             
             # Alpha Vantage News & Sentiment API
             url = "https://www.alphavantage.co/query"
@@ -61,8 +61,8 @@ class EmergencyDataServices:
                 'function': 'NEWS_SENTIMENT',
                 'tickers': ticker,
                 'apikey': Config.ALPHA_VANTAGE_API_KEY,
-                'limit': 20,
-                'time_from': '20240101T0000'  # Recent news only
+                'limit': Config.ALPHA_VANTAGE_LIMIT,
+                'time_from': Config.ALPHA_VANTAGE_LOOKBACK_DATE  # Recent news only
             }
             
             response = self.session.get(url, params=params, timeout=30)
@@ -126,15 +126,15 @@ class EmergencyDataServices:
             return None
         
         try:
-            self._rate_limit('polygon', 12.0)  # 5 calls per minute for free tier
+            self._rate_limit('polygon', Config.POLYGON_DELAY)  # 5 calls per minute for free tier
             
             # Polygon News API
             url = f"https://api.polygon.io/v2/reference/news"
             params = {
                 'ticker': ticker,
-                'published_utc.gte': '2024-01-01',
+                'published_utc.gte': Config.POLYGON_LOOKBACK_DATE,
                 'order': 'desc',
-                'limit': 20,
+                'limit': Config.POLYGON_LIMIT,
                 'apikey': Config.POLYGON_API_KEY
             }
             
@@ -179,7 +179,7 @@ class EmergencyDataServices:
             return None
         
         try:
-            self._rate_limit('tiingo', 1.0)  # Conservative rate limiting
+            self._rate_limit('tiingo', Config.TIINGO_DELAY) # Conservative rate limiting
             
             # Tiingo News API
             url = f"https://api.tiingo.com/tiingo/news"
@@ -189,9 +189,9 @@ class EmergencyDataServices:
             }
             params = {
                 'tickers': ticker,
-                'startDate': '2024-01-01',
+                'startDate': Config.TIINGO_LOOKBACK_DATE,
                 'sortBy': 'publishedDate',
-                'limit': 20
+                'limit': Config.TIINGO_LIMIT
             }
             
             response = self.session.get(url, params=params, headers=headers, timeout=30)

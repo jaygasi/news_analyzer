@@ -139,18 +139,23 @@ class MultiLLMAnalyzer:
         self._init_keyword_analysis()
 
     def _init_service_weights(self) -> None:
-        """Initialize service weights for combining predictions"""
+        """Initialize service weights for combining predictions from config"""
         self.service_weights = {
-            'enhanced_neural': 0.45,  # Highest weight for neural analysis
-            'finbert': 0.25,
-            'gemini': 0.20,
-            'openai': 0.12,
-            'claude': 0.10,
-            'alpha_vantage': 0.08,
-            'polygon': 0.06,
-            'tiingo': 0.04,
-            'keyword': 0.02  # Lowest weight for keyword analysis
+            'enhanced_neural': Config.MULTI_LLM_WEIGHT_ENHANCED_NEURAL,
+            'finbert': Config.MULTI_LLM_WEIGHT_FINBERT,
+            'gemini': Config.MULTI_LLM_WEIGHT_GEMINI,
+            'openai': Config.MULTI_LLM_WEIGHT_OPENAI,
+            'claude': Config.MULTI_LLM_WEIGHT_CLAUDE,
+            'alpha_vantage': Config.MULTI_LLM_WEIGHT_ALPHA_VANTAGE,
+            'polygon': Config.MULTI_LLM_WEIGHT_POLYGON,
+            'tiingo': Config.MULTI_LLM_WEIGHT_TIINGO,
+            'keyword': Config.MULTI_LLM_WEIGHT_KEYWORD
         }
+    
+        # Validate weights sum approximately to 1.0
+        total_weight = sum(self.service_weights.values())
+        if abs(total_weight - 1.0) > 0.1:
+            log_warning(f"Service weights sum to {total_weight:.3f}, should be ~1.0")
 
     def _init_enhanced_keywords(self) -> None:
         """Initialize enhanced keyword lists for analysis"""
@@ -619,7 +624,7 @@ class MultiLLMAnalyzer:
 
             time.sleep(Config.LLM_REQUEST_DELAY)  # Rate limiting
             response = client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model=Config.OPENAI_MODEL_NAME,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=200,
                 temperature=0.1
@@ -648,7 +653,7 @@ class MultiLLMAnalyzer:
 
             time.sleep(Config.LLM_REQUEST_DELAY)  # Rate limiting
             message = client.messages.create(
-                model="claude-3-haiku-20240307",
+                model=Config.CLAUDE_MODEL_NAME,
                 max_tokens=200,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -1013,11 +1018,11 @@ class MultiLLMAnalyzer:
             device = next(self.finbert_model.parameters()).device
             self.finbert_model.train()
             
-            optimizer = torch.optim.AdamW(self.finbert_model.parameters(), lr=1e-5)
+            optimizer = torch.optim.AdamW(self.finbert_model.parameters(), lr=Config.ADAPTIVE_LEARNING_FINBERT_LR)
             criterion = torch.nn.CrossEntropyLoss()
             
             # Process in small batches
-            batch_size = min(4, len(texts))
+            batch_size = min(Config.ADAPTIVE_LEARNING_FINBERT_BATCH_SIZE, len(texts))
             total_loss = 0.0
             
             for i in range(0, len(texts), batch_size):

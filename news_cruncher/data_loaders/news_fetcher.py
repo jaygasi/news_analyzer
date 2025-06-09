@@ -30,12 +30,24 @@ class NewsFetcher(BaseFMPLoader):
         log_info(f"📰 Fetching news from {from_date} to {to_date} ({self.lookback_days} day window)")
 
         # Define news sources with multiple approaches for each
-        news_sources = [
-            ("General Stock News", lambda: self._fetch_stock_news_multi_approach(from_date, to_date)),
-            ("Press Releases", lambda: self._fetch_press_releases_multi_approach(from_date, to_date)),
-            ("Earnings Calendar", lambda: self._fetch_earnings_news(from_date, to_date)),
-            ("Market News", lambda: self._fetch_market_news_multi_approach(from_date, to_date)),
-        ]
+        news_source_mapping = {
+            'stock-news': ("General Stock News", lambda: self._fetch_stock_news_multi_approach(from_date, to_date)),
+            'press-releases': ("Press Releases", lambda: self._fetch_press_releases_multi_approach(from_date, to_date)),
+            'earnings': ("Earnings Calendar", lambda: self._fetch_earnings_news(from_date, to_date)),
+            'general-news': ("Market News", lambda: self._fetch_market_news_multi_approach(from_date, to_date)),
+        }
+
+        news_sources = []
+        for source in Config.NEWS_SOURCES:
+            source = source.strip()
+            if source in news_source_mapping:
+                news_sources.append(news_source_mapping[source])
+            else:
+                log_warning(f"Unknown news source in config: {source}")
+
+        if not news_sources:
+            log_warning("No valid news sources configured, using defaults")
+            news_sources = list(news_source_mapping.values())
 
         # Fetch from each source with detailed logging
         for source_name, fetch_method in news_sources:

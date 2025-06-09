@@ -8,6 +8,7 @@ from typing import Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 from data_loaders.base_fmp_loader import BaseFMPLoader
 from utils.simple_logger import log_debug, log_error
+from config import Config
 
 
 @dataclass
@@ -25,7 +26,7 @@ class TechnicalAnalyzer:
     def __init__(self, fmp_loader: BaseFMPLoader) -> None:
         """Initialize technical analyzer"""
         self.fmp_loader = fmp_loader
-        self.lookback_days = 60  # Days of historical data to analyze
+        self.lookback_days = Config.TECHNICAL_LOOKBACK_DAYS  # Days of historical data to analyze
     
     def analyze_ticker(self, ticker: str) -> Optional[TechnicalSignal]:
         """Perform technical analysis on ticker"""
@@ -135,9 +136,12 @@ class TechnicalAnalyzer:
             log_error(f"Error calculating indicators: {e}")
             return {}
     
-    def _calculate_rsi(self, prices: pd.Series, period: int = 14) -> float:
+    def _calculate_rsi(self, prices: pd.Series, period: int = None) -> float:
         """Calculate RSI (Relative Strength Index)"""
         try:
+            if period is None:
+                period = Config.TECHNICAL_RSI_PERIOD
+
             delta = prices.diff()
             gain = delta.where(delta > 0, 0).rolling(window=period).mean()
             loss = (-delta).where(delta < 0, 0).rolling(window=period).mean()
@@ -150,9 +154,15 @@ class TechnicalAnalyzer:
         except Exception:
             return 50.0
     
-    def _calculate_macd(self, prices: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> Tuple[float, float]:
+    def _calculate_macd(self, prices: pd.Series, fast: int = None, slow: int = None, signal: int = None) -> Tuple[float, float]:
         """Calculate MACD (Moving Average Convergence Divergence)"""
         try:
+            if fast is None:
+                fast = Config.TECHNICAL_MACD_FAST
+            if slow is None:
+                slow = Config.TECHNICAL_MACD_SLOW
+            if signal is None:
+                signal = Config.TECHNICAL_MACD_SIGNAL
             ema_fast = prices.ewm(span=fast).mean()
             ema_slow = prices.ewm(span=slow).mean()
             macd_line = ema_fast - ema_slow
@@ -163,9 +173,13 @@ class TechnicalAnalyzer:
         except Exception:
             return 0.0, 0.0
     
-    def _calculate_bollinger_bands(self, prices: pd.Series, period: int = 20, std_dev: float = 2.0) -> Tuple[float, float, float]:
+    def _calculate_bollinger_bands(self, prices: pd.Series, period: int = None, std_dev: float = None) -> Tuple[float, float, float]:
         """Calculate Bollinger Bands"""
         try:
+            if period is None:
+                period = Config.TECHNICAL_BOLLINGER_PERIOD
+            if std_dev is None:
+                std_dev = Config.TECHNICAL_BOLLINGER_STD_DEV
             sma = prices.rolling(window=period).mean()
             std = prices.rolling(window=period).std()
             

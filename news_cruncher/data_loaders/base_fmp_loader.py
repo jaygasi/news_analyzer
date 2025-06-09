@@ -116,14 +116,8 @@ class BaseFMPLoader:
             log_warning(f"⏭️ Skipping cached failed ticker {ticker} (endpoint: {endpoint}) - Consider clearing cache if this seems wrong")
             return None
         
-        # Rate limiting - ensure minimum interval between requests
-        current_time = time.time()
-        time_since_last = current_time - self.last_request_time
-        
-        if time_since_last < self.min_request_interval:
-            sleep_time = self.min_request_interval - time_since_last
-            time.sleep(sleep_time)
-        
+        # Use comprehensive rate limiting
+        self._rate_limit()
         try:
             # Build URL
             if params is None:

@@ -19,30 +19,10 @@ class Config:
     # ================================================================
     # 🗂️ BASE DIRECTORY CONFIGURATION
     # ================================================================
-    
     # Base Directory (Auto-detected)
     BASE_DIR: Path = Path(__file__).parent
     DATA_DIR: Path = BASE_DIR / 'data'
     OUTPUT_DIR: Path = BASE_DIR / 'output'
-    
-    # ADD THIS LINE:
-    LOG_FILE_PATH: Path = OUTPUT_DIR / 'system.log'# Existing config variables
-    
-    # 📋 CSV Output File
-    # EFFECT: Where trading decisions are logged
-    # MODIFY: Change filename if you want multiple output files
-    CSV_OUTPUT_PATH: Path = OUTPUT_DIR / 'trading_decisions.csv'
-    
-    # 💾 SQLite Database File
-    # EFFECT: Tracks processed articles to prevent reprocessing
-    # WARNING: Deleting this file will cause all articles to be reprocessed
-    SQLITE_DB_PATH: Path = DATA_DIR / 'article_tracking.db'
-    DB_TIMEOUT: int = 30  # Database connection timeout in seconds
-    # 🧠 NEW: Enhanced Neural Model Cache
-    # EFFECT: Where to cache/store enhanced neural model weights
-    # PERFORMANCE: Local storage for faster model loading
-    ENHANCED_NEURAL_MODEL_PATH: Path = DATA_DIR / 'enhanced_neural_model.pth'
-    
     # ================================================================
     # 💰 CONFIGURABLE PRICE TRACKING INTERVALS
     # ================================================================
@@ -73,7 +53,7 @@ class Config:
     #          15:55 = 3:55 PM (5 min before close)
     # CSV FIELD: Always logged as 'price_close' regardless of actual time
     CLOSE_PRICE_HOUR: int = int(os.getenv('CLOSE_PRICE_HOUR', '15'))  # 24-hour format (15 = 3 PM)
-    CLOSE_PRICE_MINUTE: int = int(os.getenv('CLOSE_PRICE_MINUTE', '50'))  # 50 = :50 minutes
+    CLOSE_PRICE_MINUTE: int = int(os.getenv('CLOSE_PRICE_MINUTE', '30'))  # 50 = :50 minutes
     
     # ⏰ Price Fetch Tolerance (Market Hours Logic)
     # EFFECT: How flexible to be when market is closed or weekend
@@ -83,28 +63,44 @@ class Config:
     PRICE_FETCH_MARKET_TOLERANCE_MINUTES: int = 30  # 30 min before/after market hours
     PRICE_FETCH_AFTER_HOURS_TOLERANCE_HOURS: int = 2   # 2 hours after market close  
     PRICE_FETCH_WEEKEND_TOLERANCE_HOURS: int = 48      # 48 hours into weekend
-    
-    PRICE_TRACKER_CHECK_INTERVAL: int = int(os.getenv('PRICE_TRACKER_CHECK_INTERVAL', '5'))  # Minutes between checks
-    
-    # 🔄 Background Price Monitoring Frequency
-    # CURRENT: 5 minutes
+
+    # 🔄 Background Price Monitoring Frequency for PriceTracker
     # EFFECT: How often the background scheduler checks for due price reads
-    # RANGE: 1-60 minutes recommended. Too frequent = more resource usage.
-    TRADE_MONITOR_INTERVAL_MINUTES: int = int(os.getenv('TRADE_MONITOR_INTERVAL_MINUTES', '5'))
-      
-    # ================================================================
-    # 🛠️ Logging Settings
-    # ================================================================
-        # NEW: Rejected stock logging configuration
-    ENABLE_REJECTED_STOCK_LOGGING = True  # Set to False to disable rejected stock logging
-    MAX_REJECTED_STOCKS_TO_LOG = 30  # Number of rejected stocks to log (set to 0 to disable)
-    
-    # NEW: CSV logging configuration  
-    ONLY_LOG_TRADING_DECISIONS = False  # Only log LONG/SHORT decisions, skip NONE
-    
+    PRICE_TRACKER_CHECK_INTERVAL: int = int(os.getenv('PRICE_TRACKER_CHECK_INTERVAL', '5'))  # Minutes
+
     # NEW: Price tracking scheduler configuration
     START_SCHEDULER_ON_FIRST_DECISION = True  # Wait for first trading decision before starting scheduler
-    
+
+    # ================================================================
+    # 💾 DATABASE & CACHE CONFIGURATION
+    # ================================================================
+    # Tracks processed articles to prevent reprocessing
+    SQLITE_DB_PATH: Path = DATA_DIR / 'article_tracking.db'
+    DB_TIMEOUT: int = 30  # Database connection timeout in seconds
+
+    # Cache for FMP API failed tickers (prevents repeated calls to bad tickers)
+    ENABLE_FAILED_TICKER_CACHE = False          # Disable during debugging
+    FAILED_TICKER_CACHE_DAYS = 30              # Days to cache failed tickers
+    FAILED_TICKER_MAX_RETRIES = 3              # How many failures before caching
+    FAILED_TICKER_CACHE_DB = DATA_DIR / "failed_tickers_cache.db"  # SQLite cache file
+
+    # Cache for earnings related data
+    EARNINGS_CACHE_HOURS: int = int(os.getenv('EARNINGS_CACHE_HOURS', '6'))
+    FAILED_EARNINGS_CACHE_FILENAME: str = os.getenv('FAILED_EARNINGS_CACHE_FILENAME', 'failed_earnings_cache.json')
+    FAILED_EARNINGS_CACHE_EXPIRY_HOURS: int = int(os.getenv('FAILED_EARNINGS_CACHE_EXPIRY_HOURS', '24'))
+
+    # ================================================================
+    # 🛠️ LOGGING & DEBUGGING CONFIGURATION
+    # ================================================================
+    LOG_FILE_PATH: Path = OUTPUT_DIR / 'system.log'
+    CSV_OUTPUT_PATH: Path = OUTPUT_DIR / 'trading_decisions.csv'
+    ONLY_LOG_TRADING_DECISIONS = False  # If True, only log LONG/SHORT decisions to CSV, skip NONE
+
+    # Rejected stock logging (for TickerFilterEngine)
+    ENABLE_REJECTED_STOCK_LOGGING = True  # Set to False to disable rejected stock logging
+    MAX_REJECTED_STOCKS_TO_LOG = 30  # Number of rejected stocks to log (set to 0 to disable)
+    DECISION_DEBUG_MODE: bool = os.getenv('DECISION_DEBUG_MODE', 'false').lower() == 'true' # Detailed logging for decision engine
+
     # ================================================================
     # 📅 EARNINGS EVENT ANALYSIS CONFIGURATION
     # ================================================================
@@ -112,44 +108,16 @@ class Config:
     # Enable/disable earnings event analysis
     ENABLE_EARNINGS_EVENTS: bool = os.getenv('ENABLE_EARNINGS_EVENTS', 'true').lower() == 'true'
     
-    # FIXED: Add the missing MAX_EARNINGS_EVENTS_PER_CYCLE configuration
     # Maximum number of earnings transcripts to fetch per cycle
-    # CURRENT: 15 transcripts per cycle
-    # EFFECT: Limits API usage and processing time for earnings transcripts
-    # RANGE: 5-50 recommended depending on API quota
-    # EXAMPLE: 5 = conservative, faster processing
-    #          25 = comprehensive analysis, higher API usage
     MAX_EARNINGS_EVENTS_PER_CYCLE: int = int(os.getenv('MAX_EARNINGS_EVENTS_PER_CYCLE', '15'))
     
     # Earnings event detection window (days)
     EARNINGS_LOOKBACK_DAYS: int = int(os.getenv('EARNINGS_LOOKBACK_DAYS', '3'))
     EARNINGS_LOOKAHEAD_DAYS: int = int(os.getenv('EARNINGS_LOOKAHEAD_DAYS', '7'))
     
-    # Earnings analysis confidence thresholds
-    MIN_EARNINGS_CONFIDENCE: float = float(os.getenv('MIN_EARNINGS_CONFIDENCE', '0.6'))
-    
-    # 2-way scoring weights (traditional: news + technical)
-    NEWS_WEIGHT_2WAY: float = float(os.getenv('NEWS_WEIGHT_2WAY', '0.70'))
-    TECHNICAL_WEIGHT_2WAY: float = float(os.getenv('TECHNICAL_WEIGHT_2WAY', '0.30'))
-
-    # Component-specific confidence thresholds
-    MIN_NEWS_CONFIDENCE: float = float(os.getenv('MIN_NEWS_CONFIDENCE', '0.5'))
-    MIN_TECHNICAL_CONFIDENCE: float = float(os.getenv('MIN_TECHNICAL_CONFIDENCE', '0.4'))
-
-    # Scoring weights for 3-way analysis
-    NEWS_WEIGHT_3WAY: float = float(os.getenv('NEWS_WEIGHT_3WAY', '0.40'))
-    EARNINGS_WEIGHT_3WAY: float = float(os.getenv('EARNINGS_WEIGHT_3WAY', '0.30'))
-    TECHNICAL_WEIGHT_3WAY: float = float(os.getenv('TECHNICAL_WEIGHT_3WAY', '0.30'))
-    
-    # Cache settings for earnings data
-    EARNINGS_CACHE_HOURS: int = int(os.getenv('EARNINGS_CACHE_HOURS', '6'))
-    
-    # NEW: Earnings Integration Manager specific configurations
+    # Earnings Integration Manager specific configurations
     EARNINGS_CALENDAR_RETRY_MINUTES: int = int(os.getenv('EARNINGS_CALENDAR_RETRY_MINUTES', '30'))
-    FAILED_EARNINGS_CACHE_FILENAME: str = os.getenv('FAILED_EARNINGS_CACHE_FILENAME', 'failed_earnings_cache.json')
-    FAILED_EARNINGS_CACHE_EXPIRY_HOURS: int = int(os.getenv('FAILED_EARNINGS_CACHE_EXPIRY_HOURS', '24'))
     EARNINGS_TRANSCRIPT_LOOKBACK_QUARTERS: int = int(os.getenv('EARNINGS_TRANSCRIPT_LOOKBACK_QUARTERS', '2'))
-
 
     @classmethod
     def _get_tolerance_settings(cls): # New helper method to return tolerance for cleaner use
@@ -158,7 +126,7 @@ class Config:
             'after_hours_hours': cls.PRICE_FETCH_AFTER_HOURS_TOLERANCE_HOURS,
             'weekend_hours': cls.PRICE_FETCH_WEEKEND_TOLERANCE_HOURS
         }
-        
+
     @classmethod
     def get_enabled_llm_services(cls) -> List[str]:
         """
@@ -196,16 +164,11 @@ class Config:
     # GET KEY: https://financialmodelingprep.com/developer/docs
     FMP_API_KEY: str = os.getenv('FMP_API_KEY', '')
     FMP_REQUESTS_PER_MINUTE: int = int(os.getenv('FMP_REQUESTS_PER_MINUTE', '10'))
-    # Enhanced API rate limiting (to prevent 429 errors)
     FMP_MIN_REQUEST_INTERVAL = 0.2  # Minimum seconds between FMP API requests (5 per second max)
     FMP_RETRY_DELAY = 60  # Seconds to wait after 429 error before retry
-    
-    # Failed ticker caching (prevents repeated API calls to bad tickers)
-    ENABLE_FAILED_TICKER_CACHE = False          # Disable during debugging
-    FAILED_TICKER_CACHE_DAYS = 30              # Days to cache failed tickers
-    FAILED_TICKER_MAX_RETRIES = 3              # How many failures before caching
-    FAILED_TICKER_CACHE_DB = "data/failed_tickers_cache.db"  # SQLite cache file
-    
+
+    # --- LLM & Analysis Services ---
+
     # 🧠 Enhanced Neural Analysis - HIGHEST ACCURACY
     # CURRENT: ENABLED (94-96% accuracy)
     # EFFECT: Uses RoBERTa+LSTM+CNN for superior sentiment analysis
@@ -213,16 +176,20 @@ class Config:
     # PERFORMANCE: ~2-4GB RAM, 15-20 sec/ticker, GPU accelerated
     ENABLE_ENHANCED_NEURAL: bool = os.getenv('ENABLE_ENHANCED_NEURAL', 'true').lower() == 'true'
     
-    # Enhanced Neural Analyzer Settings
+    # Enhanced Neural Analyzer Model & Training Settings
+    ENHANCED_NEURAL_MODEL_PATH: Path = DATA_DIR / 'enhanced_neural_model.pth' # Path for pre-trained/base model
+    ENHANCED_NEURAL_ROBERTA_MODEL: str = os.getenv('ENHANCED_NEURAL_ROBERTA_MODEL', 'roberta-base')
     ENHANCED_NEURAL_MIXED_PRECISION: bool = os.getenv('ENHANCED_NEURAL_MIXED_PRECISION', 'true').lower() == 'true'
     ENHANCED_NEURAL_GRADIENT_ACCUMULATION: int = int(os.getenv('ENHANCED_NEURAL_GRADIENT_ACCUMULATION', '4'))
     ENHANCED_NEURAL_WARMUP: bool = True  # Enable model warming
-    
-    # ADD to config.py:
+    ENHANCED_NEURAL_INCREMENTAL_LR: float = float(os.getenv('ENHANCED_NEURAL_INCREMENTAL_LR', '1e-5')) # For continuous learning
+    ENHANCED_NEURAL_INCREMENTAL_BATCH_SIZE: int = int(os.getenv('ENHANCED_NEURAL_INCREMENTAL_BATCH_SIZE', '10')) # For continuous learning
+    # Performance tuning for PyTorch
     CUDA_VISIBLE_DEVICES: str = os.getenv('CUDA_VISIBLE_DEVICES', '0')
     OMP_NUM_THREADS: int = int(os.getenv('OMP_NUM_THREADS', '8'))
     MKL_NUM_THREADS: int = int(os.getenv('MKL_NUM_THREADS', '8'))
-    # 🤖 FinBERT Financial Sentiment Analysis - HIGH ACCURACY
+
+    # 🤖 FinBERT Financial Sentiment Analysis
     # CURRENT: ENABLED (~85% accuracy)
     # EFFECT: Financial domain-specific BERT model for sentiment
     # COST: Free (runs locally)
@@ -235,18 +202,21 @@ class Config:
     # GET KEY: https://makersuite.google.com/app/apikey
     GEMINI_API_KEY: str = os.getenv('GEMINI_API_KEY', '')
     ENABLE_GEMINI: bool = os.getenv('ENABLE_GEMINI', 'false').lower() == 'true'
-    GEMINI_MODEL: str = os.getenv('GEMINI_MODEL', 'gemini-pro')
+    GEMINI_MODEL: str = os.getenv('GEMINI_MODEL', 'gemini-1.5-flash-latest') # Updated to a newer model
+
     # 🔵 OpenAI GPT - OPTIONAL HIGH QUALITY
     # EFFECT: ChatGPT/GPT-4 for sentiment analysis
     # COST: Pay-per-use, typically $0.01-0.10 per ticker
     # GET KEY: https://platform.openai.com/api-keys
     OPENAI_API_KEY: str = os.getenv('OPENAI_API_KEY', '')
     ENABLE_OPENAI: bool = os.getenv('ENABLE_OPENAI', 'false').lower() == 'true'
-    
+    OPENAI_MODEL_NAME: str = os.getenv('OPENAI_MODEL_NAME', 'gpt-4o-mini') # Updated to a newer model
+
     # 🟣 Anthropic Claude - OPTIONAL HIGH QUALITY  
-    # EFFECT: Claude for sophisticated analysis
+    # EFFECT: Claude for so phisticated analysis
     # COST: Pay-per-use, competitive pricing
     # GET KEY: https://console.anthropic.com/
+    CLAUDE_MODEL_NAME: str = os.getenv('CLAUDE_MODEL_NAME', 'claude-3-haiku-20240307')
     CLAUDE_API_KEY: str = os.getenv('CLAUDE_API_KEY', '')
     ENABLE_CLAUDE: bool = os.getenv('ENABLE_CLAUDE', 'false').lower() == 'true'
     
@@ -256,27 +226,64 @@ class Config:
     # GET KEY: https://www.alphavantage.co/support/#api-key
     ALPHA_VANTAGE_API_KEY: str = os.getenv('ALPHA_VANTAGE_API_KEY', '')
     ENABLE_ALPHA_VANTAGE: bool = os.getenv('ENABLE_ALPHA_VANTAGE', 'false').lower() == 'true'
-    
+    ALPHA_VANTAGE_LIMIT: int = int(os.getenv('ALPHA_VANTAGE_LIMIT', '20'))
+    ALPHA_VANTAGE_DELAY: float = float(os.getenv('ALPHA_VANTAGE_DELAY', '12.0')) # ~5 calls per minute
+    ALPHA_VANTAGE_LOOKBACK_DATE: str = os.getenv('ALPHA_VANTAGE_LOOKBACK_DATE', '20240101T0000') # YYYYMMDDTHHMM
+
     # 🔺 Polygon - FALLBACK SERVICE
     # EFFECT: Market news and sentiment
     # COST: Free tier available
     # GET KEY: https://polygon.io/
     POLYGON_API_KEY: str = os.getenv('POLYGON_API_KEY', '')
     ENABLE_POLYGON: bool = os.getenv('ENABLE_POLYGON', 'false').lower() == 'true'
-    
+    POLYGON_LIMIT: int = int(os.getenv('POLYGON_LIMIT', '20'))
+    POLYGON_DELAY: float = float(os.getenv('POLYGON_DELAY', '12.0')) # ~5 calls per minute for free tier
+    POLYGON_LOOKBACK_DATE: str = os.getenv('POLYGON_LOOKBACK_DATE', '2024-01-01') # YYYY-MM-DD
+
     # 📈 Tiingo - FALLBACK SERVICE  
     # EFFECT: Financial news analysis
     # COST: Free tier available
     # GET KEY: https://api.tiingo.com/
     TIINGO_API_KEY: str = os.getenv('TIINGO_API_KEY', '')
     ENABLE_TIINGO: bool = os.getenv('ENABLE_TIINGO', 'false').lower() == 'true'
-    
+    TIINGO_LIMIT: int = int(os.getenv('TIINGO_LIMIT', '20'))
+    TIINGO_DELAY: float = float(os.getenv('TIINGO_DELAY', '1.0')) # Conservative rate limiting
+    TIINGO_LOOKBACK_DATE: str = os.getenv('TIINGO_LOOKBACK_DATE', '2024-01-01') # YYYY-MM-DD
+
+    # --- Multi-LLM Aggregator Weights ---
+    # Multi-LLM Service Weights (should sum to ~1.0)
+    MULTI_LLM_WEIGHT_ENHANCED_NEURAL: float = float(os.getenv('MULTI_LLM_WEIGHT_ENHANCED_NEURAL', '0.45'))
+    MULTI_LLM_WEIGHT_FINBERT: float = float(os.getenv('MULTI_LLM_WEIGHT_FINBERT', '0.25'))
+    MULTI_LLM_WEIGHT_GEMINI: float = float(os.getenv('MULTI_LLM_WEIGHT_GEMINI', '0.20'))
+    MULTI_LLM_WEIGHT_OPENAI: float = float(os.getenv('MULTI_LLM_WEIGHT_OPENAI', '0.12'))
+    MULTI_LLM_WEIGHT_CLAUDE: float = float(os.getenv('MULTI_LLM_WEIGHT_CLAUDE', '0.10'))
+    MULTI_LLM_WEIGHT_ALPHA_VANTAGE: float = float(os.getenv('MULTI_LLM_WEIGHT_ALPHA_VANTAGE', '0.08'))
+    MULTI_LLM_WEIGHT_POLYGON: float = float(os.getenv('MULTI_LLM_WEIGHT_POLYGON', '0.06'))
+    MULTI_LLM_WEIGHT_TIINGO: float = float(os.getenv('MULTI_LLM_WEIGHT_TIINGO', '0.04'))
+    MULTI_LLM_WEIGHT_KEYWORD: float = float(os.getenv('MULTI_LLM_WEIGHT_KEYWORD', '0.02'))    
+
     # 🔤 Enhanced Keyword Sentiment - ULTRA FALLBACK
     # EFFECT: Rule-based sentiment analysis as last resort
     # COST: Free (built-in)
     # ACCURACY: ~60-70% (basic but reliable)
     ENABLE_KEYWORD_SENTIMENT: bool = os.getenv('ENABLE_KEYWORD_SENTIMENT', 'true').lower() == 'true'
-    
+
+    # ================================================================
+    # ⚙️ TECHNICAL ANALYSIS CONFIGURATION
+    # ================================================================
+    TECHNICAL_LOOKBACK_DAYS: int = int(os.getenv('TECHNICAL_LOOKBACK_DAYS', '60'))
+    TECHNICAL_RSI_PERIOD: int = int(os.getenv('TECHNICAL_RSI_PERIOD', '14'))
+    TECHNICAL_MACD_FAST: int = int(os.getenv('TECHNICAL_MACD_FAST', '12'))
+    TECHNICAL_MACD_SLOW: int = int(os.getenv('TECHNICAL_MACD_SLOW', '26'))
+    TECHNICAL_MACD_SIGNAL: int = int(os.getenv('TECHNICAL_MACD_SIGNAL', '9'))
+    TECHNICAL_BOLLINGER_PERIOD: int = int(os.getenv('TECHNICAL_BOLLINGER_PERIOD', '20'))
+    TECHNICAL_BOLLINGER_STD_DEV: float = float(os.getenv('TECHNICAL_BOLLINGER_STD_DEV', '2.0'))
+
+    # ================================================================
+    # 🎓 ADAPTIVE LEARNING - FINBERT SPECIFIC (used by MultiLLMAnalyzer)
+    # ================================================================
+    ADAPTIVE_LEARNING_FINBERT_LR: float = float(os.getenv('ADAPTIVE_LEARNING_FINBERT_LR', '1e-5'))
+    ADAPTIVE_LEARNING_FINBERT_BATCH_SIZE: int = int(os.getenv('ADAPTIVE_LEARNING_FINBERT_BATCH_SIZE', '4'))
     # ================================================================
     # 🔍 ENHANCED FUNDAMENTAL FILTERING CONFIGURATION
     # ================================================================
@@ -305,18 +312,23 @@ class Config:
     ALLOWED_EXCHANGES: List[str] = os.getenv('ALLOWED_EXCHANGES', 'NASDAQ,NYSE,NYSEArca,CBOE,BATS,AMEX').split(',')
     
     # ================================================================
-    # 📊 ANALYSIS THRESHOLDS & LIMITS
+    # ⚖️ DECISION ENGINE & SCORING CONFIGURATION
     # ================================================================
-    
-    # 🎯 Decision Confidence Threshold
-    # CURRENT: 0.6 (60% confidence minimum)
-    # EFFECT: Only decisions above this confidence are logged/tracked
-    # RANGE: 0.5-0.9 recommended
-    # EXAMPLE: 0.5 = more decisions, lower quality
-    #          0.8 = fewer decisions, higher quality
-    MIN_CONFIDENCE_THRESHOLD: float = float(os.getenv('MIN_CONFIDENCE_THRESHOLD', '0.6'))
-    DECISION_DEBUG_MODE: bool = os.getenv('DECISION_DEBUG_MODE', 'false').lower() == 'true'
-    
+    MIN_CONFIDENCE_THRESHOLD: float = float(os.getenv('MIN_CONFIDENCE_THRESHOLD', '0.6')) # Overall decision confidence
+    MIN_NEWS_CONFIDENCE: float = float(os.getenv('MIN_NEWS_CONFIDENCE', '0.5')) # Min confidence for news component
+    MIN_TECHNICAL_CONFIDENCE: float = float(os.getenv('MIN_TECHNICAL_CONFIDENCE', '0.4')) # Min confidence for technical component
+    MIN_EARNINGS_CONFIDENCE: float = float(os.getenv('MIN_EARNINGS_CONFIDENCE', '0.6')) # Min confidence for earnings component
+    # Scoring weights for 2-way analysis (news + technical)
+    NEWS_WEIGHT_2WAY: float = float(os.getenv('NEWS_WEIGHT_2WAY', '0.70'))
+    TECHNICAL_WEIGHT_2WAY: float = float(os.getenv('TECHNICAL_WEIGHT_2WAY', '0.30'))
+    # Scoring weights for 3-way analysis (news + earnings + technical)
+    NEWS_WEIGHT_3WAY: float = float(os.getenv('NEWS_WEIGHT_3WAY', '0.40'))
+    EARNINGS_WEIGHT_3WAY: float = float(os.getenv('EARNINGS_WEIGHT_3WAY', '0.30'))
+    TECHNICAL_WEIGHT_3WAY: float = float(os.getenv('TECHNICAL_WEIGHT_3WAY', '0.30'))
+
+    # ================================================================
+    # 📰 NEWS FETCHING & PROCESSING CONFIGURATION
+    # ================================================================
     # 📰 News Article Limits
     # CURRENT: 1000 articles per cycle
     # EFFECT: Caps total articles processed to manage API costs and speed
@@ -326,7 +338,7 @@ class Config:
     #          2000 = more comprehensive analysis, higher costs
     MAX_NEWS_ARTICLES: int = int(os.getenv('MAX_NEWS_ARTICLES', '1000'))
     
-    # 🎯 Ticker Analysis Limit
+    # 🎯 Ticker Analysis Limit (per cycle)
     # CURRENT: 100 tickers per cycle
     # EFFECT: Maximum tickers to run full analysis on (prioritized by article count)
     # RANGE: 25-200 tickers recommended
@@ -335,11 +347,11 @@ class Config:
     #          200 = comprehensive coverage, slower processing
     MAX_TICKERS_TO_ANALYZE: int = int(os.getenv('MAX_TICKERS_TO_ANALYZE', '100'))
     
-    # 📝 News Source Configuration
+    # 📝 News Sources to Fetch
     # CURRENT: Multiple sources including earnings, press releases, general news
     # EFFECT: Which news types to fetch and analyze
     # SOURCES: earnings, press-releases, stock-news, general-news, earnings-transcripts
-    NEWS_SOURCES: List[str] = os.getenv('NEWS_SOURCES', 'earnings,press-releases,stock-news').split(',')
+    NEWS_SOURCES: List[str] = os.getenv('NEWS_SOURCES', 'earnings,press-releases,stock-news,general-news').split(',')
     
     # ⏱️ LLM Request Delay
     # CURRENT: 1.0 seconds between LLM API calls
@@ -348,12 +360,12 @@ class Config:
     # NOTE: Enhanced neural analysis is local, no API delay needed
     # EXAMPLE: 0.5 = faster processing, risk of rate limits
     #          2.0 = conservative, guaranteed to stay under limits
-    LLM_REQUEST_DELAY: float = float(os.getenv('LLM_REQUEST_DELAY', '1.0'))
-    
+    LLM_REQUEST_DELAY: float = float(os.getenv('LLM_REQUEST_DELAY', '0.5')) # Reduced default
+
     # ================================================================
-    # ⏰ TIMING & SCHEDULING CONFIGURATION
+    # ⏰ MAIN APPLICATION CYCLE & SCHEDULING
     # ================================================================
-    
+    ANALYSIS_TICKER_DELAY: float = float(os.getenv('ANALYSIS_TICKER_DELAY', '0.1')) # Delay between analyzing each ticker in a cycle
     # 🔄 Main Cycle Interval
     # CURRENT: 5 minutes between analysis cycles
     # EFFECT: How often to fetch news and make new decisions
@@ -368,11 +380,7 @@ class Config:
     # RANGE: 1-72 hours recommended
     # NOTE: Longer lookback = more articles but older news
     DEFAULT_NEWS_LOOKBACK_HOURS: int = int(os.getenv('DEFAULT_NEWS_LOOKBACK_HOURS', '24'))
-    MAX_NEWS_AGE_HOURS: int = int(os.getenv('MAX_NEWS_AGE_HOURS', '48'))
-    
-    # ================================================================
-    # 🆕 DYNAMIC LABELING METHODS FOR CONFIGURABLE INTERVALS
-    # ================================================================
+    MAX_NEWS_AGE_HOURS: int = int(os.getenv('MAX_NEWS_AGE_HOURS', '72')) # Increased max age
     
     @classmethod
     def get_price_check_labels(cls) -> List[str]:
@@ -407,8 +415,6 @@ class Config:
             'tracking_status'
         ]
     
-    # In config.py - Update the get_checkpoint_info() method
-
     @classmethod 
     def get_checkpoint_info(cls) -> List[Dict[str, Any]]:
         """
@@ -440,10 +446,6 @@ class Config:
                 'description': f'Market close price at {cls.CLOSE_PRICE_HOUR:02d}:{cls.CLOSE_PRICE_MINUTE:02d} EST'
             }
         ]
-    
-    # ================================================================
-    # 📊 ENHANCED SYSTEM STATUS & REPORTING
-    # ================================================================
     
     @classmethod
     def get_system_config_summary(cls) -> Dict[str, Any]:
@@ -489,43 +491,6 @@ class Config:
                 'max_transcripts_per_cycle': cls.MAX_EARNINGS_EVENTS_PER_CYCLE
             }
         }
-    
-    # ================================================================
-    # 🆕 DYNAMIC LABELING METHODS FOR CONFIGURABLE INTERVALS
-    # ================================================================
-    
-    @classmethod
-    def get_price_check_labels(cls) -> List[str]:
-        """Get dynamic labels for price checks showing actual intervals"""
-        checkpoint_info = cls.get_checkpoint_info()
-        return [checkpoint['short_label'] for checkpoint in checkpoint_info]
-    
-    @classmethod
-    def get_csv_price_headers(cls) -> List[str]:
-        """Get generic CSV headers for price tracking (never change)"""
-        return [
-            # Entry price
-            'recommendation_price',
-            'recommendation_timestamp',
-            
-            # Checkpoint 1 (generic names)
-            'price_checkpoint1',
-            'price_checkpoint1_timestamp',
-            'price_checkpoint1_change_pct',
-            
-            # Checkpoint 2 (generic names) 
-            'price_checkpoint2',
-            'price_checkpoint2_timestamp',
-            'price_checkpoint2_change_pct',
-            
-            # Close price (generic name)
-            'price_close',
-            'price_close_timestamp', 
-            'price_close_change_pct',
-            
-            # Tracking metadata
-            'tracking_status'
-        ]
     
     @classmethod
     def create_directories(cls) -> None:
@@ -573,7 +538,7 @@ class Config:
         return issues
 
 # ================================================================
-# 🧠 ADAPTIVE LEARNING CONFIGURATION
+# 🧠 ADAPTIVE LEARNING SYSTEM CONFIGURATION (MultiModalLearningSystem)
 # ================================================================
     ENABLE_ADAPTIVE_LEARNING: bool = os.getenv('ENABLE_ADAPTIVE_LEARNING', 'False').lower() == 'true'
     ADAPTIVE_LEARNING_MIN_TRADES: int = int(os.getenv('ADAPTIVE_LEARNING_MIN_TRADES', '10'))
@@ -604,12 +569,10 @@ class Config:
     ADAPTIVE_PROCESSORS: Path = DATA_DIR / 'data_processors.pkl'
     LAST_TRAINING_LOG: Path = DATA_DIR / 'last_training.json'
 
-
 # ================================================================
 # 📋 CONFIGURATION USAGE EXAMPLES & DOCUMENTATION
 # ================================================================
-
-CONFIG_USAGE_EXAMPLES = """
+CONFIG_USAGE_GUIDE = """
 🔧 Enhanced Configuration Usage Examples:
 
 ⚡ PERFORMANCE OPTIMIZATION:
