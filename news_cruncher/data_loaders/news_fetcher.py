@@ -6,7 +6,6 @@ from typing import List, Dict, Any
 from datetime import datetime, timezone, timedelta
 import time
 from data_loaders.base_fmp_loader import BaseFMPLoader
-from data_loaders.earnings_transcript_fetcher import EarningsTranscriptFetcher
 from utils.simple_logger import log_info, log_error, log_debug, log_warning
 from config import Config
 
@@ -15,13 +14,10 @@ class NewsFetcher(BaseFMPLoader):
     """Enhanced news fetcher with comprehensive debugging and earnings transcript integration"""
 
     def __init__(self, api_key: str) -> None:
-        """Initialize news fetcher with earnings transcript capability"""
+        """Initialize news fetcher (simplified)"""
         super().__init__(api_key)
         self.lookback_days = 3  # Increased from 2 to 3 days for better coverage
-        
-        # FIXED: Initialize earnings transcript fetcher properly
-        self.earnings_fetcher = EarningsTranscriptFetcher(api_key)
-        log_info("✅ Earnings transcript analysis capability initialized")
+        log_info("✅ News fetcher initialized")
 
     def fetch_all_news(self) -> List[Dict[str, Any]]:
         """Fetch news from all sources including earnings transcripts with comprehensive error handling"""
@@ -40,11 +36,7 @@ class NewsFetcher(BaseFMPLoader):
             ("Earnings Calendar", lambda: self._fetch_earnings_news(from_date, to_date)),
             ("Market News", lambda: self._fetch_market_news_multi_approach(from_date, to_date)),
         ]
-        
-        # FIXED: Add earnings transcripts as a news source if enabled
-        if Config.ENABLE_EARNINGS_EVENTS:
-            news_sources.append(("Earnings Transcripts", lambda: self._fetch_earnings_transcripts()))
-        
+
         # Fetch from each source with detailed logging
         for source_name, fetch_method in news_sources:
             try:
@@ -76,94 +68,6 @@ class NewsFetcher(BaseFMPLoader):
             log_info(f"   📰 {source}: {count} articles")
         
         return all_news
-
-    # FIXED: Add earnings transcript fetching method
-    def _fetch_earnings_transcripts(self) -> List[Dict[str, Any]]:
-        """Fetch earnings call transcripts and convert to article format"""
-        try:
-            log_debug("Fetching earnings call transcripts...")
-            
-            # Get priority tickers for transcript analysis
-            priority_tickers = self._get_priority_tickers_for_transcripts()
-            
-            if not priority_tickers:
-                log_debug("No priority tickers found for transcript analysis")
-                return []
-            
-            # Limit to configured maximum to control API usage
-            max_transcripts = Config.MAX_EARNINGS_EVENTS_PER_CYCLE
-            limited_tickers = priority_tickers[:max_transcripts]
-            
-            log_debug(f"Fetching transcripts for {len(limited_tickers)} priority tickers (max: {max_transcripts})")
-            
-            transcript_articles = []
-            successful_fetches = 0
-            
-            for ticker in limited_tickers:
-                try:
-                    # Fetch recent transcripts (last 2 quarters)
-                    transcripts = self.earnings_fetcher.fetch_recent_transcripts(ticker, lookback_quarters=2)
-                    
-                    if transcripts:
-                        successful_fetches += 1
-                        # Convert each analysis to article format
-                        for analysis in transcripts:
-                            articles = self.earnings_fetcher.create_earnings_articles(analysis)
-                            transcript_articles.extend(articles)
-                            log_debug(f"Created {len(articles)} articles from {ticker} Q{analysis.quarter} {analysis.year}")
-                    
-                    # Rate limiting to be respectful to API
-                    time.sleep(0.5)
-                    
-                except Exception as e:
-                    log_debug(f"Failed to fetch transcript for {ticker}: {e}")
-                    continue
-            
-            log_info(f"✅ Earnings transcripts: {len(transcript_articles)} articles from {successful_fetches}/{len(limited_tickers)} successful fetches")
-            return transcript_articles
-            
-        except Exception as e:
-            log_error(f"Error in earnings transcript fetching: {e}")
-            return []
-    def _get_priority_tickers_for_transcripts(self) -> List[str]:
-        """Get tickers from earnings calendar, prioritizing US major companies"""
-        try:
-            from data_loaders.earnings_integration_manager import EarningsIntegrationManager
-            
-            # Use same earnings manager that found CODI
-            earnings_manager = EarningsIntegrationManager(self)
-            earnings_manager._refresh_earnings_cache()
-            
-            if not earnings_manager.earnings_cache:
-                return self._get_fallback_transcript_tickers()
-            
-            # Filter for US companies most likely to have transcripts
-            us_major_tickers = []
-            all_calendar_tickers = list(earnings_manager.earnings_cache.keys())
-            
-            # Prioritize US-listed major companies
-            for ticker in all_calendar_tickers:
-                # Skip international exchanges and small companies
-                if (not any(suffix in ticker for suffix in ['.L', '.SS', '.HE', '.V', '.NZ']) and
-                    len(ticker) <= 5 and  # Skip very long ticker symbols
-                    not any(char in ticker for char in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'])):  # Skip numeric tickers
-                    us_major_tickers.append(ticker)
-            
-            if us_major_tickers:
-                limited = us_major_tickers[:Config.MAX_EARNINGS_EVENTS_PER_CYCLE]
-                log_info(f"📅 Using {len(limited)} US calendar tickers: {', '.join(limited[:10])}")
-                return limited
-            else:
-                log_warning("📅 No suitable US companies in calendar, using fallback")
-                return self._get_fallback_transcript_tickers()
-                
-        except Exception as e:
-            log_error(f"Error getting calendar tickers: {e}")
-            return self._get_fallback_transcript_tickers()
-
-    def _get_fallback_transcript_tickers(self) -> List[str]:
-        """Fallback to major US companies with reliable transcript coverage"""
-        return ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'NFLX', 'JPM', 'BAC']
 
     # === STOCK NEWS (ENHANCED) ===
     

@@ -9,7 +9,9 @@ from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass
 from data_loaders.base_fmp_loader import BaseFMPLoader
 from utils.simple_logger import log_info, log_error, log_debug, log_warning
-
+import json
+from pathlib import Path
+import time
 
 @dataclass
 class EarningsTranscriptSegment:
@@ -65,6 +67,11 @@ class EarningsTranscriptFetcher(BaseFMPLoader):
         
         # Speaker role identification patterns
         self._init_speaker_patterns()
+        self.transcript_cache = {}  # Cache for successful transcripts
+        self.failed_transcript_cache = set()  # Cache for failed fetches
+        self.cache_file = Path("data/transcript_cache.json")
+        self.failed_cache_file = Path("data/failed_transcripts.json")
+        self._load_caches()
     
     def _init_financial_keywords(self):
         """Initialize financial keyword categories for analysis"""
@@ -122,37 +129,50 @@ class EarningsTranscriptFetcher(BaseFMPLoader):
     
     def fetch_earnings_transcript(self, ticker: str, year: int, quarter: int) -> Optional[EarningsAnalysis]:
         """
-        Fetch and analyze earnings call transcript for specific quarter
-        
-        Args:
-            ticker: Stock ticker symbol
-            year: Year (e.g., 2024)
-            quarter: Quarter (1, 2, 3, or 4)
-            
-        Returns:
-            EarningsAnalysis object with comprehensive analysis
+        Fetch and analyze earnings call transcript for specific quarter (WITH CACHING)
         """
+        cache_key = self._get_cache_key(ticker, year, quarter)
+        
+        # Check failed cache first
+        if self._is_transcript_cached_as_failed(ticker, year, quarter):
+            log_debug(f"⏭️ Skipping {ticker} Q{quarter} {year} (cached as unavailable)")
+            return None
+        
+        # Check successful cache
+        if cache_key in self.transcript_cache:
+            cached_data = self.transcript_cache[cache_key]
+            log_debug(f"📋 Using cached transcript for {ticker} Q{quarter} {year}")
+            # Create EarningsAnalysis from cached data
+            analysis_data = cached_data['analysis']
+            return EarningsAnalysis(
+                ticker=analysis_data.get('ticker', ticker),
+                date=analysis_data.get('date', ''),
+                quarter=analysis_data.get('quarter', str(quarter)),
+                year=analysis_data.get('year', str(year))
+            )
+        
         try:
             log_info(f"Fetching earnings transcript for {ticker} Q{quarter} {year}")
             
-            # Fetch transcript from FMP API
+            # Fetch transcript from FMP API (existing code)
             endpoint = f"earning_call_transcript/{ticker}"
-            params = {
-                'year': year,
-                'quarter': quarter
-            }
+            params = {'year': year, 'quarter': quarter}
             
             transcript_data = self.make_request(endpoint, params)
             
             if not transcript_data or not isinstance(transcript_data, list) or len(transcript_data) == 0:
                 log_warning(f"No transcript data found for {ticker} Q{quarter} {year}")
+                self._cache_failed_transcript(ticker, year, quarter)
+                self._save_caches()  # Save immediately
                 return None
             
-            # Process the transcript
+            # Process the transcript (existing code)
             transcript_info = transcript_data[0]
             
             if not transcript_info.get('content'):
                 log_warning(f"Empty transcript content for {ticker} Q{quarter} {year}")
+                self._cache_failed_transcript(ticker, year, quarter)
+                self._save_caches()
                 return None
             
             full_transcript = transcript_info['content']
@@ -169,10 +189,28 @@ class EarningsTranscriptFetcher(BaseFMPLoader):
                 transcript=full_transcript
             )
             
+            # Cache successful result
+            self.transcript_cache[cache_key] = {
+                'analysis': {
+                    'ticker': analysis.ticker,
+                    'date': analysis.date,
+                    'quarter': analysis.quarter,
+                    'year': analysis.year,
+                    'content': getattr(analysis, 'content', ''),  # Use content instead of transcript
+                    'reasoning': getattr(analysis, 'reasoning', ''),
+                    'decision': getattr(analysis, 'decision', 'NEUTRAL'),
+                    'confidence': getattr(analysis, 'confidence', 0.5)
+                },
+                'cached_at': time.time()
+            }
+            self._save_caches()
+            
             return analysis
             
         except Exception as e:
             log_error(f"Error fetching earnings transcript for {ticker}: {e}")
+            self._cache_failed_transcript(ticker, year, quarter)
+            self._save_caches()
             return None
     
     def fetch_recent_transcripts(self, ticker: str, lookback_quarters: int = 4) -> List[EarningsAnalysis]:
@@ -621,3 +659,89 @@ class EarningsTranscriptFetcher(BaseFMPLoader):
             summary_parts.append(f"Forward-looking: {'; '.join(analysis.forward_looking_statements[:2])}.")
         
         return ' '.join(summary_parts)
+    
+    def _load_caches(self):
+        """Load transcript caches from disk"""
+        try:
+            # Load successful transcript cache
+            if self.cache_file.exists():
+                with open(self.cache_file, 'r') as f:
+                    cache_data = json.load(f)
+                    # Filter expired entries (older than 7 days)
+                    current_time = time.time()
+                    self.transcript_cache = {
+                        key: value for key, value in cache_data.items()
+                        if current_time - value.get('cached_at', 0) < 7 * 24 * 3600
+                    }
+            
+            # Load failed transcript cache
+            if self.failed_cache_file.exists():
+                with open(self.failed_cache_file, 'r') as f:
+                    failed_data = json.load(f)
+                    # Filter expired entries (older than 30 days)
+                    current_time = time.time()
+                    self.failed_transcript_cache = {
+                        key for key, timestamp in failed_data.items()
+                        if current_time - timestamp < 30 * 24 * 3600
+                    }
+            
+            log_info(f"📋 Loaded transcript cache: {len(self.transcript_cache)} successful, {len(self.failed_transcript_cache)} failed")
+        except Exception as e:
+            log_error(f"Error loading transcript caches: {e}")
+
+    def _save_caches(self):
+        """Save transcript caches to disk"""
+        try:
+            # Ensure data directory exists
+            self.cache_file.parent.mkdir(exist_ok=True)
+            
+            # Save successful cache
+            with open(self.cache_file, 'w') as f:
+                json.dump(self.transcript_cache, f)
+            
+            # Save failed cache with timestamps
+            failed_with_timestamps = {
+                ticker: time.time() for ticker in self.failed_transcript_cache
+            }
+            with open(self.failed_cache_file, 'w') as f:
+                json.dump(failed_with_timestamps, f)
+                
+        except Exception as e:
+            log_error(f"Error saving transcript caches: {e}")
+
+    def _get_cache_key(self, ticker: str, year: int, quarter: int) -> str:
+        """Generate cache key for transcript"""
+        return f"{ticker}_{year}_Q{quarter}"
+
+    def _is_transcript_cached_as_failed(self, ticker: str, year: int, quarter: int) -> bool:
+        """Check if we've already tried and failed to get this transcript"""
+        cache_key = self._get_cache_key(ticker, year, quarter)
+        return cache_key in self.failed_transcript_cache
+
+    def _cache_failed_transcript(self, ticker: str, year: int, quarter: int):
+        """Cache a failed transcript attempt"""
+        cache_key = self._get_cache_key(ticker, year, quarter)
+        self.failed_transcript_cache.add(cache_key)
+        log_debug(f"🚫 Cached failed transcript: {cache_key}")
+    def _is_any_quarter_cached_as_failed(self, ticker: str) -> bool:
+        """Check if ticker has ANY quarters cached as failed (likely doesn't do transcripts)"""
+        for year in [2024, 2025]:
+            for quarter in [1, 2, 3, 4]:
+                if self._is_transcript_cached_as_failed(ticker, year, quarter):
+                    return True
+        return False
+
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache statistics for monitoring"""
+        return {
+            'successful_transcripts_cached': len(self.transcript_cache),
+            'failed_transcripts_cached': len(self.failed_transcript_cache),
+            'cache_efficiency': len(self.transcript_cache) / (len(self.transcript_cache) + len(self.failed_transcript_cache)) if (len(self.transcript_cache) + len(self.failed_transcript_cache)) > 0 else 0
+        }
+
+    def clear_failed_cache(self):
+        """Clear failed transcript cache (for testing or reset)"""
+        self.failed_transcript_cache.clear()
+        if self.failed_cache_file.exists():
+            self.failed_cache_file.unlink()
+        log_info("🗑️ Cleared failed transcript cache")

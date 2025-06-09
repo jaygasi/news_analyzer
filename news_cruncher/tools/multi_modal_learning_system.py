@@ -104,7 +104,7 @@ class MultiModalFinBERT(nn.Module):
     
     def forward(self, input_ids, attention_mask, numerical_features, categorical_features):
         # FinBERT text processing
-        finbert_outputs = self.finbert.roberta(input_ids=input_ids, attention_mask=attention_mask)
+        finbert_outputs = self.finbert.bert(input_ids=input_ids, attention_mask=attention_mask)
         text_features = finbert_outputs.pooler_output  # [batch_size, 768]
         
         # Process numerical features
@@ -346,7 +346,7 @@ class MultiModalLearningSystem:
             return True
             
         except Exception as e:
-            log_error(f"FinBERT multi-modal training failed: {e}", exc_info=True)
+            log_error(f"FinBERT multi-modal training failed: {e}")
             return False
     
     def train_enhanced_neural_multimodal(self, texts: List[str], numerical_features: np.ndarray, 

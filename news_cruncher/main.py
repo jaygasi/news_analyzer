@@ -13,7 +13,7 @@ from config import Config
 from database.article_tracker import ArticleTracker
 from data_loaders.news_fetcher import NewsFetcher
 from core.ticker_filter import TickerFilterEngine, FilterCriteria
-from earnings.earnings_integration import EarningsIntegrationManager
+from data_loaders.earnings_integration_manager import EarningsIntegrationManager
 from analysis.multi_llm_analyzer import MultiLLMAnalyzer
 from core.enhanced_decision_engine import EnhancedDecisionEngine
 from analysis.price_tracker import PriceTracker, TrackingScheduler
@@ -46,18 +46,11 @@ class EnhancedFinancialNewsAnalyzer:
         log_info("🔧 Initializing enhanced system components...")
         
         # Core data components
-        self.article_tracker = ArticleTracker()
+        self.article_tracker = ArticleTracker(Config.SQLITE_DB_PATH)
         self.news_fetcher = NewsFetcher(Config.FMP_API_KEY)  # Pass API key for earnings transcripts
         self.ticker_aggregator = TickerAggregator()
-        
-         # Earnings integration
-        if Config.ENABLE_EARNINGS_EVENTS:
-            self.earnings_manager = EarningsIntegrationManager(self.news_fetcher)
-            log_info("✅ Earnings event analysis initialized")
-        else:
-            self.earnings_manager = None
-            log_info("❌ Earnings event analysis disabled")
-            
+        self.earnings_manager = EarningsIntegrationManager(Config.FMP_API_KEY)
+                    
         # Fundamental filtering (if enabled)
         if Config.ENABLE_FUNDAMENTAL_FILTERING:
             filter_criteria = FilterCriteria(
