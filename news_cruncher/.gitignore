@@ -14,6 +14,7 @@
 .environment
 *c_news
 c_news/*
+env.txt
 
 # Configuration files that may contain secrets
 config_local.py

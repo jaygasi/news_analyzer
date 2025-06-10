@@ -6,6 +6,8 @@ Python 3.13.3 compatible
 import numpy as np
 from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass
+from datetime import datetime # Added for backup naming
+import shutil # Added for file operations
 from pathlib import Path
 import warnings
 import torch
@@ -366,6 +368,11 @@ class EnhancedNeuralAnalyzer:
         
         # Model warming for better initial predictions
         self._warm_up_model()
+        # Validate model is making real predictions
+        if not self._validate_model_performance():
+            log_warning("⚠️ Model validation failed - consider retraining")
+            log_info("💡 To retrain: Delete enhanced_neural_multimodal_adaptive.pth and restart")
+
         
         self.is_available = True
         self._init_financial_vocabulary()
@@ -375,6 +382,36 @@ class EnhancedNeuralAnalyzer:
         log_info(f"🧠 Enhanced Neural Analyzer initialized properly on {self.device}")
         log_info(f"📊 Model: {model_info['trainable_parameters']:,} trainable parameters")
         log_info(f"🎯 Expected accuracy: {model_info['expected_accuracy']}")
+    def _validate_model_performance(self) -> bool:
+        """Validate that the model is making real predictions, not defaulting"""
+        if not Config.NEURAL_MODEL_VALIDATION_ENABLED:
+            return True  # Skip validation if disabled
+            
+        test_texts = [
+            "Company reports massive revenue growth and beat all expectations",
+            "Stock crashes due to major scandal and regulatory investigation", 
+            "Company announces neutral quarterly results with no surprises"
+        ]
+        
+        predictions = []
+        for text in test_texts:
+            try:
+                result = self.analyze_sentiment(text, "TEST")
+                predictions.append(result.confidence)
+                log_debug(f"Test prediction: {text[:50]}... → {result.direction} ({result.confidence:.3f})")
+            except Exception as e:
+                log_warning(f"Model validation failed: {e}")
+                return False
+        
+        # Check if model is defaulting (all predictions very similar)
+        confidence_std = np.std(predictions)
+        if confidence_std < Config.NEURAL_CONFIDENCE_STD_THRESHOLD:
+            log_warning(f"⚠️ Model appears to be defaulting - confidence std: {confidence_std:.3f}")
+            log_warning("🔄 Model may need retraining or checkpoint replacement")
+            return False
+        
+        log_info(f"✅ Model validation passed - confidence std: {confidence_std:.3f}")
+        return True
     
     def _load_checkpoint(self, model_path: str):
         """Load model checkpoint with proper error handling"""
@@ -495,14 +532,21 @@ class EnhancedNeuralAnalyzer:
                 direction_mapping = {0: 'SELL', 1: 'NEUTRAL', 2: 'BUY'}
                 direction = direction_mapping.get(predicted_class, 'NEUTRAL')
                 
-                # Calculate sentiment intensity
+                # IMPROVED: Calibrated confidence calculation
+                raw_confidence = class_confidence
+                calibrated_confidence = self._calibrate_confidence(raw_confidence, predicted_class)
+                
+                # Calculate sentiment intensity using calibrated confidence
                 if predicted_class == 2:  # BUY
-                    sentiment_intensity = class_confidence
+                    sentiment_intensity = calibrated_confidence
                 elif predicted_class == 0:  # SELL
-                    sentiment_intensity = -class_confidence
+                    sentiment_intensity = -calibrated_confidence
                 else:  # NEUTRAL
                     sentiment_intensity = 0.0
                 
+                # Use calibrated confidence for final prediction
+                class_confidence = calibrated_confidence
+
                 # Generate reasoning
                 reasoning = self._generate_reasoning(
                     direction, class_confidence, volatility, uncertainty, text
@@ -546,6 +590,28 @@ class EnhancedNeuralAnalyzer:
             log_error(f"Error in enhanced neural analysis for {ticker}: {e}")
             return None
     
+    def _calibrate_confidence(self, raw_confidence: float, predicted_class: int) -> float:
+        """
+        Calibrate model confidence to be more realistic for trading decisions
+        """
+        # Boost confidence for non-neutral predictions if they're reasonably strong
+        if predicted_class != 1:  # Not NEUTRAL
+            if raw_confidence > Config.NEURAL_STRONG_CONFIDENCE_THRESHOLD:
+                # Strong predictions get boosted
+                calibrated = min(Config.MAX_CONFIDENCE_LIMIT, raw_confidence * Config.NEURAL_STRONG_BOOST_FACTOR)
+            elif raw_confidence > Config.NEURAL_MODERATE_CONFIDENCE_THRESHOLD:
+                # Moderate predictions get slight boost
+                calibrated = min(Config.MAX_CONFIDENCE_LIMIT, raw_confidence * Config.NEURAL_MODERATE_BOOST_FACTOR)
+            else:
+                # Weak predictions stay weak
+                calibrated = raw_confidence
+        else:
+            # Neutral predictions: slightly reduce confidence
+            calibrated = raw_confidence * Config.NEURAL_NEUTRAL_REDUCTION_FACTOR
+        
+        log_debug(f"Confidence calibration: raw={raw_confidence:.3f}, class={predicted_class} -> calibrated={calibrated:.3f}")
+        return calibrated
+
     def _generate_reasoning(self, direction: str, confidence: float, 
                           volatility: float, uncertainty: float, text: str) -> str:
         """Generate human-readable reasoning for the prediction"""

@@ -99,7 +99,6 @@ class Config:
     # Rejected stock logging (for TickerFilterEngine)
     ENABLE_REJECTED_STOCK_LOGGING = True  # Set to False to disable rejected stock logging
     MAX_REJECTED_STOCKS_TO_LOG = 30  # Number of rejected stocks to log (set to 0 to disable)
-    DECISION_DEBUG_MODE: bool = os.getenv('DECISION_DEBUG_MODE', 'false').lower() == 'true' # Detailed logging for decision engine
 
     # ================================================================
     # 📅 EARNINGS EVENT ANALYSIS CONFIGURATION
@@ -184,6 +183,7 @@ class Config:
     ENHANCED_NEURAL_WARMUP: bool = True  # Enable model warming
     ENHANCED_NEURAL_INCREMENTAL_LR: float = float(os.getenv('ENHANCED_NEURAL_INCREMENTAL_LR', '1e-5')) # For continuous learning
     ENHANCED_NEURAL_INCREMENTAL_BATCH_SIZE: int = int(os.getenv('ENHANCED_NEURAL_INCREMENTAL_BATCH_SIZE', '10')) # For continuous learning
+
     # Performance tuning for PyTorch
     CUDA_VISIBLE_DEVICES: str = os.getenv('CUDA_VISIBLE_DEVICES', '0')
     OMP_NUM_THREADS: int = int(os.getenv('OMP_NUM_THREADS', '8'))
@@ -325,6 +325,47 @@ class Config:
     NEWS_WEIGHT_3WAY: float = float(os.getenv('NEWS_WEIGHT_3WAY', '0.40'))
     EARNINGS_WEIGHT_3WAY: float = float(os.getenv('EARNINGS_WEIGHT_3WAY', '0.30'))
     TECHNICAL_WEIGHT_3WAY: float = float(os.getenv('TECHNICAL_WEIGHT_3WAY', '0.30'))
+    
+    # ================================================================
+    # 🎯 ENHANCED DECISION ENGINE CONFIGURATION (Previously Hardcoded)
+    # ================================================================
+
+    # Decision Boundary Thresholds
+    COMBINED_SCORE_LONG_THRESHOLD: float = float(os.getenv('COMBINED_SCORE_LONG_THRESHOLD', '0.15'))     # Was: 0.2 (hardcoded)
+    COMBINED_SCORE_SHORT_THRESHOLD: float = float(os.getenv('COMBINED_SCORE_SHORT_THRESHOLD', '-0.15'))  # Was: -0.2 (hardcoded)
+    DEFAULT_NEUTRAL_CONFIDENCE: float = float(os.getenv('DEFAULT_NEUTRAL_CONFIDENCE', '0.3'))           # Was: 0.5 (hardcoded)
+
+    # Confidence Calibration & Limits
+    MAX_CONFIDENCE_LIMIT: float = float(os.getenv('MAX_CONFIDENCE_LIMIT', '0.95'))                       # Was: 0.95 (hardcoded)
+    CONFIDENCE_BOOST_FACTOR: float = float(os.getenv('CONFIDENCE_BOOST_FACTOR', '0.3'))                  # Was: varies (hardcoded)
+    CONSENSUS_CONFIDENCE_BOOST: float = float(os.getenv('CONSENSUS_CONFIDENCE_BOOST', '0.2'))            # For agreement between signals
+
+    # Neural Model Validation
+    NEURAL_MODEL_VALIDATION_ENABLED: bool = os.getenv('NEURAL_MODEL_VALIDATION_ENABLED', 'true').lower() == 'true'
+    NEURAL_CONFIDENCE_STD_THRESHOLD: float = float(os.getenv('NEURAL_CONFIDENCE_STD_THRESHOLD', '0.05'))  # Min variance for real predictions
+    NEURAL_WEAK_PREDICTION_THRESHOLD: float = float(os.getenv('NEURAL_WEAK_PREDICTION_THRESHOLD', '0.3')) # Below this = weak prediction
+
+    # Neural Model Confidence Calibration
+    NEURAL_STRONG_CONFIDENCE_THRESHOLD: float = float(os.getenv('NEURAL_STRONG_CONFIDENCE_THRESHOLD', '0.6'))    # Strong prediction
+    NEURAL_MODERATE_CONFIDENCE_THRESHOLD: float = float(os.getenv('NEURAL_MODERATE_CONFIDENCE_THRESHOLD', '0.4'))  # Moderate prediction
+    NEURAL_STRONG_BOOST_FACTOR: float = float(os.getenv('NEURAL_STRONG_BOOST_FACTOR', '1.2'))            # Boost for strong predictions
+    NEURAL_MODERATE_BOOST_FACTOR: float = float(os.getenv('NEURAL_MODERATE_BOOST_FACTOR', '1.1'))        # Boost for moderate predictions
+    NEURAL_NEUTRAL_REDUCTION_FACTOR: float = float(os.getenv('NEURAL_NEUTRAL_REDUCTION_FACTOR', '0.9'))  # Reduce neutral confidence
+
+    # Debug and Logging
+    DECISION_DEBUG_MODE: bool = os.getenv('DECISION_DEBUG_MODE', 'false').lower() == 'true'
+    SUSPICIOUS_CONFIDENCE_THRESHOLD: float = float(os.getenv('SUSPICIOUS_CONFIDENCE_THRESHOLD', '0.001'))  # For detecting 0.500 defaults
+    ENABLE_MODEL_RESET_ON_VALIDATION_FAILURE: bool = os.getenv('ENABLE_MODEL_RESET_ON_VALIDATION_FAILURE', 'true').lower() == 'true'
+
+    # Consensus Confidence Calculation
+    SIGNALS_AGREEMENT_BONUS: float = float(os.getenv('SIGNALS_AGREEMENT_BONUS', '0.2'))                  # Bonus when signals agree
+    SIGNALS_DISAGREEMENT_PENALTY: float = float(os.getenv('SIGNALS_DISAGREEMENT_PENALTY', '0.1'))        # Penalty when signals disagree
+    MIN_BASE_CONFIDENCE_FOR_BOOST: float = float(os.getenv('MIN_BASE_CONFIDENCE_FOR_BOOST', '0.3'))      # Min confidence to apply boosts
+
+    # Decision Quality Thresholds  
+    WEAK_PREDICTION_CONFIDENCE: float = float(os.getenv('WEAK_PREDICTION_CONFIDENCE', '0.3'))            # Below this = very weak
+    MODERATE_PREDICTION_CONFIDENCE: float = float(os.getenv('MODERATE_PREDICTION_CONFIDENCE', '0.5'))    # Moderate prediction
+    STRONG_PREDICTION_CONFIDENCE: float = float(os.getenv('STRONG_PREDICTION_CONFIDENCE', '0.7'))        # Strong prediction
 
     # ================================================================
     # 📰 NEWS FETCHING & PROCESSING CONFIGURATION

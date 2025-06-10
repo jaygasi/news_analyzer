@@ -51,6 +51,13 @@ class EnhancedDecisionEngine:
         self.min_confidence = Config.MIN_CONFIDENCE_THRESHOLD     # Was: 0.6 (hardcoded)
         self.min_news_confidence = Config.MIN_NEWS_CONFIDENCE     # Was: 0.5 (hardcoded)
         self.min_earnings_confidence = Config.MIN_EARNINGS_CONFIDENCE # Was: 0.6 (hardcoded)
+        # ADD these lines to read the new config values:
+        self.combined_score_long_threshold = Config.COMBINED_SCORE_LONG_THRESHOLD
+        self.combined_score_short_threshold = Config.COMBINED_SCORE_SHORT_THRESHOLD
+        self.default_neutral_confidence = Config.DEFAULT_NEUTRAL_CONFIDENCE
+        self.max_confidence_limit = Config.MAX_CONFIDENCE_LIMIT
+        self.confidence_boost_factor = Config.CONFIDENCE_BOOST_FACTOR
+        self.consensus_confidence_boost = Config.CONSENSUS_CONFIDENCE_BOOST
         
         # Validation: Ensure weights add up correctly
         two_way_total = self.news_weight_2way + self.technical_weight_2way
@@ -67,6 +74,11 @@ class EnhancedDecisionEngine:
         log_info(f"  2-way weights: news={self.news_weight_2way}, technical={self.technical_weight_2way}")
         log_info(f"  3-way weights: news={self.news_weight_3way}, earnings={self.earnings_weight_3way}, technical={self.technical_weight_3way}")
         log_info(f"  Confidence thresholds: overall={self.min_confidence}, news={self.min_news_confidence}, earnings={self.min_earnings_confidence}")
+        
+        # Log the new configuration values
+        log_info(f"  Decision thresholds: long>{self.combined_score_long_threshold}, short<{self.combined_score_short_threshold}")
+        log_info(f"  Confidence settings: default_neutral={self.default_neutral_confidence}, max_limit={self.max_confidence_limit}")
+        log_info(f"  Boost factors: confidence={self.confidence_boost_factor}, consensus={self.consensus_confidence_boost}")
         
     def make_enhanced_decision(self, ticker: str, 
                              news_prediction: Optional[DirectionalPrediction],
@@ -198,32 +210,39 @@ class EnhancedDecisionEngine:
                 scoring_method = "2-way"
         
         # Determine direction and confidence
-        if combined_score > 0.2:
+        # Determine direction and confidence - USING CONFIG VALUES
+        if combined_score > self.combined_score_long_threshold:
             decision = 'LONG'
-            base_confidence = abs(combined_score)
-        elif combined_score < -0.2:
+            base_confidence = min(self.max_confidence_limit, abs(combined_score) + self.confidence_boost_factor)
+        elif combined_score < self.combined_score_short_threshold:
             decision = 'SHORT'
-            base_confidence = abs(combined_score)
+            base_confidence = min(self.max_confidence_limit, abs(combined_score) + self.confidence_boost_factor)
         else:
             decision = 'NONE'
-            base_confidence = 0.5
-        
+            # FIXED: Use config value instead of hardcoded 0.5
+            base_confidence = news_prediction.confidence if news_prediction else self.default_neutral_confidence
         # Adjust confidence based on consensus
         final_confidence = self._calculate_consensus_confidence(
             news_prediction, earnings_analysis, technical_signal, 
             base_confidence, scoring_method
         )
         
-        # Check minimum confidence threshold
+        # IMPROVED: More nuanced confidence checking using config values
         if final_confidence < self.min_confidence:
-            return 'NONE', final_confidence, f"Combined confidence too low: {final_confidence:.2f}"
+            # Provide more specific feedback
+            if news_prediction and news_prediction.confidence < self.min_news_confidence:
+                return 'NONE', final_confidence, f"News confidence too low: {news_prediction.confidence:.2f} (min: {self.min_news_confidence})"
+            elif base_confidence < Config.NEURAL_WEAK_PREDICTION_THRESHOLD:
+                return 'NONE', final_confidence, f"Base prediction too weak: {base_confidence:.2f}"
+            else:
+                return 'NONE', final_confidence, f"Combined confidence too low: {final_confidence:.2f} (min: {self.min_confidence})"
         
         # Build reasoning
         reasoning = self._build_enhanced_reasoning(
             news_prediction, earnings_analysis, technical_signal, 
             news_score, earnings_score, technical_score, scoring_method
         )
-        if abs(final_confidence - 0.500) < 0.001:
+        if abs(final_confidence - 0.500) < Config.SUSPICIOUS_CONFIDENCE_THRESHOLD:
             log_warning(f"⚠️ {ticker}: SUSPICIOUS 0.500 confidence detected!")
             log_warning(f"   News prediction: {news_prediction.direction if news_prediction else 'None'} "
                     f"(conf: {news_prediction.confidence if news_prediction else 'N/A'})")
