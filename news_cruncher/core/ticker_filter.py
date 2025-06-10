@@ -43,6 +43,11 @@ class TickerFilterEngine:
         # NEW: Control for logging rejected stocks (ADD THESE LINES)
         self.enable_rejected_logging = getattr(Config, 'ENABLE_REJECTED_STOCK_LOGGING', True)
         self.max_rejected_to_log = getattr(Config, 'MAX_REJECTED_STOCKS_TO_LOG', 30)
+
+        # Attributes for enhanced rate limiting
+        self.last_request_time: float = 0.0
+        self.min_request_interval: float = Config.FMP_MIN_REQUEST_INTERVAL
+        self._consecutive_errors: int = 0
         
         # Initialize cache database
         self._init_cache_database()
@@ -251,6 +256,28 @@ class TickerFilterEngine:
         
         return filtered_buckets
 
+    def _rate_limit(self):
+        """Enhanced rate limiting with exponential backoff"""
+        current_time = time.time()
+        
+        # Calculate time since last request
+        time_since_last = current_time - self.last_request_time
+        
+        # Ensure minimum interval
+        if time_since_last < self.min_request_interval:
+            sleep_time = self.min_request_interval - time_since_last
+            log_debug(f"🔄 Rate limiting: sleeping {sleep_time:.2f}s")
+            time.sleep(sleep_time)
+        
+        # Track request for rate limiting
+        self.last_request_time = time.time()
+        
+        # Enhanced: Add exponential backoff for consecutive errors
+        if hasattr(self, '_consecutive_errors') and self._consecutive_errors > 3:
+            backoff_time = min(30, 2 ** (self._consecutive_errors - 3)) # Exponential backoff, capped at 30s
+            log_warning(f"⏳ Exponential backoff: sleeping {backoff_time:.2f}s due to {self._consecutive_errors} consecutive errors")
+            time.sleep(backoff_time)
+
     def _get_batch_fundamentals(self, tickers: List[str]) -> Dict[str, Dict[str, Any]]:
         """Get fundamentals for multiple tickers efficiently with caching"""
         results = {}
@@ -269,18 +296,23 @@ class TickerFilterEngine:
             
             # Batch fetch remaining tickers
             for ticker in tickers_to_fetch:
+                self._rate_limit() # Apply rate limiting before each ticker's fundamental fetch
+
                 try:
                     # Use existing _get_company_fundamentals but cache results
                     fundamentals = self._get_company_fundamentals(ticker)
                     if fundamentals:
                         results[ticker] = fundamentals
                         self._cache_fundamentals(ticker, fundamentals)
-                        
-                    # Rate limiting
-                    time.sleep(0.1)  # Prevent API rate limiting
-                    
+                        self._consecutive_errors = 0 # Reset errors on success
+                    else:
+                        # If _get_company_fundamentals returns None, it's a failure for this ticker
+                        self._consecutive_errors += 1
+                        results[ticker] = None # Ensure None is stored if fundamentals are not found
+
                 except Exception as e:
                     log_debug(f"Error fetching {ticker}: {e}")
+                    self._consecutive_errors += 1 # Increment errors on exception
                     results[ticker] = None
         
         return results

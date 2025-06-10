@@ -19,10 +19,28 @@ class Config:
     # ================================================================
     # 🗂️ BASE DIRECTORY CONFIGURATION
     # ================================================================
-    # Base Directory (Auto-detected)
     BASE_DIR: Path = Path(__file__).parent
     DATA_DIR: Path = BASE_DIR / 'data'
     OUTPUT_DIR: Path = BASE_DIR / 'output'
+
+    # ================================================================
+    # 💾 DATABASE & CACHE CONFIGURATION
+    # ================================================================
+    # Tracks processed articles to prevent reprocessing
+    SQLITE_DB_PATH: Path = DATA_DIR / 'article_tracking.db'
+    DB_TIMEOUT: int = 30  # Database connection timeout in seconds
+
+    # Cache for FMP API failed tickers (prevents repeated calls to bad tickers)
+    ENABLE_FAILED_TICKER_CACHE: bool = os.getenv('ENABLE_FAILED_TICKER_CACHE', 'true').lower() == 'true' # Disable during debugging
+    FAILED_TICKER_CACHE_DAYS: int = int(os.getenv('FAILED_TICKER_CACHE_DAYS', '7'))             # Days to cache failed tickers
+    FAILED_TICKER_MAX_RETRIES: int = int(os.getenv('FAILED_TICKER_MAX_RETRIES', '1'))             # How many failures before caching
+    FAILED_TICKER_CACHE_DB: Path = DATA_DIR / os.getenv('FAILED_TICKER_CACHE_DB', "failed_tickers_cache.db")  # SQLite cache file
+
+    # Cache for earnings related data
+    EARNINGS_CACHE_HOURS: int = int(os.getenv('EARNINGS_CACHE_HOURS', '6'))
+    FAILED_EARNINGS_CACHE_FILENAME: str = os.getenv('FAILED_EARNINGS_CACHE_FILENAME', 'failed_earnings_cache.json')
+    FAILED_EARNINGS_CACHE_EXPIRY_HOURS: int = int(os.getenv('FAILED_EARNINGS_CACHE_EXPIRY_HOURS', '24'))
+
     # ================================================================
     # 💰 CONFIGURABLE PRICE TRACKING INTERVALS
     # ================================================================
@@ -72,24 +90,6 @@ class Config:
     START_SCHEDULER_ON_FIRST_DECISION = True  # Wait for first trading decision before starting scheduler
 
     # ================================================================
-    # 💾 DATABASE & CACHE CONFIGURATION
-    # ================================================================
-    # Tracks processed articles to prevent reprocessing
-    SQLITE_DB_PATH: Path = DATA_DIR / 'article_tracking.db'
-    DB_TIMEOUT: int = 30  # Database connection timeout in seconds
-
-    # Cache for FMP API failed tickers (prevents repeated calls to bad tickers)
-    ENABLE_FAILED_TICKER_CACHE = True          # Disable during debugging
-    FAILED_TICKER_CACHE_DAYS = 7              # Days to cache failed tickers
-    FAILED_TICKER_MAX_RETRIES = 1              # How many failures before caching
-    FAILED_TICKER_CACHE_DB = DATA_DIR / "failed_tickers_cache.db"  # SQLite cache file
-
-    # Cache for earnings related data
-    EARNINGS_CACHE_HOURS: int = int(os.getenv('EARNINGS_CACHE_HOURS', '6'))
-    FAILED_EARNINGS_CACHE_FILENAME: str = os.getenv('FAILED_EARNINGS_CACHE_FILENAME', 'failed_earnings_cache.json')
-    FAILED_EARNINGS_CACHE_EXPIRY_HOURS: int = int(os.getenv('FAILED_EARNINGS_CACHE_EXPIRY_HOURS', '24'))
-
-    # ================================================================
     # 🛠️ LOGGING & DEBUGGING CONFIGURATION
     # ================================================================
     LOG_FILE_PATH: Path = OUTPUT_DIR / 'system.log'
@@ -99,6 +99,10 @@ class Config:
     # Rejected stock logging (for TickerFilterEngine)
     ENABLE_REJECTED_STOCK_LOGGING = True  # Set to False to disable rejected stock logging
     MAX_REJECTED_STOCKS_TO_LOG = 30  # Number of rejected stocks to log (set to 0 to disable)
+
+    # General Debugging
+    DECISION_DEBUG_MODE: bool = os.getenv('DECISION_DEBUG_MODE', 'false').lower() == 'true'
+    SUSPICIOUS_CONFIDENCE_THRESHOLD: float = float(os.getenv('SUSPICIOUS_CONFIDENCE_THRESHOLD', '0.001'))  # For detecting 0.500 defaults
 
     # ================================================================
     # 📅 EARNINGS EVENT ANALYSIS CONFIGURATION
@@ -163,7 +167,7 @@ class Config:
     # GET KEY: https://financialmodelingprep.com/developer/docs
     FMP_API_KEY: str = os.getenv('FMP_API_KEY', '')
     FMP_REQUESTS_PER_MINUTE: int = int(os.getenv('FMP_REQUESTS_PER_MINUTE', '10'))
-    FMP_MIN_REQUEST_INTERVAL = 0.2  # Minimum seconds between FMP API requests (5 per second max)
+    FMP_MIN_REQUEST_INTERVAL: float = float(os.getenv('FMP_MIN_REQUEST_INTERVAL', '0.2'))  # Minimum seconds between FMP API requests
     FMP_RETRY_DELAY = 60  # Seconds to wait after 429 error before retry
 
     # --- LLM & Analysis Services ---
@@ -183,6 +187,14 @@ class Config:
     ENHANCED_NEURAL_WARMUP: bool = True  # Enable model warming
     ENHANCED_NEURAL_INCREMENTAL_LR: float = float(os.getenv('ENHANCED_NEURAL_INCREMENTAL_LR', '1e-5')) # For continuous learning
     ENHANCED_NEURAL_INCREMENTAL_BATCH_SIZE: int = int(os.getenv('ENHANCED_NEURAL_INCREMENTAL_BATCH_SIZE', '10')) # For continuous learning
+
+    # Enhanced Model Validation
+    NEURAL_MODEL_VALIDATION_ENABLED: bool = os.getenv('NEURAL_MODEL_VALIDATION_ENABLED', 'true').lower() == 'true'
+    NEURAL_VALIDATION_SAMPLE_SIZE: int = int(os.getenv('NEURAL_VALIDATION_SAMPLE_SIZE', '3')) # Number of test texts for validation
+    NEURAL_VALIDATION_MIN_STD: float = float(os.getenv('NEURAL_VALIDATION_MIN_STD', '0.05')) # Min standard deviation of confidences
+    NEURAL_CONFIDENCE_STD_THRESHOLD: float = float(os.getenv('NEURAL_CONFIDENCE_STD_THRESHOLD', '0.05'))  # Min variance for real predictions (used in EnhancedNeuralAnalyzer)
+    NEURAL_WEAK_PREDICTION_THRESHOLD: float = float(os.getenv('NEURAL_WEAK_PREDICTION_THRESHOLD', '0.3')) # Below this = weak prediction (used in EnhancedNeuralAnalyzer)
+    ENABLE_MODEL_RESET_ON_VALIDATION_FAILURE: bool = os.getenv('ENABLE_MODEL_RESET_ON_VALIDATION_FAILURE', 'true').lower() == 'true'
 
     # Performance tuning for PyTorch
     CUDA_VISIBLE_DEVICES: str = os.getenv('CUDA_VISIBLE_DEVICES', '0')
@@ -252,21 +264,32 @@ class Config:
 
     # --- Multi-LLM Aggregator Weights ---
     # Multi-LLM Service Weights (should sum to ~1.0)
-    MULTI_LLM_WEIGHT_ENHANCED_NEURAL: float = float(os.getenv('MULTI_LLM_WEIGHT_ENHANCED_NEURAL', '0.45'))
+    MULTI_LLM_WEIGHT_ENHANCED_NEURAL: float = float(os.getenv('MULTI_LLM_WEIGHT_ENHANCED_NEURAL', '0.40'))
     MULTI_LLM_WEIGHT_FINBERT: float = float(os.getenv('MULTI_LLM_WEIGHT_FINBERT', '0.25'))
-    MULTI_LLM_WEIGHT_GEMINI: float = float(os.getenv('MULTI_LLM_WEIGHT_GEMINI', '0.20'))
-    MULTI_LLM_WEIGHT_OPENAI: float = float(os.getenv('MULTI_LLM_WEIGHT_OPENAI', '0.12'))
-    MULTI_LLM_WEIGHT_CLAUDE: float = float(os.getenv('MULTI_LLM_WEIGHT_CLAUDE', '0.10'))
-    MULTI_LLM_WEIGHT_ALPHA_VANTAGE: float = float(os.getenv('MULTI_LLM_WEIGHT_ALPHA_VANTAGE', '0.08'))
-    MULTI_LLM_WEIGHT_POLYGON: float = float(os.getenv('MULTI_LLM_WEIGHT_POLYGON', '0.06'))
-    MULTI_LLM_WEIGHT_TIINGO: float = float(os.getenv('MULTI_LLM_WEIGHT_TIINGO', '0.04'))
-    MULTI_LLM_WEIGHT_KEYWORD: float = float(os.getenv('MULTI_LLM_WEIGHT_KEYWORD', '0.02'))    
+    MULTI_LLM_WEIGHT_GEMINI: float = float(os.getenv('MULTI_LLM_WEIGHT_GEMINI', '0.15'))
+    MULTI_LLM_WEIGHT_OPENAI: float = float(os.getenv('MULTI_LLM_WEIGHT_OPENAI', '0.08'))
+    MULTI_LLM_WEIGHT_CLAUDE: float = float(os.getenv('MULTI_LLM_WEIGHT_CLAUDE', '0.07'))
+    MULTI_LLM_WEIGHT_ALPHA_VANTAGE: float = float(os.getenv('MULTI_LLM_WEIGHT_ALPHA_VANTAGE', '0.03'))
+    MULTI_LLM_WEIGHT_POLYGON: float = float(os.getenv('MULTI_LLM_WEIGHT_POLYGON', '0.01'))
+    MULTI_LLM_WEIGHT_TIINGO: float = float(os.getenv('MULTI_LLM_WEIGHT_TIINGO', '0.01'))
+    MULTI_LLM_WEIGHT_KEYWORD: float = float(os.getenv('MULTI_LLM_WEIGHT_KEYWORD', '0.00'))
 
     # 🔤 Enhanced Keyword Sentiment - ULTRA FALLBACK
     # EFFECT: Rule-based sentiment analysis as last resort
     # COST: Free (built-in)
     # ACCURACY: ~60-70% (basic but reliable)
     ENABLE_KEYWORD_SENTIMENT: bool = os.getenv('ENABLE_KEYWORD_SENTIMENT', 'true').lower() == 'true'
+
+    # --- Neural Model Confidence Calibration (used by EnhancedNeuralAnalyzer) ---
+    NEURAL_STRONG_CONFIDENCE_THRESHOLD: float = float(os.getenv('NEURAL_STRONG_CONFIDENCE_THRESHOLD', '0.6'))    # Strong prediction
+    NEURAL_MODERATE_CONFIDENCE_THRESHOLD: float = float(os.getenv('NEURAL_MODERATE_CONFIDENCE_THRESHOLD', '0.4'))  # Moderate prediction
+    NEURAL_STRONG_BOOST_FACTOR: float = float(os.getenv('NEURAL_STRONG_BOOST_FACTOR', '1.2'))            # Boost for strong predictions
+    NEURAL_MODERATE_BOOST_FACTOR: float = float(os.getenv('NEURAL_MODERATE_BOOST_FACTOR', '1.1'))        # Boost for moderate predictions
+    NEURAL_NEUTRAL_REDUCTION_FACTOR: float = float(os.getenv('NEURAL_NEUTRAL_REDUCTION_FACTOR', '0.9'))  # Reduce neutral confidence
+
+    # --- FinBERT Specific Adaptive Learning (used by MultiLLMAnalyzer) ---
+    ADAPTIVE_LEARNING_FINBERT_LR: float = float(os.getenv('ADAPTIVE_LEARNING_FINBERT_LR', '1e-5'))
+    ADAPTIVE_LEARNING_FINBERT_BATCH_SIZE: int = int(os.getenv('ADAPTIVE_LEARNING_FINBERT_BATCH_SIZE', '4'))
 
     # ================================================================
     # ⚙️ TECHNICAL ANALYSIS CONFIGURATION
@@ -279,11 +302,6 @@ class Config:
     TECHNICAL_BOLLINGER_PERIOD: int = int(os.getenv('TECHNICAL_BOLLINGER_PERIOD', '20'))
     TECHNICAL_BOLLINGER_STD_DEV: float = float(os.getenv('TECHNICAL_BOLLINGER_STD_DEV', '2.0'))
 
-    # ================================================================
-    # 🎓 ADAPTIVE LEARNING - FINBERT SPECIFIC (used by MultiLLMAnalyzer)
-    # ================================================================
-    ADAPTIVE_LEARNING_FINBERT_LR: float = float(os.getenv('ADAPTIVE_LEARNING_FINBERT_LR', '1e-5'))
-    ADAPTIVE_LEARNING_FINBERT_BATCH_SIZE: int = int(os.getenv('ADAPTIVE_LEARNING_FINBERT_BATCH_SIZE', '4'))
     # ================================================================
     # 🔍 ENHANCED FUNDAMENTAL FILTERING CONFIGURATION
     # ================================================================
@@ -325,37 +343,11 @@ class Config:
     NEWS_WEIGHT_3WAY: float = float(os.getenv('NEWS_WEIGHT_3WAY', '0.40'))
     EARNINGS_WEIGHT_3WAY: float = float(os.getenv('EARNINGS_WEIGHT_3WAY', '0.30'))
     TECHNICAL_WEIGHT_3WAY: float = float(os.getenv('TECHNICAL_WEIGHT_3WAY', '0.30'))
-    
-    # ================================================================
-    # 🎯 ENHANCED DECISION ENGINE CONFIGURATION (Previously Hardcoded)
-    # ================================================================
 
     # Decision Boundary Thresholds
     COMBINED_SCORE_LONG_THRESHOLD: float = float(os.getenv('COMBINED_SCORE_LONG_THRESHOLD', '0.15'))     # Was: 0.2 (hardcoded)
     COMBINED_SCORE_SHORT_THRESHOLD: float = float(os.getenv('COMBINED_SCORE_SHORT_THRESHOLD', '-0.15'))  # Was: -0.2 (hardcoded)
     DEFAULT_NEUTRAL_CONFIDENCE: float = float(os.getenv('DEFAULT_NEUTRAL_CONFIDENCE', '0.3'))           # Was: 0.5 (hardcoded)
-
-    # Confidence Calibration & Limits
-    MAX_CONFIDENCE_LIMIT: float = float(os.getenv('MAX_CONFIDENCE_LIMIT', '0.95'))                       # Was: 0.95 (hardcoded)
-    CONFIDENCE_BOOST_FACTOR: float = float(os.getenv('CONFIDENCE_BOOST_FACTOR', '0.3'))                  # Was: varies (hardcoded)
-    CONSENSUS_CONFIDENCE_BOOST: float = float(os.getenv('CONSENSUS_CONFIDENCE_BOOST', '0.2'))            # For agreement between signals
-
-    # Neural Model Validation
-    NEURAL_MODEL_VALIDATION_ENABLED: bool = os.getenv('NEURAL_MODEL_VALIDATION_ENABLED', 'true').lower() == 'true'
-    NEURAL_CONFIDENCE_STD_THRESHOLD: float = float(os.getenv('NEURAL_CONFIDENCE_STD_THRESHOLD', '0.05'))  # Min variance for real predictions
-    NEURAL_WEAK_PREDICTION_THRESHOLD: float = float(os.getenv('NEURAL_WEAK_PREDICTION_THRESHOLD', '0.3')) # Below this = weak prediction
-
-    # Neural Model Confidence Calibration
-    NEURAL_STRONG_CONFIDENCE_THRESHOLD: float = float(os.getenv('NEURAL_STRONG_CONFIDENCE_THRESHOLD', '0.6'))    # Strong prediction
-    NEURAL_MODERATE_CONFIDENCE_THRESHOLD: float = float(os.getenv('NEURAL_MODERATE_CONFIDENCE_THRESHOLD', '0.4'))  # Moderate prediction
-    NEURAL_STRONG_BOOST_FACTOR: float = float(os.getenv('NEURAL_STRONG_BOOST_FACTOR', '1.2'))            # Boost for strong predictions
-    NEURAL_MODERATE_BOOST_FACTOR: float = float(os.getenv('NEURAL_MODERATE_BOOST_FACTOR', '1.1'))        # Boost for moderate predictions
-    NEURAL_NEUTRAL_REDUCTION_FACTOR: float = float(os.getenv('NEURAL_NEUTRAL_REDUCTION_FACTOR', '0.9'))  # Reduce neutral confidence
-
-    # Debug and Logging
-    DECISION_DEBUG_MODE: bool = os.getenv('DECISION_DEBUG_MODE', 'false').lower() == 'true'
-    SUSPICIOUS_CONFIDENCE_THRESHOLD: float = float(os.getenv('SUSPICIOUS_CONFIDENCE_THRESHOLD', '0.001'))  # For detecting 0.500 defaults
-    ENABLE_MODEL_RESET_ON_VALIDATION_FAILURE: bool = os.getenv('ENABLE_MODEL_RESET_ON_VALIDATION_FAILURE', 'true').lower() == 'true'
 
     # Consensus Confidence Calculation
     SIGNALS_AGREEMENT_BONUS: float = float(os.getenv('SIGNALS_AGREEMENT_BONUS', '0.2'))                  # Bonus when signals agree
@@ -366,6 +358,11 @@ class Config:
     WEAK_PREDICTION_CONFIDENCE: float = float(os.getenv('WEAK_PREDICTION_CONFIDENCE', '0.3'))            # Below this = very weak
     MODERATE_PREDICTION_CONFIDENCE: float = float(os.getenv('MODERATE_PREDICTION_CONFIDENCE', '0.5'))    # Moderate prediction
     STRONG_PREDICTION_CONFIDENCE: float = float(os.getenv('STRONG_PREDICTION_CONFIDENCE', '0.7'))        # Strong prediction
+
+    # General Confidence Limits & Boosts for Decision Engine
+    MAX_CONFIDENCE_LIMIT: float = float(os.getenv('MAX_CONFIDENCE_LIMIT', '0.95'))
+    CONFIDENCE_BOOST_FACTOR: float = float(os.getenv('CONFIDENCE_BOOST_FACTOR', '0.3')) # General boost for strong combined scores
+    CONSENSUS_CONFIDENCE_BOOST: float = float(os.getenv('CONSENSUS_CONFIDENCE_BOOST', '0.2')) # For agreement between signals
 
     # ================================================================
     # 📰 NEWS FETCHING & PROCESSING CONFIGURATION
@@ -406,9 +403,9 @@ class Config:
     # ================================================================
     # ⏰ MAIN APPLICATION CYCLE & SCHEDULING
     # ================================================================
-    ANALYSIS_TICKER_DELAY: float = float(os.getenv('ANALYSIS_TICKER_DELAY', '0.1')) # Delay between analyzing each ticker in a cycle
     # 🔄 Main Cycle Interval
     # CURRENT: 5 minutes between analysis cycles
+    ANALYSIS_TICKER_DELAY: float = float(os.getenv('ANALYSIS_TICKER_DELAY', '0.1')) # Delay between analyzing each ticker in a cycle
     # EFFECT: How often to fetch news and make new decisions
     # RANGE: 1-60 minutes recommended
     # EXAMPLE: 1 = very frequent updates, higher API usage
@@ -422,6 +419,38 @@ class Config:
     # NOTE: Longer lookback = more articles but older news
     DEFAULT_NEWS_LOOKBACK_HOURS: int = int(os.getenv('DEFAULT_NEWS_LOOKBACK_HOURS', '24'))
     MAX_NEWS_AGE_HOURS: int = int(os.getenv('MAX_NEWS_AGE_HOURS', '72')) # Increased max age
+
+    # ================================================================
+    # 🧠 ADAPTIVE LEARNING SYSTEM CONFIGURATION (MultiModalLearningSystem)
+    # ================================================================
+    ENABLE_ADAPTIVE_LEARNING: bool = os.getenv('ENABLE_ADAPTIVE_LEARNING', 'False').lower() == 'true'
+    ADAPTIVE_LEARNING_MIN_TRADES: int = int(os.getenv('ADAPTIVE_LEARNING_MIN_TRADES', '10')) # Min trades in CSV to trigger learning check
+    ADAPTIVE_LEARNING_CHECK_HOURS: int = int(os.getenv('ADAPTIVE_LEARNING_CHECK_HOURS', '6')) # How often scheduler checks
+    ADAPTIVE_LEARNING_BATCH_SIZE: int = int(os.getenv('ADAPTIVE_LEARNING_BATCH_SIZE', '8')) # Batch size for training MultiModalLearningSystem
+    ADAPTIVE_LEARNING_LEARNING_RATE: float = float(os.getenv('ADAPTIVE_LEARNING_LEARNING_RATE', '2e-5')) # LR for MultiModalLearningSystem
+    ADAPTIVE_LEARNING_EPOCHS: int = int(os.getenv('ADAPTIVE_LEARNING_EPOCHS', '3')) # Epochs for MultiModalLearningSystem
+
+    # Thresholds for performance label creation in multi_modal_learning_system.py
+    # These define what constitutes a 'poor', 'good', or 'excellent' trade based on 'price_close_change_pct'
+    ADAPTIVE_PROFIT_THRESHOLD: float = float(os.getenv('ADAPTIVE_PROFIT_THRESHOLD', '0.0')) # Trades >= this are 'good' (label 1)
+    ADAPTIVE_GOOD_TRADE_THRESHOLD: float = float(os.getenv('ADAPTIVE_GOOD_TRADE_THRESHOLD', '2.0')) # Trades >= this are 'excellent' (label 2)
+                                                                                                   # Trades < ADAPTIVE_PROFIT_THRESHOLD are 'poor' (label 0)
+
+    # Mapping from model output indices (0, 1, 2 from create_performance_labels)
+    # to 'BUY', 'SELL', 'NEUTRAL' for the multi-modal model's inference.
+    # This MUST align with the labeling logic above.
+    ADAPTIVE_LABEL_MAP_POOR: str = os.getenv('ADAPTIVE_LABEL_MAP_POOR', 'SELL')         # Corresponds to label 0
+    ADAPTIVE_LABEL_MAP_GOOD: str = os.getenv('ADAPTIVE_LABEL_MAP_GOOD', 'NEUTRAL')    # Corresponds to label 1
+    ADAPTIVE_LABEL_MAP_EXCELLENT: str = os.getenv('ADAPTIVE_LABEL_MAP_EXCELLENT', 'BUY') # Corresponds to label 2
+    
+    MIN_TRADES_FOR_TRAINING: int = int(os.getenv('MIN_TRADES_FOR_TRAINING', '20')) # Min trades needed to actually run a training session
+    ADAPTIVE_LEARNING_INTERVAL_HOURS: int = int(os.getenv('ADAPTIVE_LEARNING_INTERVAL_HOURS', '24')) # Min time between training runs
+
+    # Model checkpoint paths for adaptive learning system
+    FINBERT_ADAPTIVE_CHECKPOINT: Path = DATA_DIR / 'finbert_multimodal_adaptive.pth'
+    ENHANCED_NEURAL_ADAPTIVE_CHECKPOINT: Path = DATA_DIR / 'enhanced_neural_multimodal_adaptive.pth'
+    ADAPTIVE_PROCESSORS: Path = DATA_DIR / 'data_processors.pkl'
+    LAST_TRAINING_LOG: Path = DATA_DIR / 'last_training.json'
     
     @classmethod
     def get_price_check_labels(cls) -> List[str]:
@@ -577,38 +606,6 @@ class Config:
             issues.append(f"⚠️ MIN_CONFIDENCE_THRESHOLD ({cls.MIN_CONFIDENCE_THRESHOLD}) should be between 0.1 and 0.95")
         
         return issues
-
-# ================================================================
-# 🧠 ADAPTIVE LEARNING SYSTEM CONFIGURATION (MultiModalLearningSystem)
-# ================================================================
-    ENABLE_ADAPTIVE_LEARNING: bool = os.getenv('ENABLE_ADAPTIVE_LEARNING', 'False').lower() == 'true'
-    ADAPTIVE_LEARNING_MIN_TRADES: int = int(os.getenv('ADAPTIVE_LEARNING_MIN_TRADES', '10'))
-    ADAPTIVE_LEARNING_CHECK_HOURS: int = int(os.getenv('ADAPTIVE_LEARNING_CHECK_HOURS', '6'))
-    ADAPTIVE_LEARNING_BATCH_SIZE: int = int(os.getenv('ADAPTIVE_LEARNING_BATCH_SIZE', '8'))
-    ADAPTIVE_LEARNING_LEARNING_RATE: float = float(os.getenv('ADAPTIVE_LEARNING_LEARNING_RATE', '2e-5'))
-    ADAPTIVE_LEARNING_EPOCHS: int = int(os.getenv('ADAPTIVE_LEARNING_EPOCHS', '3'))
-
-    # Thresholds for performance label creation in multi_modal_learning_system.py
-    # These define what constitutes a 'poor', 'good', or 'excellent' trade based on 'price_close_change_pct'
-    ADAPTIVE_PROFIT_THRESHOLD: float = float(os.getenv('ADAPTIVE_PROFIT_THRESHOLD', '0.0')) # Trades >= this are 'good' (label 1)
-    ADAPTIVE_GOOD_TRADE_THRESHOLD: float = float(os.getenv('ADAPTIVE_GOOD_TRADE_THRESHOLD', '2.0')) # Trades >= this are 'excellent' (label 2)
-                                                                                                   # Trades < ADAPTIVE_PROFIT_THRESHOLD are 'poor' (label 0)
-
-    # Mapping from model output indices (0, 1, 2 from create_performance_labels)
-    # to 'BUY', 'SELL', 'NEUTRAL' for the multi-modal model's inference.
-    # This MUST align with the labeling logic above.
-    ADAPTIVE_LABEL_MAP_POOR: str = os.getenv('ADAPTIVE_LABEL_MAP_POOR', 'SELL')         # Corresponds to label 0
-    ADAPTIVE_LABEL_MAP_GOOD: str = os.getenv('ADAPTIVE_LABEL_MAP_GOOD', 'NEUTRAL')    # Corresponds to label 1
-    ADAPTIVE_LABEL_MAP_EXCELLENT: str = os.getenv('ADAPTIVE_LABEL_MAP_EXCELLENT', 'BUY') # Corresponds to label 2
-    
-    MIN_TRADES_FOR_TRAINING: int = int(os.getenv('MIN_TRADES_FOR_TRAINING', '20'))
-    ADAPTIVE_LEARNING_INTERVAL_HOURS: int = int(os.getenv('ADAPTIVE_LEARNING_INTERVAL_HOURS', '24'))
-
-    # Model checkpoint paths for learning
-    FINBERT_ADAPTIVE_CHECKPOINT: Path = DATA_DIR / 'finbert_multimodal_adaptive.pth'
-    ENHANCED_NEURAL_ADAPTIVE_CHECKPOINT: Path = DATA_DIR / 'enhanced_neural_multimodal_adaptive.pth'
-    ADAPTIVE_PROCESSORS: Path = DATA_DIR / 'data_processors.pkl'
-    LAST_TRAINING_LOG: Path = DATA_DIR / 'last_training.json'
 
 # ================================================================
 # 📋 CONFIGURATION USAGE EXAMPLES & DOCUMENTATION

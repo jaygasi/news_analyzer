@@ -590,6 +590,13 @@ class EnhancedNeuralAnalyzer:
             log_error(f"Error in enhanced neural analysis for {ticker}: {e}")
             return None
     
+    def analyze_sentiment(self, text: str, ticker: str = "") -> Optional[EnhancedPrediction]:
+        """
+        Compatibility method for sentiment analysis - calls analyze_text internally
+        This method exists for compatibility with validation and testing code
+        """
+        return self.analyze_text(ticker=ticker, text=text)
+
     def _calibrate_confidence(self, raw_confidence: float, predicted_class: int) -> float:
         """
         Calibrate model confidence to be more realistic for trading decisions

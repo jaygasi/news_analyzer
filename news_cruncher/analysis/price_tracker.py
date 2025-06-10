@@ -56,30 +56,52 @@ class PriceTracker:
                 # Regular interval checkpoint
                 check_time = rec_time_est + timedelta(minutes=minutes)
                 
-                if self.is_market_hours(check_time):
+                # FIXED: Allow after-hours tracking for extended session
+                if self.is_market_hours(check_time) or self.is_extended_hours(check_time):
                     schedule.append((label, check_time))
-                    log_debug(f"Added {label} checkpoint: {check_time}")
+                    log_debug(f"Added checkpoint: {label} at {check_time.strftime('%H:%M:%S')} EST")
                 else:
-                    log_debug(f"Skipping {label} checkpoint: outside market hours")
+                    log_debug(f"Skipped checkpoint {label} - outside trading hours")
             else:
-                # Close time checkpoint (special case)
-                close_time = rec_time_est.replace(
-                    hour=Config.CLOSE_PRICE_HOUR, 
-                    minute=Config.CLOSE_PRICE_MINUTE, 
-                    second=0, 
-                    microsecond=0
-                )
-                
-                # Add close price if recommendation was made before close time on a weekday
-                if (rec_time_est.time() < close_time.time() and 
-                    rec_time_est.weekday() < 5):
-                    schedule.append((label, close_time))
-                    log_debug(f"Added {label} checkpoint: {close_time}")
-                else:
-                    log_debug(f"Skipping {label} checkpoint: recommendation too late or weekend")
+                # Close price checkpoint - handle next trading day if after hours
+                close_time = self._get_next_close_time(rec_time_est)
+                schedule.append((label, close_time))
+                log_debug(f"Added close checkpoint at {close_time.strftime('%H:%M:%S')} EST")
         
-        log_info(f"Price tracking schedule: {len(schedule)} checkpoints for {rec_time_est}")
         return schedule
+
+    def is_extended_hours(self, dt: datetime) -> bool:
+        """Check if datetime is during extended hours (4:00am-8:00pm EST)"""
+        est_dt = dt.astimezone(self.est_tz)
+        
+        # Check if weekend
+        if est_dt.weekday() >= 5:  # Saturday = 5, Sunday = 6
+            return False
+            
+        # Extended hours: 4:00am-8:00pm EST
+        extended_open = est_dt.replace(hour=4, minute=0, second=0, microsecond=0)
+        extended_close = est_dt.replace(hour=20, minute=0, second=0, microsecond=0)
+        
+        return extended_open <= est_dt <= extended_close
+
+    def _get_next_close_time(self, from_time: datetime) -> datetime:
+        """Get the next market close time from the given datetime"""
+        close_time = from_time.replace(
+            hour=Config.CLOSE_PRICE_HOUR, 
+            minute=Config.CLOSE_PRICE_MINUTE, 
+            second=0, 
+            microsecond=0
+        )
+        
+        # If it's already past close time today, use tomorrow's close
+        if from_time >= close_time:
+            close_time += timedelta(days=1)
+            
+        # Skip weekends
+        while close_time.weekday() >= 5:
+            close_time += timedelta(days=1)
+            
+        return close_time
     
     def get_current_price(self, ticker: str) -> Optional[float]:
         """Fetch current price using FMP API with enhanced error handling - SYNCHRONOUS"""
