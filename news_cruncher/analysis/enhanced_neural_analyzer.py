@@ -396,7 +396,7 @@ class EnhancedNeuralAnalyzer:
         predictions = []
         for text in test_texts:
             try:
-                result = self.analyze_sentiment(text, "TEST")
+                result = self.analyze_text("TEST", text)
                 predictions.append(result.confidence)
                 log_debug(f"Test prediction: {text[:50]}... → {result.direction} ({result.confidence:.3f})")
             except Exception as e:

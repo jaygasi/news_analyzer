@@ -2,6 +2,12 @@
 Multi-Modal Learning System - Train FinBERT and RoBERTa on CSV Data
 Eliminates training-inference gap and enables true adaptive learning
 """
+import sys
+from pathlib import Path
+
+# Fix Python path - add the project root directory  
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -15,7 +21,6 @@ from datetime import datetime
 import json
 from typing import Dict, List, Tuple, Optional
 import pickle
-
 from config import Config
 from utils.simple_logger import log_info, log_error, log_debug
 from analysis.enhanced_neural_analyzer import EnhancedNeuralAnalyzer

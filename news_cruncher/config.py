@@ -310,15 +310,15 @@ class Config:
     ENABLE_FUNDAMENTAL_FILTERING: bool = os.getenv('ENABLE_FUNDAMENTAL_FILTERING', 'true').lower() == 'true'
     
     # Price range filtering
-    MIN_STOCK_PRICE: float = float(os.getenv('MIN_STOCK_PRICE', '3.00'))
+    MIN_STOCK_PRICE: float = float(os.getenv('MIN_STOCK_PRICE', '2.00'))       # Was 3.00
     MAX_STOCK_PRICE: float = float(os.getenv('MAX_STOCK_PRICE', '1000.00'))
     
     # Volume filtering
-    MIN_AVG_VOLUME: int = int(os.getenv('MIN_AVG_VOLUME', '250000'))  # Minimum average daily volume
+    MIN_AVG_VOLUME: int = int(os.getenv('MIN_AVG_VOLUME', '100000'))           # Was 250000
     MIN_DOLLAR_VOLUME: int = int(os.getenv('MIN_DOLLAR_VOLUME', '5000000'))  # Minimum daily dollar volume
     
     # Market cap filtering
-    MIN_MARKET_CAP: int = int(os.getenv('MIN_MARKET_CAP', '250000000'))  # $250M minimum
+    MIN_MARKET_CAP: int = int(os.getenv('MIN_MARKET_CAP', '100000000'))        # Was 250000000
     
     # Risk filtering
     MAX_VOLATILITY_BETA: float = float(os.getenv('MAX_VOLATILITY_BETA', '2.0'))  # Maximum beta (volatility)
@@ -332,8 +332,8 @@ class Config:
     # ================================================================
     # ⚖️ DECISION ENGINE & SCORING CONFIGURATION
     # ================================================================
-    MIN_CONFIDENCE_THRESHOLD: float = float(os.getenv('MIN_CONFIDENCE_THRESHOLD', '0.6')) # Overall decision confidence
-    MIN_NEWS_CONFIDENCE: float = float(os.getenv('MIN_NEWS_CONFIDENCE', '0.5')) # Min confidence for news component
+    MIN_CONFIDENCE_THRESHOLD: float = float(os.getenv('MIN_CONFIDENCE_THRESHOLD', '0.4'))  # Was 0.6
+    MIN_NEWS_CONFIDENCE: float = float(os.getenv('MIN_NEWS_CONFIDENCE', '0.35'))           # Was 0.5
     MIN_TECHNICAL_CONFIDENCE: float = float(os.getenv('MIN_TECHNICAL_CONFIDENCE', '0.4')) # Min confidence for technical component
     MIN_EARNINGS_CONFIDENCE: float = float(os.getenv('MIN_EARNINGS_CONFIDENCE', '0.6')) # Min confidence for earnings component
     # Scoring weights for 2-way analysis (news + technical)
