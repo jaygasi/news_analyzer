@@ -79,9 +79,9 @@ class Config:
     DB_TIMEOUT: int = 30  # Database connection timeout in seconds
 
     # Cache for FMP API failed tickers (prevents repeated calls to bad tickers)
-    ENABLE_FAILED_TICKER_CACHE = False          # Disable during debugging
-    FAILED_TICKER_CACHE_DAYS = 30              # Days to cache failed tickers
-    FAILED_TICKER_MAX_RETRIES = 3              # How many failures before caching
+    ENABLE_FAILED_TICKER_CACHE = True          # Disable during debugging
+    FAILED_TICKER_CACHE_DAYS = 7              # Days to cache failed tickers
+    FAILED_TICKER_MAX_RETRIES = 1              # How many failures before caching
     FAILED_TICKER_CACHE_DB = DATA_DIR / "failed_tickers_cache.db"  # SQLite cache file
 
     # Cache for earnings related data

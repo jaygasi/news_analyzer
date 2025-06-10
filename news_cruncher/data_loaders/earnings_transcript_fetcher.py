@@ -54,6 +54,53 @@ class EarningsAnalysis:
     # Raw data
     full_transcript: str
     transcript_length: int
+    @property
+    def direction(self) -> str:
+        """Convert overall_sentiment to trading direction"""
+        sentiment_to_direction = {
+            'positive': 'BUY',
+            'negative': 'SELL', 
+            'neutral': 'NEUTRAL'
+        }
+        return sentiment_to_direction.get(self.overall_sentiment, 'NEUTRAL')
+    
+    @property
+    def confidence(self) -> float:
+        """Return sentiment confidence as trading confidence"""
+        return self.sentiment_confidence
+    
+    @property
+    def overall_score(self) -> float:
+        """Calculate normalized trading score (-1.0 to 1.0)"""
+        if self.overall_sentiment == 'positive':
+            return self.sentiment_confidence  # 0.0 to 1.0
+        elif self.overall_sentiment == 'negative':
+            return -self.sentiment_confidence  # -1.0 to 0.0
+        else:  # neutral
+            return 0.0
+    
+    def get_reasoning(self) -> str:
+        """Generate reasoning string for trading decisions"""
+        parts = []
+        
+        # Sentiment component
+        parts.append(f"Sentiment: {self.overall_sentiment} ({self.sentiment_confidence:.2f} confidence)")
+        
+        # Management tone
+        if self.management_tone != 'neutral':
+            parts.append(f"Management tone: {self.management_tone}")
+        
+        # Key highlights
+        if self.key_highlights:
+            highlights_summary = f"{len(self.key_highlights)} key highlights"
+            parts.append(f"Highlights: {highlights_summary}")
+        
+        # Guidance mentions  
+        if self.guidance_mentions:
+            guidance_summary = f"{len(self.guidance_mentions)} guidance items"
+            parts.append(f"Guidance: {guidance_summary}")
+        
+        return " | ".join(parts)
     
     @classmethod
     def create_empty_analysis(cls, ticker: str, quarter: str, year: str) -> 'EarningsAnalysis':

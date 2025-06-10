@@ -22,10 +22,16 @@ class EnhancedTradingDecision(TradingDecision):
         parts = [self.reasoning]
         
         if self.has_earnings_event and self.earnings_analysis:
-            earnings_part = f"Earnings: {self.earnings_analysis.direction} "
-            earnings_part += f"({self.earnings_analysis.overall_score:+.2f} score) | "
-            earnings_part += self.earnings_analysis.get_reasoning()
-            parts.append(earnings_part)
+            try:
+                direction = getattr(self.earnings_analysis, 'direction', 'NEUTRAL')
+                score = getattr(self.earnings_analysis, 'overall_score', 0.0)
+                reasoning_text = getattr(self.earnings_analysis, 'get_reasoning', lambda: 'No reasoning available')()
+                
+                earnings_part = f"Earnings: {direction} ({score:+.2f} score) | {reasoning_text}"
+                parts.append(earnings_part)
+            except Exception as e:
+                log_warning(f"Error generating enhanced reasoning: {e}")
+                parts.append("Earnings: Analysis available but reasoning failed")
         
         return " | ".join(parts)
 
@@ -98,7 +104,8 @@ class EnhancedDecisionEngine:
         technical_score = self._calculate_technical_score(technical_signal)
         
         # Determine if we use 2-way or 3-way scoring
-        has_earnings = earnings_analysis is not None and earnings_analysis.confidence >= self.min_earnings_confidence
+        has_earnings = (earnings_analysis is not None and 
+                        getattr(earnings_analysis, 'confidence', 0.0) >= self.min_earnings_confidence)
         scoring_method = "3-way" if has_earnings else "2-way"
         
         log_debug(f"{ticker}: scores - news={news_score:.3f}, earnings={earnings_score:.3f}, "
@@ -152,12 +159,34 @@ class EnhancedDecisionEngine:
         return max(-1.0, min(1.0, score))
     
     def _calculate_earnings_score(self, earnings_analysis: Optional['EarningsAnalysis']) -> float:
-        """Calculate normalized earnings score (-1.0 to 1.0)"""
+        """Calculate normalized earnings score (-1.0 to 1.0) with robust error handling"""
         if not earnings_analysis:
             return 0.0
-        
-        # Use the overall score from earnings analysis, already normalized
-        return earnings_analysis.overall_score
+    
+        try:
+            # Try to use overall_score property (preferred method)
+            if hasattr(earnings_analysis, 'overall_score'):
+                return earnings_analysis.overall_score
+            
+            # Fallback: Calculate from available attributes
+            if hasattr(earnings_analysis, 'overall_sentiment') and hasattr(earnings_analysis, 'sentiment_confidence'):
+                sentiment = earnings_analysis.overall_sentiment
+                confidence = earnings_analysis.sentiment_confidence
+                
+                if sentiment == 'positive':
+                    return confidence  # 0.0 to 1.0
+                elif sentiment == 'negative':
+                    return -confidence  # -1.0 to 0.0
+                else:  # neutral
+                    return 0.0
+            
+            # Final fallback
+            log_warning(f"EarningsAnalysis missing expected attributes, using default score 0.0")
+            return 0.0
+            
+        except Exception as e:
+            log_error(f"Error calculating earnings score: {e}")
+            return 0.0
     
     def _calculate_technical_score(self, technical_signal: Optional[TechnicalSignal]) -> float:
         """Calculate normalized technical score (-1.0 to 1.0)"""
@@ -340,9 +369,16 @@ class EnhancedDecisionEngine:
         if news_prediction:
             parts.append(f"News: {news_prediction.direction} ({news_prediction.confidence:.2f} confidence)")
         
-        # Earnings component
+        # Earnings component  
         if earnings_analysis and scoring_method == "3-way":
-            parts.append(f"Earnings: {earnings_analysis.direction} ({earnings_analysis.confidence:.2f} confidence)")
+            try:
+                # Use properties if available
+                direction = getattr(earnings_analysis, 'direction', 'NEUTRAL')
+                confidence = getattr(earnings_analysis, 'confidence', 0.0)
+                parts.append(f"Earnings: {direction} ({confidence:.2f} confidence)")
+            except Exception as e:
+                log_warning(f"Error building earnings reasoning: {e}")
+                parts.append("Earnings: Analysis available but formatting failed")
         
         # Technical component
         if technical_signal:
@@ -400,12 +436,31 @@ class EnhancedDecisionEngine:
             # Get earnings analysis if available
             earnings_analysis = earnings_analyses.get(ticker)
             
-            # Make enhanced decision
-            decision = self.make_enhanced_decision(
-                ticker, news_prediction, earnings_analysis, technical_signal, article_count
-            )
-            
-            decisions.append(decision)
+            # Make enhanced decision with error handling
+            try:
+                decision = self.make_enhanced_decision(
+                    ticker, news_prediction, earnings_analysis, technical_signal, article_count
+                )
+                decisions.append(decision)
+            except AttributeError as e:
+                log_error(f"AttributeError for {ticker}: {e}")
+                log_debug(f"Earnings analysis type: {type(earnings_analysis)}")
+                if earnings_analysis:
+                    log_debug(f"Available attributes: {[attr for attr in dir(earnings_analysis) if not attr.startswith('_')]}")
+                
+                # Create decision without earnings analysis (fallback to 2-way)
+                log_warning(f"Falling back to 2-way analysis for {ticker}")
+                try:
+                    decision = self.make_enhanced_decision(
+                        ticker, news_prediction, None, technical_signal, article_count
+                    )
+                    decisions.append(decision)
+                except Exception as e2:
+                    log_error(f"Failed to create fallback decision for {ticker}: {e2}")
+                    continue
+            except Exception as e:
+                log_error(f"Unexpected error processing {ticker}: {e}")
+                continue
         
         # Log summary
         total_decisions = len(decisions)
