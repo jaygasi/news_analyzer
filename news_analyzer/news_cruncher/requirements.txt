@@ -1,0 +1,170 @@
+# ================================================================
+# 📊 CORE DATA PROCESSING
+# ================================================================
+pandas>=2.0.0
+numpy>=1.24.0
+
+# ================================================================
+# 🌐 HTTP REQUESTS AND ENVIRONMENT MANAGEMENT
+# ================================================================
+requests>=2.31.0
+python-dotenv>=1.0.0
+urllib3>=2.0.0
+
+# ================================================================
+# 🧠 AI/ML DEPENDENCIES FOR ENHANCED NEURAL ANALYSIS
+# ================================================================
+
+# PyTorch - Required for both FinBERT and Enhanced Neural Analyzer
+# Choose ONE of the following based on your system:
+
+# For CPU-only systems (smaller download):
+torch>=2.0.0
+
+# For CUDA-enabled systems (recommended for Enhanced Neural):
+# torch>=2.0.0+cu121 --index-url https://download.pytorch.org/whl/cu121
+
+# For Apple Silicon Macs (Metal Performance Shaders):
+# torch>=2.0.0
+
+# Transformers library for all neural models
+transformers>=4.30.0
+
+# Additional ML dependencies for Enhanced Neural Analyzer
+scikit-learn>=1.3.0           # For additional ML utilities
+scipy>=1.10.0                 # Scientific computing support
+
+# ================================================================
+# 🤖 LLM API INTEGRATIONS
+# ================================================================
+
+# Google Gemini LLM integration
+google-generativeai>=0.3.0
+
+# OpenAI API (optional)
+openai>=1.0.0
+
+# Anthropic Claude API (optional)
+anthropic>=0.7.0
+
+# ================================================================
+# ⏰ TIMEZONE AND DATE HANDLING
+# ================================================================
+pytz>=2023.3                  # Timezone handling for price tracking
+
+# ================================================================
+# 💾 DATABASE AND CACHING (Built-in with Python)
+# ================================================================
+# sqlite3 - for database (built-in)
+# json - for JSON parsing (built-in)
+# hashlib - for article hashing (built-in)
+
+# ================================================================
+# 📁 FILE AND SYSTEM OPERATIONS (Built-in with Python)
+# ================================================================
+# pathlib - for file paths (built-in)
+# os - for environment variables (built-in)
+# csv - for CSV logging (built-in)
+# datetime - for timestamps (built-in)
+
+# ================================================================
+# 🔧 UTILITY AND SYSTEM (Built-in with Python)
+# ================================================================
+# typing - for type hints (built-in)
+# dataclasses - for data structures (built-in)
+# re - for regex operations (built-in)
+# time - for delays and timing (built-in)
+# asyncio - for async operations (built-in, Python 3.7+)
+# signal - for graceful shutdown (built-in)
+# sys - for system operations (built-in)
+
+# ================================================================
+# 📋 INSTALLATION INSTRUCTIONS
+# ================================================================
+
+# BASIC INSTALLATION (CPU-only, works on all systems):
+# pip install pandas numpy requests python-dotenv urllib3 torch transformers scikit-learn scipy google-generativeai openai anthropic pytz
+
+# ENHANCED INSTALLATION (CUDA GPU support for best performance):
+# pip install pandas numpy requests python-dotenv urllib3 scikit-learn scipy google-generativeai openai anthropic pytz
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# pip install transformers
+
+# APPLE SILICON MAC INSTALLATION:
+# pip install pandas numpy requests python-dotenv urllib3 torch transformers scikit-learn scipy google-generativeai openai anthropic pytz
+
+# ================================================================
+# 🚀 FEATURE-SPECIFIC REQUIREMENTS
+# ================================================================
+
+# For Enhanced Neural Analyzer (RoBERTa+LSTM+CNN):
+# - torch>=2.0.0 (REQUIRED)
+# - transformers>=4.30.0 (REQUIRED)
+# - numpy>=1.24.0 (REQUIRED)
+# - GPU with 4GB+ VRAM (RECOMMENDED for speed)
+# - 8GB+ system RAM (RECOMMENDED)
+
+# For Earnings Transcript Analysis:
+# - requests>=2.31.0 (REQUIRED - already included)
+# - All other dependencies are built-in
+
+# For Fundamental Filtering:
+# - requests>=2.31.0 (REQUIRED - already included)
+# - sqlite3 (BUILT-IN - for caching)
+
+# For Traditional FinBERT:
+# - torch>=2.0.0 (REQUIRED)
+# - transformers>=4.30.0 (REQUIRED)
+
+# For LLM Services:
+# - google-generativeai>=0.3.0 (for Gemini)
+# - openai>=1.0.0 (for GPT models)
+# - anthropic>=0.7.0 (for Claude)
+
+# ================================================================
+# 🎯 PERFORMANCE OPTIMIZATION NOTES
+# ================================================================
+
+# GPU ACCELERATION:
+# - NVIDIA GPU: Install CUDA version of PyTorch for 5-10x speed improvement
+# - Apple Silicon: Use default PyTorch with Metal Performance Shaders
+# - CPU only: Will work but Enhanced Neural analysis will be slower
+
+# MEMORY REQUIREMENTS:
+# - Minimum: 4GB RAM for basic operation
+# - Recommended: 8GB+ RAM for Enhanced Neural analysis
+# - GPU: 4GB+ VRAM for optimal Enhanced Neural performance
+
+# STORAGE REQUIREMENTS:
+# - Models: ~2-3GB for all neural models (cached locally)
+# - Data: ~100MB typical for databases and caches
+# - Logs: ~50MB per month of CSV output
+
+# ================================================================
+# 🔍 TROUBLESHOOTING DEPENDENCIES
+# ================================================================
+
+# Issue: PyTorch installation fails
+# Solution: Install from official PyTorch website: https://pytorch.org/get-started/locally/
+
+# Issue: CUDA not available
+# Solution: Install CUDA-enabled PyTorch or use CPU version
+
+# Issue: Out of memory errors
+# Solution: Reduce MAX_TICKERS_TO_ANALYZE and MAX_NEWS_ARTICLES in config
+
+# Issue: Transformers models downloading slowly
+# Solution: Models are cached after first download (~1-2GB one-time download)
+
+# Issue: API key errors
+# Solution: Check .env file configuration and API key validity
+
+# ================================================================
+# 📦 OPTIONAL DEPENDENCIES (for development/testing)
+# ================================================================
+
+# For development and testing (uncomment if needed):
+# pytest>=7.0.0              # For running tests
+# black>=23.0.0               # For code formatting
+# mypy>=1.0.0                 # For type checking
+# jupyter>=1.0.0              # For data analysis notebooks

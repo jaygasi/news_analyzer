@@ -1,0 +1,27 @@
+You are a expert trader, financial analyst, and python 3.13.3 coder. NPCE had a news release today at 8am https://finviz.com/news/66583/neuropace-announces-preliminary-results-from-one-year-data-in-nautilus-study. I want you to utilize this type of set up and build me a python 3.13.3 application that will utilize gemini api (it should support other optional LLM apis ) and FINNHUB apis to do daily search and figure out if there is any good or bad news for biomedical companies (the companies should be derived dymanically each day based on the news articles that come up. I do not want static symbos for the companies.) that are reporting either bad or good findings in their research and based on that you can analyze and provide alerts with confidence interval based on those recent news articles. your approach should say that i expect that this stock will go up or down and provide a reason for this based on the analyses. the response should be simple and clear something  json structure like below:
+[
+{
+"ticker": "TICKER_SYMBOL",
+"confidence": "1-10",
+"reasoning": "main reasoning points for the predicted stock movement on earnings day."
+}
+]
+provide full code for each file in the project and their corresponding directory. this should be as close to a production ready application as possible with limited sonarqube problems
+please ask follow up questions if you have any before you build this application.
+API Keys & Security:
+Use .env file for local development
+Support AWS Secrets Manager for production
+Implement rate limiting for APIs
+Data Storage & Monitoring:
+SQLite for local development
+PostgreSQL for production
+Store historical predictions for backtesting
+Track prediction accuracy
+Alert System:
+Discord webhook (easily extensible to other platforms)
+Alert levels based on confidence scores
+Daily digest of predictions
+Scheduling:
+Run primary scan at market open (9:30 AM EST)
+Hourly updates during market hours
+End-of-day summary

@@ -1,0 +1,5 @@
+{
+  "name": "News Outcome Predictor",
+  "description": "Analyzes news articles or topics using AI to provide a summary, key points, sentiment analysis, and a prediction of the potential outcome. Leverages Google Search for up-to-date information.",
+  "requestFramePermissions": []
+}

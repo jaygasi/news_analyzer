@@ -1,0 +1,1 @@
+Every day i can download all my trading transactions for the last 90 days as an csv file. I want to have a python application that will allow me to merge the csv files however i do not want any duplicate rows only the latest to be added to my total trade file csv. can you help me build this python application? 

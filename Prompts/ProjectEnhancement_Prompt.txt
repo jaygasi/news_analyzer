@@ -1,0 +1,33 @@
+Objective:
+I need your assistance in optimizing and refactoring the provided Python code, to which you should have access. The primary goals are to enhance efficiency (performance, resource usage), improve readability and maintainability following Python best practices (e.g., PEP 8), and ensure the code is production-ready.
+ensure the code passes Pylance and SonarLint checks before delivering it.
+Assumed Input:
+You have access to all project files. Please iterate through all relevant .py source code files within the project.
+
+Your Task & Output Requirements:
+Process Each Python File: Review every relevant .py file in the project.
+Optimized Code Output: For each processed Python file that is modified or enhanced, provide the complete, refactored code in a separate Python code block. Use the following markers to clearly delineate each file's code:
+--- START FILE: [path/to/your/file.py] ---
+```python
+# [Optimized Python code for this file here]
+--- END FILE: [path/to/your/file.py] ---
+
+Focus Areas for Optimization:
+Efficiency: Algorithmic improvements, reduced redundancy, efficient use of Python's built-in functions and data structures (e.g., list comprehensions vs. loops, generators for large datasets), optimized resource usage (memory, CPU).
+Readability & Maintainability (PEP 8): Clearer variable/function names, logical code flow, type hinting (if appropriate and beneficial), appropriate docstrings and comments (briefly explaining complex parts). Adherence to PEP 8 style guidelines where practical and beneficial.
+Production-Readiness: Robust error handling (e.g., specific exception handling, try-except-else-finally blocks), input validation, adherence to Pythonic idioms, potential security considerations (e.g., avoiding eval() with untrusted input, proper use of os.path for path manipulation).
+Modularity & Pythonic Structure: Identify opportunities to break down overly complex functions or classes. Ensure good use of Python's object-oriented features or functional programming paradigms where appropriate.
+File Structure:
+Retain existing file names and directory structures for the output.
+If you recommend changes (e.g., splitting a file, renaming for clarity), clearly state the original path and the new path(s) for the modified code. Then provide the code for each new/modified file using the standard markers.
+No Changes Needed: If a file is reviewed and deemed already well-optimized, requiring no changes, simply state:
+--- NO CHANGES: [path/to/your/file.py] ---
+No significant optimizations or Pythonic improvements recommended for this file.
+Exclusions:
+Do NOT generate test cases or testing code. Focus solely on the functional application code.
+Do NOT include boilerplate introductory/concluding chat. Go straight to the file processing.
+Action:
+Please proceed with accessing and processing the Python files according to these instructions. Confirm you understand and can begin.
+Context from "Last Time" (If Applicable & Concise):
+
+before we continue the optimization but remember provide complete files please

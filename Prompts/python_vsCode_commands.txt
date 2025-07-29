@@ -1,0 +1,55 @@
+# Test just the earnings APIs
+python main.py test-earnings
+
+python main.py test-news
+
+# Run earnings collection with enhanced debugging
+python main.py earnings
+
+# Check what the system found
+python main.py test
+
+Test the system:
+   python main.py validate
+
+3. Generate predictions:
+   python main.py predict
+
+4. Quick test with 5 companies:
+   python main.py predict --limit 5
+   
+In VS Code, press Ctrl+Shift+P (or Cmd+Shift+P on Mac) to open the Command Palette.
+Type Reload Window and select the "Developer: Reload Window" command. This will restart the Pylance language server and force it to re-analyze your environment.
+
+Press: Shift + Alt + F => this will fix the indentation of the file opened
+
+git reset --soft origin/News_Analyzers
+
+# Now check status - your changes are still there, just not committed
+git status
+
+# Stage your files (excluding env.txt)
+git add .
+git reset news_cruncher/env.txt
+create a tag: 
+# Create the milestone tag (following your v1.X.0 pattern)
+git tag -a v1.4.0-neural-model-breakthrough -m "🎉 MILESTONE: Enhanced Neural Model Fixed & Training System Working
+
+✅ Fixed analyze_text returning None (initialization order bug)
+✅ Model validation now passes with real predictions  
+✅ Successfully trained on 95 completed trades
+✅ Enhanced Neural (45M params) + FinBERT both functional
+✅ System processing 1254 articles → 24 tickers → live decisions
+✅ Fundamental filtering working properly
+✅ Neural model making actual predictions (not defaulting to 0.5)
+
+Major breakthrough: System now fully functional for live trading decisions!"
+
+# Push the tag to remote
+git push origin v1.4.0-neural-model-breakthrough
+create a branch from the tag:
+# ✅ SAFE: Keep your work, just switch to tagged version
+git checkout -b working-version-restore v1.4.0-neural-model-breakthrough
+git push -u origin working-version-restore
+
+# Your 5 commits still exist on main branch

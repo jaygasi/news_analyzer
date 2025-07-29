@@ -1,0 +1,102 @@
+Here's an improved, more precise prompt that would help guide the development of the trading performance analysis script more effectively from the start:
+
+**Task: Advanced Trading Performance Analysis with Robust Data Processing**
+
+**Objective:**
+Develop a comprehensive Python script to analyze trading performance, focusing on extracting meaningful insights from a large CSV dataset containing detailed trade information.
+
+**Data Specifications:**
+- Input: CSV file with multiple columns representing trade characteristics
+- Key Columns (Mandatory):
+  * Trade Identifier/Index
+  * Symbol
+  * Entry Price
+  * Exit Price
+  * Trade Result (Binary: "Winner" or "Loser")
+  * Timestamp/Date
+
+**Detailed Analysis Requirements:**
+
+1. **Data Preprocessing and Cleaning:**
+   - Implement robust error handling for:
+     * Missing values
+     * Infinite or extreme numeric values
+     * Inconsistent data types
+   - Automated detection and handling of:
+     * Outliers
+     * Columns with excessive missing data
+   - Preserve data integrity while maximizing usable information
+
+2. **Performance Metrics Analysis:**
+   a) **Win Rate Analysis**
+      - Calculate overall win rate
+      - Identify KPIs that significantly impact win probability
+      - Quantify the impact of each KPI on trade success
+      - Provide statistically robust methodology for feature importance
+
+   b) **Feature Correlation and Importance**
+      - Use multiple techniques to assess feature significance:
+        * Mutual Information
+        * XGBoost Feature Importance
+        * Correlation with Exit Price
+      - Rank features by their predictive power
+
+3. **Error Handling and Logging:**
+   - Comprehensive error handling
+   - Detailed logging of data cleaning steps
+   - Informative error messages
+   - Ability to handle various CSV file formats and structures
+
+4. **Visualization and Reporting:**
+   - Generate CSV reports for:
+     * Mutual Information Scores
+     * XGBoost Feature Importance
+     * Win Rate Analysis
+   - Provide clear, interpretable results
+
+**Technical Requirements:**
+- Language: Python
+- Libraries: 
+  * pandas
+  * numpy
+  * scikit-learn
+  * XGBoost
+- User Interface: 
+  * File selection dialog
+  * Command-line interaction
+
+**Additional Considerations:**
+- Script should be flexible enough to handle different trading datasets
+- Prioritize code readability and maintainability
+- Implement best practices for data science workflows
+
+**Specific Challenges to Address:**
+1. How to handle highly dimensional datasets
+2. Identifying meaningful features in complex trading data
+3. Providing actionable insights beyond simple statistical analysis
+
+**Desired Outputs:**
+1. Comprehensive analysis of trade performance
+2. Ranking of features by predictive power
+3. Detailed reports on how different KPIs impact trade success
+4. Robust, reusable data processing pipeline
+
+**Guidance Notes:**
+- Focus on creating a generalizable solution
+- Implement multiple layers of data validation
+- Provide clear documentation and comments
+- Design with extensibility in mind
+
+**Evaluation Criteria:**
+- Accuracy of data cleaning
+- Depth of statistical analysis
+- Interpretability of results
+- Robustness of error handling
+- Code quality and maintainability
+
+This revised prompt provides:
+- More specific guidance
+- Clear expectations for data handling
+- Detailed technical requirements
+- Focus on both technical implementation and analytical depth
+- Emphasis on creating a flexible, robust solution

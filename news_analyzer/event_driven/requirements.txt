@@ -1,0 +1,18 @@
+# Core & Data Handling
+aiohttp
+numpy
+pandas
+pandas-market-calendars
+python-dotenv
+pytz
+tzlocal
+
+# Machine Learning
+torch
+transformers
+scikit-learn
+scipy
+joblib
+
+# Utilities
+unidecode

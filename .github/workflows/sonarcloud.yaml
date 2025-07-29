@@ -1,0 +1,29 @@
+# This workflow runs a SonarCloud analysis on your code.
+# It triggers on every push to the main branch and on every pull request.
+
+name: SonarCloud Analysis
+
+on:
+  push:
+    branches:
+      - main # Or your default branch (e.g., master)
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  build:
+    name: SonarCloud Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # SonarCloud needs a full history to assign issues to the right people
+          fetch-depth: 0
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          # This token is used to authenticate with SonarCloud
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          # This is needed for pull request decoration
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

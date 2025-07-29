@@ -1,0 +1,28 @@
+read through the provided files for this project. i want you to identify the flow for this application . once it starts and answer the following questions as simple as possible for me to completely understand. 
+which sources does it use to pull news? 
+ok. but from my perspective. good trades are: anything that makes me money. so for long anything that has increase price at checkpoint1, 2, and close would be good. for short recommendations i would expect a good trade to be when the price goes down from the entry point for the 3 checkpoints. as a matter of fact i would like it to learn (maybe this is for the future) but to learn for each check point so that it could recommend an exit strategy to maximize profit. like get in and get out 45min later, 60min later or hold it till the end of the day then get out to maximize the profits. and the same idea should be for the none decision in the csv if one of those results in price going up it should learn that it should have made a long decision and if the price for those is going down it should have learned to make a short decisions. remember the goal of the model is to make money with this trades. and long means price continues to go up (good) short price continues to go down (good) and vice versa. 
+the key word is all three check points... that is not what i would expect. because the whole point of having the check points is to see how long i should keep the ticker either short/long positions to maximize my profit . i do not necessarely want to keep them all the way til the end. for example if a trade is long and it goes up 10% in the first checkpoint but then drops towards the end of the day i would still consider it a good call to log is as long but maybe the model should learn that its long but short duriation and expectation/recommendation should be sell by first checkpoint. something like this.
+How is are the news APIs configured will it pull latest news? since when? show me the pull request that is being currently used and its  parameters passed.
+how far back will it get news each time it runs? How does it prevent already processed news from triggering more decision in next runs? 
+once it has the news how does it decipher which stock companies the news are about? is there a Keyword analyses for this part? 
+are the news grouped into company buckets? is this done before any processing/filtering ? 
+what apis or methodologies does it use to evaluate the news for Long / Short decisions on the stock? 
+if there is more than one evaluation how is the over all score decided? 
+is there any mechanism used to prevent the same ticker getting alerted as a buy/sell signal on the same run? 
+Is there anything getting faked out (hardcoded like the universe of stock symbols considered or fall back evaluations that do nothing but assign predefined values - these are undesirable in the application) instead of dynamically calculated each time it runs?
+when does the 1000 news limit get enforced? before the pre-processed news have been discarded or after? I would like it to be after that way if there is more news at least we can process them 1000 per run...
+Can we enhance the postivie_keyworkds and negative ones list to ensure that at the least whenever this gets executed is as robust as we can make it? 
+In the output csv file for trade recommendations i do not currently see the score for LLMs, Alpha_vantage, Polygon, or TIINGO. are these getting used?
+
+
+
+
+great can you correct these issues in the project: respond back with complete code for each file changed only: following markers to clearly delineate each file's code:
+--- START FILE: [path/to/your/file.py] ---
+```python
+# [Optimized Python code for this file here]
+--- END FILE: [path/to/your/file.py] ---
+
+
+New feature: 
+once it logs a ticker recommendation as long/short i want the price for that ticker 45m after recommendation, 1hr after recommendation and then final read at 3:50pm EST (10m before market closes). and get these logged in the trader csv log for these recommendations. 

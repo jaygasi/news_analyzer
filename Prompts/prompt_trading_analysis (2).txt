@@ -1,0 +1,105 @@
+Task: Create a Python desktop application for analyzing trading performance data with the following specifications:
+
+Project: Trading Performance Analysis Application
+
+Core Requirements:
+1. Desktop GUI application using tkinter
+2. Load and analyze trading data from CSV files
+3. Robust error handling and data validation
+4. Clear visualization of results
+
+Data Structure:
+- CSV file containing trading records
+- Result column ("Winner"/"Loser")
+- Various numeric features/indicators
+- Entry/exit prices and timestamps
+
+Technical Requirements:
+
+1. Application Architecture:
+- Separate files for different components (main.py, analyzer.py, gui.py)
+- Clear separation of concerns
+- Modular design
+- Production-ready code following SonarLint guidelines
+- Full documentation
+
+2. Required Libraries (with versions):
+- pandas>=1.3.0
+- numpy>=1.19.0
+- scikit-learn>=0.24.0
+- xgboost>=1.4.0
+- scipy>=1.7.0
+- tkinter (built-in)
+
+3. Analysis Features:
+- Handle missing and constant values
+- Remove outliers
+- Standardize features
+- Proper exception handling with specific exception classes
+- Warning suppression for statistical calculations
+- Handle potential NaN values
+- No bare 'except' statements
+
+4. GUI Requirements:
+- File selection dialog
+- Progress bar
+- Multiple tabs for different analyses
+- Export functionality
+- Clear status updates
+- Error message displays
+
+5. Code Quality:
+- Follow PEP 8 style guide
+- Use constants for repeated values
+- Proper docstrings with type hints
+- Clear error messages
+- No unused variables in exception handling
+- Specific exception handling
+
+6. Analysis Methods:
+- Mutual Information Analysis
+- Point-Biserial Correlation
+- XGBoost Feature Importance
+- Win Rate Analysis by Feature Percentiles
+
+7. Output Format:
+a) Basic Statistics Tab:
+   - Total trades
+   - Win rate
+   - Other key metrics
+
+b) Feature Importance Tab:
+   - Ranked features
+   - Multiple importance metrics
+   - Scrollable view
+
+c) Win Rate Analysis Tab:
+   - Feature-wise breakdown
+   - Percentile analysis
+   - Clear formatting
+
+8. Error Handling:
+- File loading errors
+- Data validation
+- Statistical computation errors
+- GUI interaction errors
+- Export errors
+
+9. Style Guidelines:
+- Use constants for styles
+- Consistent font usage
+- Standard column widths
+- Clean layout
+
+Additional Requirements:
+- Clear documentation
+- Error logging
+- Export functionality
+- Progress indicators
+- User-friendly interface
+- Proper exception handling
+- Warning management
+- Memory efficiency
+- Performance optimization
+
+Please create a complete implementation that meets all these requirements, ensuring the code is production-ready, well-documented, and follows all best practices.

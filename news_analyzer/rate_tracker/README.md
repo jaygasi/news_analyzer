@@ -1,0 +1,8 @@
+Margin Rate & Price Correlation WorkflowThis project is now split into two main applications to separate the tasks of data collection and data analysis.Project Structure/YourProjectFolder/
+|-- config.py               # FTP server configuration
+|-- data_collector.py       # Script to download and log margin rates
+|-- price_analyzer.py       # Script to fetch prices and run correlation analysis
+|-- requirements.txt        # Project dependencies
+|-- margin_rates_history.csv  # (Generated) Log of margin rate changes
+`-- correlation_data.csv      # (Generated) Data for analysis
+How It WorksStep 1: Collect Margin Data (Run frequently)Run the data_collector.py script.You can schedule this to run as often as you like (e.g., every 40 minutes).It will:Connect to the Interactive Brokers FTP server.Check if a new daily margin file is available.If new, it scans the file for the stocks you listed in STOCK_SYMBOLS.It appends any changes to margin_rates_history.csv with a precise timestamp.Step 2: Analyze Price Correlation (Run on demand)Run the price_analyzer.py script whenever you want to update your analysis.It will:Read margin_rates_history.csv to find new rate changes it hasn't processed.For each new change, it fetches high-frequency (1-minute) stock data.It finds the stock price exactly 5 minutes after the timestamp recorded by the collector.This new combined data is saved to correlation_data.csv.Finally, it runs and prints the statistical correlation report.ConfigurationStocks to Track: Open data_collector.py and edit the STOCK_SYMBOLS list.FTP Details: Edit config.py if the server details ever change.File Paths: If using Google Colab, update the GDRIVE_PATH variable in both data_collector.py and price_analyzer.py.

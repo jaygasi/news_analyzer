@@ -1,0 +1,364 @@
+# =============================================================================
+# Financial News Analysis System - .gitignore
+# Protects sensitive data, API keys, databases, logs, and trading outputs
+# =============================================================================
+
+# =============================================================================
+# 🔐 SENSITIVE CONFIGURATION FILES
+# =============================================================================
+
+# Environment files with API keys
+.env
+.env.*
+*.env
+.environment
+*c_news
+c_news/*
+env.txt
+event/*
+latest_run_logs.txt
+
+# Configuration files that may contain secrets
+config_local.py
+config_private.py
+secrets.py
+api_keys.py
+
+# Backup configuration files
+*.env.bak
+*.env.backup
+
+# =============================================================================
+# 💾 DATABASE FILES
+# =============================================================================
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Database backups and temporary files
+*.db-journal
+*.db-wal
+*.db-shm
+
+# =============================================================================
+# 📝 LOG FILES
+# =============================================================================
+
+# All log files
+*.log
+*.log.*
+logs/
+log/
+
+# Log archives
+*.log.gz
+*.log.zip
+
+# =============================================================================
+# 🧠 AI MODEL FILES & CACHES
+# =============================================================================
+
+# PyTorch model files
+*.pth
+*.pt
+*.pkl
+*.pickle
+
+# Model checkpoints and weights
+data/enhanced_neural_model.pth
+models/
+checkpoints/
+weights/
+
+# Transformers cache
+transformers_cache/
+.cache/transformers/
+
+# Hugging Face cache
+.cache/huggingface/
+
+# =============================================================================
+# 🗂️ DATA DIRECTORIES
+# =============================================================================
+# Cache directories
+cache/
+.cache/
+__pycache__/
+
+# Temporary data files
+temp/
+tmp/
+*.tmp
+
+# =============================================================================
+# 🐍 PYTHON SPECIFIC
+# =============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+.ENV/
+event/*
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# conda
+environment.yml
+environment.yaml
+
+# =============================================================================
+# 💻 IDE & EDITOR FILES
+# =============================================================================
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# =============================================================================
+# 🖥️ OPERATING SYSTEM FILES
+# =============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# =============================================================================
+# 📦 PACKAGE MANAGER FILES
+# =============================================================================
+
+# npm (if any Node.js tools are used)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =============================================================================
+# 🔧 TOOL-SPECIFIC FILES
+# =============================================================================
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# celery beat schedule file
+celerybeat-schedule
+
+# SageMath parsed files
+*.sage.py
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# =============================================================================
+# 📈 FINANCIAL DATA SPECIFIC
+# =============================================================================
+
+# Market data downloads
+market_data/
+price_data/
+earnings_data/
+news_data/
+
+# API response caches
+api_cache/
+fmp_cache/
+alpha_vantage_cache/
+
+# Backup files
+backup/
+backups/
+*.backup
+
+# Historical data archives
+historical/
+archives/
+*.zip
+*.tar.gz
+*.7z
+
+# =============================================================================
+# 🧪 TESTING & DEVELOPMENT
+# =============================================================================
+
+# Test databases
+test.db
+test_*.db
+*_test.db
+
+# Test outputs
+test_output/
+test_results/
+*.xlsx
+*.csv
+# Development files
+dev/
+development/
+scratch/
+sandbox/
+
+# =============================================================================
+# 🔄 RUNTIME & PROCESS FILES
+# =============================================================================
+
+# Process IDs
+*.pid
+
+# Runtime files
+*.sock
+*.lock
+
+# Temporary runtime data
+runtime/
+
+# =============================================================================
+# 📋 DOCUMENTATION BUILD FILES
+# =============================================================================
+
+# Documentation builds
+docs/_build/
+docs/build/
+_build/
+
+# =============================================================================
+# 🚫 CUSTOM EXCLUSIONS (Add your specific files here)
+# =============================================================================
+
+# Add any additional files or directories specific to your setup
+# Example:
+# my_custom_config.py
+# local_settings/

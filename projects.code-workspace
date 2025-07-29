@@ -1,0 +1,33 @@
+{
+  "folders": [
+    {
+      "name": "Crunch",
+      "path": "./news_analyzer/news_cruncher"
+    },
+    {
+      "name": "Rate",
+      "path": "./news_analyzer/rate_tracker"
+    },
+    {
+      "name": "Event",
+      "path": "./news_analyzer/event_driven"
+    },
+    {
+      "name": "Personalization News Analysis",
+      "path": "./news_analyzer/news-outcome-predictor"
+    },
+    {
+      "name": "pega_components",
+      "path": "./pega_components"
+    },
+    {
+      "name": "python",
+      "path": "./python"
+    }
+  ],
+  "settings": {
+    // This setting helps VS Code's Python extension find your centrally-located environments more easily.
+    "python.venvPath": "/home/jay/python_envs/",
+    "liveServer.settings.multiRootWorkspaceName": "Personalization News Analysis"
+  }
+}

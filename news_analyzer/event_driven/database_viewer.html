@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced System Dashboard & DB Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    <style>
+        html { background-color: #111827; }
+        .tab-button-active { border-color: #3b82f6; color: #60a5fa; }
+        .tab-button-inactive { border-color: transparent; color: #9ca3af; }
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-top: 1rem;
+        }
+        
+        table.table-layout-fixed {
+            table-layout: fixed;
+        }
+
+        th, td { 
+            padding: 0.75rem; 
+            text-align: left; 
+            border-bottom: 1px solid #374151;
+            white-space: nowrap; 
+            overflow: hidden; 
+            text-overflow: ellipsis; 
+        }
+        th { background-color: #1f2937; color: #9ca3af; font-weight: 600; }
+        th.sortable:hover { 
+            background-color: #374151; 
+            cursor: grab;
+        }
+        tbody tr.clickable:hover { background-color: #1f2937; cursor: pointer; }
+
+        .text-green-400 { color: #4ade80; }
+        .text-red-400 { color: #f87171; }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+        .modal-content { background-color: #1f2937; color: #e5e7eb; padding: 2rem; border-radius: 0.5rem; max-width: 800px; max-height: 90vh; overflow-y: auto; }
+        .delete-btn-disabled { background-color: #4b5563; color: #9ca3af; cursor: not-allowed; }
+        .form-checkbox {
+            -webkit-appearance: none; -moz-appearance: none; appearance: none;
+            padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact;
+            display: inline-block; vertical-align: middle; background-origin: border-box;
+            -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none;
+            flex-shrink: 0; height: 1rem; width: 1rem; color: #3b82f6;
+            background-color: #fff; border-color: #6b7280; border-width: 1px; border-radius: 0.25rem;
+        }
+        .form-checkbox:checked {
+            background-image: url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3e%3c/svg%3e");
+            border-color: transparent; background-color: currentColor;
+            background-size: 100% 100%; background-position: center; background-repeat: no-repeat;
+        }
+        .filter-icon {
+            cursor: pointer;
+            color: #6b7280;
+            margin-left: 8px;
+        }
+        .filter-icon:hover {
+            color: #9ca3af;
+        }
+        .filter-icon.active {
+            color: #3b82f6;
+        }
+        .filter-popup {
+            background-color: #1f2937;
+            border: 1px solid #4b5563;
+            border-radius: 0.375rem;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+        }
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin: 20px 0;
+        }
+        .insight-card {
+            background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+            border-left: 4px solid #3b82f6;
+        }
+        .metric-card {
+            background: linear-gradient(135deg, #065f46 0%, #047857 100%);
+        }
+        .warning-card {
+            background: linear-gradient(135deg, #7c2d12 0%, #dc2626 100%);
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 font-sans">
+
+    <div class="p-4 md:p-8">
+        <div class="container mx-auto">
+            <header class="text-center mb-8">
+                <h1 class="text-4xl font-bold text-white">Enhanced System Dashboard & Viewer</h1>
+                <p class="text-gray-400 mt-2">Advanced analytics and insights for your trading system</p>
+            </header>
+    
+            <div class="max-w-2xl mx-auto bg-gray-800 p-6 rounded-lg shadow-lg text-center flex flex-wrap justify-center items-center gap-3">
+                <label for="db-upload" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg cursor-pointer">Upload system.db</label>
+                <input type="file" id="db-upload" class="hidden" accept=".db,.sqlite,.sqlite3">
+                <button id="export-data-btn" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded-lg opacity-50 cursor-not-allowed" disabled>Export Data</button>
+                <button id="export-db-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg opacity-50 cursor-not-allowed" disabled>Export & Save DB</button>
+                <button id="refresh-analytics-btn" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg opacity-50 cursor-not-allowed" disabled>Refresh Analytics</button>
+            </div>
+            <p id="status-message" class="text-center mt-4 text-gray-400">Please select your database file.</p>
+        </div>
+
+        <div id="main-content" class="hidden mt-10">
+            <div>
+                <div id="tabs" class="mb-4 border-b border-gray-700">
+                    <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+                        <button data-table="dashboard" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm tab-button-active">Dashboard</button>
+                        <button data-table="advanced-analytics" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm tab-button-inactive">Advanced Analytics</button>
+                        <button data-table="trades" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm tab-button-inactive">Trades</button>
+                        <button data-table="training_history" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm tab-button-inactive">Training History</button>
+                        <button data-table="keyword_analysis" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm tab-button-inactive">Keyword Analysis</button>
+                        <button data-table="performance_analysis" class="tab-button whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm tab-button-inactive">Performance Analysis</button>
+                    </nav>
+                </div>
+    
+                <div id="dashboard-container" class="w-full">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                        <div class="metric-card p-6 rounded-lg shadow-lg">
+                            <h3 class="text-lg font-semibold text-white mb-2">Total Trades</h3>
+                            <p id="total-trades" class="text-3xl font-bold text-white">-</p>
+                        </div>
+                        <div class="metric-card p-6 rounded-lg shadow-lg">
+                            <h3 class="text-lg font-semibold text-white mb-2">Win Rate</h3>
+                            <p id="win-rate" class="text-3xl font-bold text-white">-</p>
+                        </div>
+                        <div class="metric-card p-6 rounded-lg shadow-lg">
+                            <h3 class="text-lg font-semibold text-white mb-2">Avg Return</h3>
+                            <p id="avg-return" class="text-3xl font-bold text-white">-</p>
+                        </div>
+                        <div class="metric-card p-6 rounded-lg shadow-lg">
+                            <h3 class="text-lg font-semibold text-white mb-2">Best Performer</h3>
+                            <p id="best-performer" class="text-xl font-bold text-white">-</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                        <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                            <h3 class="text-xl font-semibold text-white mb-4">Performance Distribution</h3>
+                            <div class="chart-container">
+                                <canvas id="performance-chart"></canvas>
+                            </div>
+                        </div>
+                        <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                            <h3 class="text-xl font-semibold text-white mb-4">Trading Activity Over Time</h3>
+                            <div class="chart-container">
+                                <canvas id="activity-chart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="insight-card p-6 rounded-lg shadow-lg mb-6">
+                        <h3 class="text-xl font-semibold text-white mb-4">System Insights</h3>
+                        <div id="system-insights" class="space-y-3">
+                        </div>
+                    </div>
+                </div>
+
+                <div id="advanced-analytics-container" class="w-full hidden">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                        <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                            <h3 class="text-xl font-semibold text-white mb-4">Model Confidence vs Performance</h3>
+                            <div class="chart-container">
+                                <canvas id="confidence-performance-chart"></canvas>
+                            </div>
+                        </div>
+                        <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                            <h3 class="text-xl font-semibold text-white mb-4">Keyword Effectiveness</h3>
+                            <div class="chart-container">
+                                <canvas id="keyword-effectiveness-chart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                        <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                            <h3 class="text-xl font-semibold text-white mb-4">Sentiment Analysis Distribution</h3>
+                            <div class="chart-container">
+                                <canvas id="sentiment-distribution-chart"></canvas>
+                            </div>
+                        </div>
+                        <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                            <h3 class="text-xl font-semibold text-white mb-4">Training Progress</h3>
+                            <div class="chart-container">
+                                <canvas id="training-progress-chart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-800 p-6 rounded-lg shadow-lg mb-6">
+                        <h3 class="text-xl font-semibold text-white mb-4">Performance Attribution</h3>
+                        <div id="performance-attribution" class="overflow-x-auto">
+                            <table class="w-full">
+                                <thead>
+                                    <tr>
+                                        <th>Factor</th>
+                                        <th>Contribution</th>
+                                        <th>Trades</th>
+                                        <th>Avg Performance</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="attribution-table-body">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="table-view" class="hidden">
+                    <div id="tools-section" class="bg-gray-800/50 p-4 rounded-lg my-4 flex flex-wrap items-center gap-4">
+                        <input type="text" id="filter-input" placeholder="Search all columns..." class="flex-grow bg-gray-700 rounded-md border-gray-600 p-2">
+                        <div class="relative">
+                            <button id="toggle-columns-btn" style="display: none;" class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md">Columns</button>
+                            <div id="column-checklist" class="hidden absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-gray-700 ring-1 ring-black ring-opacity-5 z-50">
+                                <div class="py-1 max-h-96 overflow-y-auto" role="menu" aria-orientation="vertical" aria-labelledby="options-menu">
+                                </div>
+                            </div>
+                        </div>
+                        <button id="delete-selected-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md delete-btn-disabled" disabled>Delete Selected</button>
+                        <button id="find-duplicates-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md">Find Duplicates</button>
+                        <button id="clear-table-btn" class="bg-red-800 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md">Clear Table</button>
+                    </div>
+                    <div id="table-container" class="w-full overflow-x-auto bg-gray-800 rounded-lg shadow-lg p-1"></div>
+                    <div id="pagination-container" class="mt-4"></div>
+                </div>
+            </div>
+        </div>
+
+    <script>
+        let db = null;
+        let currentTable = 'dashboard';
+        let currentData = [];
+        let filteredData = [];
+        let sortColumn = null;
+        let sortDirection = 'asc';
+        let currentPage = 1;
+        const rowsPerPage = 15;
+        let selectedRows = new Set();
+        let columnVisibility = {};
+        let columnFilters = {};
+        let columnOrder = [];
+        let sortableInstance = null;
+
+        initSqlJs({
+            locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}`
+        }).then(function(SQL) {
+            window.SQL = SQL;
+        });
+
+        document.getElementById('db-upload').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const Uints = new Uint8Array(e.target.result);
+                        db = new window.SQL.Database(Uints);
+                        document.getElementById('status-message').textContent = `Database loaded: ${file.name}`;
+                        document.getElementById('main-content').classList.remove('hidden');
+                        document.getElementById('export-data-btn').disabled = false;
+                        document.getElementById('export-data-btn').classList.remove('opacity-50', 'cursor-not-allowed');
+                        document.getElementById('export-db-btn').disabled = false;
+                        document.getElementById('export-db-btn').classList.remove('opacity-50', 'cursor-not-allowed');
+                        document.getElementById('refresh-analytics-btn').disabled = false;
+                        document.getElementById('refresh-analytics-btn').classList.remove('opacity-50', 'cursor-not-allowed');
+                        loadDashboard();
+                    } catch (error) {
+                        document.getElementById('status-message').textContent = `Error loading database: ${error.message}`;
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            }
+        });
+
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.addEventListener('click', function() {
+                const table = this.getAttribute('data-table');
+                switchTab(table);
+            });
+        });
+
+        function switchTab(table) {
+            currentTable = table;
+            columnFilters = {};
+            
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('tab-button-active');
+                btn.classList.add('tab-button-inactive');
+            });
+            document.querySelector(`[data-table="${table}"]`).classList.add('tab-button-active');
+            document.querySelector(`[data-table="${table}"]`).classList.remove('tab-button-inactive');
+
+            if (table === 'dashboard') {
+                document.getElementById('dashboard-container').classList.remove('hidden');
+                document.getElementById('advanced-analytics-container').classList.add('hidden');
+                document.getElementById('table-view').classList.add('hidden');
+                loadDashboard();
+            } else if (table === 'advanced-analytics') {
+                document.getElementById('dashboard-container').classList.add('hidden');
+                document.getElementById('advanced-analytics-container').classList.remove('hidden');
+                document.getElementById('table-view').classList.add('hidden');
+                loadAdvancedAnalytics();
+            } else {
+                document.getElementById('dashboard-container').classList.add('hidden');
+                document.getElementById('advanced-analytics-container').classList.add('hidden');
+                document.getElementById('table-view').classList.remove('hidden');
+                loadTable(table);
+            }
+        }
+
+        function showColumnFilter(event, column) {
+            event.stopPropagation();
+            closeAllPopups();
+
+            const filterPopup = document.createElement('div');
+            filterPopup.id = 'filter-popup';
+            filterPopup.className = 'filter-popup absolute z-50 mt-2 w-64 rounded-md shadow-lg p-4';
+            
+            const iconRect = event.currentTarget.getBoundingClientRect();
+            filterPopup.style.top = `${iconRect.bottom + window.scrollY}px`;
+            filterPopup.style.left = `${iconRect.right + window.scrollX - filterPopup.offsetWidth}px`;
+
+            const distinctValues = [...new Set(currentData.map(row => row[column]))].sort((a, b) => {
+                if (a === null || a === undefined) return -1;
+                if (b === null || b === undefined) return 1;
+                if (a < b) return -1;
+                if (a > b) return 1;
+                return 0;
+            });
+
+            let contentHtml = `<h4 class="text-white font-bold mb-2">${column}</h4>`;
+            if (distinctValues.length > 20) {
+                contentHtml += `<input type="search" oninput="filterChecklistItems(this.value)" placeholder="Search values..." class="w-full bg-gray-700 border border-gray-600 rounded-md p-1 mb-2 text-sm text-white focus:ring-blue-500 focus:border-blue-500">`;
+            }
+
+            contentHtml += `<div id="filter-checklist" class="max-h-60 overflow-y-auto space-y-1">`;
+            const activeFilters = columnFilters[column] || [];
+
+            if (distinctValues.length === 0) {
+                contentHtml += `<p class="text-gray-400 text-sm">No unique values found.</p>`;
+            } else {
+                distinctValues.forEach(value => {
+                    const actualValue = (value === null || value === undefined) ? '' : value.toString();
+                    const displayValue = (value === null || value === undefined) ? '(Empty)' : value;
+                    const isChecked = activeFilters.includes(actualValue);
+                    contentHtml += `
+                        <label class="filter-item flex items-center text-sm text-gray-300 hover:bg-gray-600 p-1 rounded cursor-pointer">
+                            <input type="checkbox" class="form-checkbox h-4 w-4 bg-gray-800 border-gray-600" value="${actualValue}" ${isChecked ? 'checked' : ''}>
+                            <span class="ml-2 truncate" title="${displayValue}">${displayValue}</span>
+                        </label>`;
+                });
+            }
+            contentHtml += '</div>';
+            contentHtml += `<p id="filter-no-results" class="text-gray-400 text-sm hidden mt-2">No results found.</p>`;
+            contentHtml += `<div class="mt-4 flex justify-between">
+                <button class="text-sm bg-blue-600 hover:bg-blue-700 text-white py-1 px-3 rounded" onclick="applyColumnFilters('${column}')">Apply</button>
+                <button class="text-sm text-gray-400 hover:text-white" onclick="applyColumnFilters('${column}', true)">Clear</button>
+            </div>`;
+
+            filterPopup.innerHTML = contentHtml;
+            document.body.appendChild(filterPopup);
+        }
+
+        function loadDashboard() {
+            if (!db) return;
+            try {
+                const totalTradesResult = db.exec("SELECT COUNT(*) as count FROM trades");
+                const totalTrades = totalTradesResult[0] ? totalTradesResult[0].values[0][0] : 0;
+                const completedTradesResult = db.exec("SELECT COUNT(*) as count FROM trades WHERE tracking_status = 'completed' AND perf_eod_pct IS NOT NULL");
+                const completedTrades = completedTradesResult[0] ? completedTradesResult[0].values[0][0] : 0;
+                const winningTradesResult = db.exec("SELECT COUNT(*) as count FROM trades WHERE tracking_status = 'completed' AND perf_eod_pct > 0");
+                const winningTrades = winningTradesResult[0] ? winningTradesResult[0].values[0][0] : 0;
+                const avgReturnResult = db.exec("SELECT AVG(perf_eod_pct) as avg_return FROM trades WHERE tracking_status = 'completed' AND perf_eod_pct IS NOT NULL");
+                const avgReturn = avgReturnResult[0] ? avgReturnResult[0].values[0][0] : 0;
+                const bestPerformerResult = db.exec("SELECT ticker, perf_eod_pct FROM trades WHERE tracking_status = 'completed' AND perf_eod_pct IS NOT NULL ORDER BY perf_eod_pct DESC LIMIT 1");
+                const bestPerformer = bestPerformerResult[0] ? `${bestPerformerResult[0].values[0][0]} (${bestPerformerResult[0].values[0][1].toFixed(2)}%)` : 'N/A';
+                document.getElementById('total-trades').textContent = totalTrades;
+                document.getElementById('win-rate').textContent = completedTrades > 0 ? `${((winningTrades / completedTrades) * 100).toFixed(1)}%` : 'N/A';
+                document.getElementById('avg-return').textContent = avgReturn ? `${avgReturn.toFixed(2)}%` : 'N/A';
+                document.getElementById('best-performer').textContent = bestPerformer;
+                loadPerformanceChart();
+                loadActivityChart();
+                loadSystemInsights();
+            } catch (error) {
+                console.error('Error loading dashboard:', error);
+            }
+        }
+
+        function loadPerformanceChart() {
+            const ctx = document.getElementById('performance-chart').getContext('2d');
+            try {
+                const performanceData = db.exec("SELECT perf_eod_pct FROM trades WHERE tracking_status = 'completed' AND perf_eod_pct IS NOT NULL");
+                if (performanceData[0]) {
+                    const returns = performanceData[0].values.map(row => row[0]);
+                    const bins = [-10, -5, -2, -1, 0, 1, 2, 5, 10];
+                    const binCounts = new Array(bins.length - 1).fill(0);
+                    const binLabels = [];
+                    for (let i = 0; i < bins.length - 1; i++) {
+                        binLabels.push(`${bins[i]}% to ${bins[i+1]}%`);
+                    }
+                    returns.forEach(ret => {
+                        for (let i = 0; i < bins.length - 1; i++) {
+                            if (ret >= bins[i] && ret < bins[i + 1]) {
+                                binCounts[i]++;
+                                break;
+                            }
+                        }
+                    });
+                    new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: binLabels,
+                            datasets: [{
+                                label: 'Number of Trades',
+                                data: binCounts,
+                                backgroundColor: 'rgba(59, 130, 246, 0.6)',
+                                borderColor: 'rgba(59, 130, 246, 1)',
+                                borderWidth: 1
+                            }]
+                        },
+                        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#e5e7eb' } } }, scales: { y: { beginAtZero: true, ticks: { color: '#9ca3af' }, grid: { color: '#374151' } }, x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } } } }
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading performance chart:', error);
+            }
+        }
+
+        function loadActivityChart() {
+            const ctx = document.getElementById('activity-chart').getContext('2d');
+            try {
+                const activityData = db.exec("SELECT DATE(timestamp) as date, COUNT(*) as count FROM trades GROUP BY DATE(timestamp) ORDER BY date");
+                if (activityData[0]) {
+                    const dates = activityData[0].values.map(row => row[0]);
+                    const counts = activityData[0].values.map(row => row[1]);
+                    new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: dates,
+                            datasets: [{
+                                label: 'Trades per Day',
+                                data: counts,
+                                borderColor: 'rgba(34, 197, 94, 1)',
+                                backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                                tension: 0.4,
+                                fill: true
+                            }]
+                        },
+                        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#e5e7eb' } } }, scales: { y: { beginAtZero: true, ticks: { color: '#9ca3af' }, grid: { color: '#374151' } }, x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } } } }
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading activity chart:', error);
+            }
+        }
+
+        function loadSystemInsights() {
+            const insightsContainer = document.getElementById('system-insights');
+            const insights = [];
+            try {
+                const pendingResult = db.exec("SELECT COUNT(*) as count FROM trades WHERE tracking_status = 'pending'");
+                const pendingCount = pendingResult[0] ? pendingResult[0].values[0][0] : 0;
+                if (pendingCount > 0) {
+                    insights.push({ type: 'warning', message: `${pendingCount} trades are pending performance tracking. Consider running price_tracker.py.` });
+                }
+                const trainingResult = db.exec("SELECT COUNT(*) as count FROM training_history");
+                const trainingCount = trainingResult[0] ? trainingResult[0].values[0][0] : 0;
+                if (trainingCount === 0) {
+                    insights.push({ type: 'warning', message: 'No training history found. Consider running train_model.py to initialize the model.' });
+                } else {
+                    const latestTraining = db.exec("SELECT training_timestamp, val_accuracy FROM training_history ORDER BY training_timestamp DESC LIMIT 1");
+                    if (latestTraining[0]) {
+                        const accuracy = latestTraining[0].values[0][1];
+                        insights.push({ type: 'info', message: `Latest model validation accuracy: ${(accuracy * 100).toFixed(1)}%` });
+                    }
+                }
+                const keywordResult = db.exec(`
+                    SELECT k.keyword, AVG(t.perf_eod_pct) as avg_perf, COUNT(*) as trade_count
+                    FROM keyword_matches k
+                    JOIN trades t ON k.trade_id = t.id
+                    WHERE t.tracking_status = 'completed' AND t.perf_eod_pct IS NOT NULL
+                    GROUP BY k.keyword
+                    HAVING trade_count >= 5
+                    ORDER BY avg_perf DESC
+                    LIMIT 3
+                `);
+                if (keywordResult[0] && keywordResult[0].values.length > 0) {
+                    const topKeyword = keywordResult[0].values[0];
+                    insights.push({ type: 'info', message: `Top performing keyword: "${topKeyword[0]}" with ${topKeyword[2]} trades averaging ${topKeyword[1].toFixed(2)}% return.` });
+                }
+                insightsContainer.innerHTML = insights.map(insight => `
+                    <div class="flex items-start space-x-3">
+                        <div class="flex-shrink-0">
+                            ${insight.type === 'warning' ? 
+                                '<svg class="h-5 w-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg>' :
+                                '<svg class="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path></svg>'
+                            }
+                        </div>
+                        <p class="text-sm text-gray-300">${insight.message}</p>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading system insights:', error);
+                insightsContainer.innerHTML = '<p class="text-sm text-red-400">Error loading insights</p>';
+            }
+        }
+
+        function loadAdvancedAnalytics() {
+            if (!db) return;
+            loadConfidencePerformanceChart();
+            loadKeywordEffectivenessChart();
+            loadSentimentDistributionChart();
+            loadTrainingProgressChart();
+            loadPerformanceAttribution();
+        }
+
+        function loadConfidencePerformanceChart() {
+            const ctx = document.getElementById('confidence-performance-chart').getContext('2d');
+            try {
+                const data = db.exec(`SELECT predicted_confidence, perf_eod_pct FROM trades WHERE tracking_status = 'completed' AND predicted_confidence IS NOT NULL AND perf_eod_pct IS NOT NULL`);
+                if (data[0]) {
+                    const scatterData = data[0].values.map(row => ({ x: row[0] * 100, y: row[1] }));
+                    new Chart(ctx, {
+                        type: 'scatter',
+                        data: { datasets: [{ label: 'Confidence vs Performance', data: scatterData, backgroundColor: 'rgba(168, 85, 247, 0.6)', borderColor: 'rgba(168, 85, 247, 1)' }] },
+                        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#e5e7eb' } } }, scales: { y: { title: { display: true, text: 'Performance (%)', color: '#9ca3af' }, ticks: { color: '#9ca3af' }, grid: { color: '#374151' } }, x: { title: { display: true, text: 'Model Confidence (%)', color: '#9ca3af' }, ticks: { color: '#9ca3af' }, grid: { color: '#374151' } } } }
+                    });
+                }
+            } catch (error) { console.error('Error loading confidence vs performance chart:', error); }
+        }
+
+        function loadKeywordEffectivenessChart() {
+            const ctx = document.getElementById('keyword-effectiveness-chart').getContext('2d');
+            try {
+                const data = db.exec(`
+                    SELECT k.keyword, AVG(t.perf_eod_pct) as avg_perf, COUNT(*) as trade_count
+                    FROM keyword_matches k JOIN trades t ON k.trade_id = t.id
+                    WHERE t.tracking_status = 'completed' AND t.perf_eod_pct IS NOT NULL
+                    GROUP BY k.keyword HAVING trade_count >= 3 ORDER BY avg_perf DESC LIMIT 10
+                `);
+                if (data[0]) {
+                    const keywords = data[0].values.map(row => row[0]);
+                    const performances = data[0].values.map(row => row[1]);
+                    new Chart(ctx, {
+                        type: 'bar',
+                        data: { labels: keywords, datasets: [{ label: 'Average Performance (%)', data: performances, backgroundColor: performances.map(p => p > 0 ? 'rgba(34, 197, 94, 0.6)' : 'rgba(239, 68, 68, 0.6)'), borderColor: performances.map(p => p > 0 ? 'rgba(34, 197, 94, 1)' : 'rgba(239, 68, 68, 1)'), borderWidth: 1 }] },
+                        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#e5e7eb' } } }, scales: { y: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } }, x: { ticks: { color: '#9ca3af', maxRotation: 45 }, grid: { color: '#374151' } } } }
+                    });
+                }
+            } catch (error) { console.error('Error loading keyword effectiveness chart:', error); }
+        }
+
+        function loadSentimentDistributionChart() {
+            const ctx = document.getElementById('sentiment-distribution-chart').getContext('2d');
+            try {
+                const data = db.exec(`SELECT feature_finbert_score FROM trades WHERE feature_finbert_score IS NOT NULL`);
+                if (data[0]) {
+                    const scores = data[0].values.map(row => row[0]);
+                    const bins = [-1, -0.5, -0.1, 0.1, 0.5, 1];
+                    const binCounts = new Array(bins.length - 1).fill(0);
+                    const binLabels = ['Very Negative', 'Negative', 'Neutral', 'Positive', 'Very Positive'];
+                    scores.forEach(score => {
+                        for (let i = 0; i < bins.length - 1; i++) {
+                            if (score >= bins[i] && score < bins[i + 1]) {
+                                binCounts[i]++;
+                                break;
+                            }
+                        }
+                    });
+                    new Chart(ctx, {
+                        type: 'doughnut',
+                        data: { labels: binLabels, datasets: [{ data: binCounts, backgroundColor: ['rgba(239, 68, 68, 0.8)', 'rgba(251, 146, 60, 0.8)', 'rgba(156, 163, 175, 0.8)', 'rgba(34, 197, 94, 0.8)', 'rgba(16, 185, 129, 0.8)'] }] },
+                        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#e5e7eb' } } } }
+                    });
+                }
+            } catch (error) { console.error('Error loading sentiment distribution chart:', error); }
+        }
+
+        function loadTrainingProgressChart() {
+            const ctx = document.getElementById('training-progress-chart').getContext('2d');
+            try {
+                const data = db.exec(`SELECT training_timestamp, val_accuracy, val_f1_macro FROM training_history ORDER BY training_timestamp`);
+                if (data[0]) {
+                    const timestamps = data[0].values.map(row => new Date(row[0]).toLocaleDateString());
+                    const accuracies = data[0].values.map(row => row[1] * 100);
+                    const f1Scores = data[0].values.map(row => row[2] * 100);
+                    new Chart(ctx, {
+                        type: 'line',
+                        data: { labels: timestamps, datasets: [{ label: 'Validation Accuracy (%)', data: accuracies, borderColor: 'rgba(59, 130, 246, 1)', backgroundColor: 'rgba(59, 130, 246, 0.1)', tension: 0.4 }, { label: 'F1 Score (%)', data: f1Scores, borderColor: 'rgba(168, 85, 247, 1)', backgroundColor: 'rgba(168, 85, 247, 0.1)', tension: 0.4 }] },
+                        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#e5e7eb' } } }, scales: { y: { beginAtZero: true, max: 100, ticks: { color: '#9ca3af' }, grid: { color: '#374151' } }, x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } } } }
+                    });
+                }
+            } catch (error) { console.error('Error loading training progress chart:', error); }
+        }
+
+        function loadPerformanceAttribution() {
+            const tableBody = document.getElementById('attribution-table-body');
+            try {
+                const analyses = [
+                    { name: 'High Confidence (>80%)', query: `SELECT AVG(perf_eod_pct) as avg_perf, COUNT(*) as count FROM trades WHERE tracking_status = 'completed' AND predicted_confidence > 0.8 AND perf_eod_pct IS NOT NULL` },
+                    { name: 'Positive Sentiment', query: `SELECT AVG(perf_eod_pct) as avg_perf, COUNT(*) as count FROM trades WHERE tracking_status = 'completed' AND feature_finbert_score > 0.1 AND perf_eod_pct IS NOT NULL` },
+                    { name: 'High Keyword Score', query: `SELECT AVG(perf_eod_pct) as avg_perf, COUNT(*) as count FROM trades WHERE tracking_status = 'completed' AND feature_keyword_score > 1.0 AND perf_eod_pct IS NOT NULL` }
+                ];
+                let attributionHTML = '';
+                analyses.forEach(analysis => {
+                    try {
+                        const result = db.exec(analysis.query);
+                        if (result[0] && result[0].values[0]) {
+                            const avgPerf = result[0].values[0][0] || 0;
+                            const count = result[0].values[0][1] || 0;
+                            const contribution = avgPerf > 0 ? 'Positive' : 'Negative';
+                            attributionHTML += `<tr><td class="text-gray-300">${analysis.name}</td><td class="${avgPerf > 0 ? 'text-green-400' : 'text-red-400'}">${contribution}</td><td class="text-gray-300">${count}</td><td class="text-gray-300">${avgPerf.toFixed(2)}%</td></tr>`;
+                        }
+                    } catch (error) { console.error(`Error in analysis ${analysis.name}:`, error); }
+                });
+                tableBody.innerHTML = attributionHTML;
+            } catch (error) { console.error('Error loading performance attribution:', error); }
+        }
+
+        function filterChecklistItems(searchTerm) {
+            const lowerCaseSearchTerm = searchTerm.toLowerCase();
+            const checklist = document.getElementById('filter-checklist');
+            const noResultsMsg = document.getElementById('filter-no-results');
+            if (!checklist || !noResultsMsg) return;
+            const items = checklist.querySelectorAll('.filter-item');
+            let visibleCount = 0;
+            items.forEach(item => {
+                const text = item.querySelector('span').textContent.toLowerCase();
+                if (text.includes(lowerCaseSearchTerm)) {
+                    item.style.display = 'flex';
+                    visibleCount++;
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+            noResultsMsg.style.display = visibleCount === 0 ? 'block' : 'none';
+        }
+
+        function loadTable(tableName) {
+            if (!db) return;
+            try {
+                let query = '';
+                switch (tableName) {
+                    case 'trades': query = 'SELECT * FROM trades ORDER BY timestamp DESC'; break;
+                    case 'training_history': query = 'SELECT * FROM training_history ORDER BY training_timestamp DESC'; break;
+                    case 'keyword_analysis': query = `SELECT k.keyword, k.weight, AVG(t.perf_eod_pct) as avg_performance, COUNT(*) as trade_count, SUM(CASE WHEN t.perf_eod_pct > 0 THEN 1 ELSE 0 END) as winning_trades FROM keyword_matches k LEFT JOIN trades t ON k.trade_id = t.id AND t.tracking_status = 'completed' GROUP BY k.keyword, k.weight ORDER BY avg_performance DESC`; break;
+                    case 'performance_analysis': query = `SELECT ticker, COUNT(*) as total_trades, AVG(perf_eod_pct) as avg_return, SUM(CASE WHEN perf_eod_pct > 0 THEN 1 ELSE 0 END) as winning_trades, MAX(perf_eod_pct) as best_return, MIN(perf_eod_pct) as worst_return FROM trades WHERE tracking_status = 'completed' AND perf_eod_pct IS NOT NULL GROUP BY ticker ORDER BY avg_return DESC`; break;
+                    default: query = `SELECT * FROM ${tableName}`;
+                }
+                const result = db.exec(query);
+                if (result[0]) {
+                    currentData = result[0].values.map((row, index) => {
+                        const obj = { _rowIndex: index };
+                        result[0].columns.forEach((col, colIndex) => { obj[col] = row[colIndex]; });
+                        return obj;
+                    });
+                    const newColumns = new Set(result[0].columns);
+                    if (columnOrder.length === 0 || !columnOrder.every(c => newColumns.has(c)) || !newColumns.has(columnOrder[0])) {
+                         columnOrder = result[0].columns;
+                    }
+                    columnVisibility = {};
+                    result[0].columns.forEach(col => { columnVisibility[col] = true; });
+                    filteredData = [...currentData];
+                    renderTable();
+                    setupColumnToggle(result[0].columns);
+                } else {
+                    document.getElementById('table-container').innerHTML = '<p class="text-center text-gray-400 p-8">No data found in this table.</p>';
+                }
+            } catch (error) {
+                document.getElementById('table-container').innerHTML = `<p class="text-center text-red-400 p-8">Error loading table: ${error.message}</p>`;
+            }
+        }
+        
+        function formatCellValue(value, col) {
+            let formattedValue = value;
+            let cellClass = '';
+
+            if (value === null || value === undefined) {
+                return { formattedValue: 'N/A', cellClass };
+            }
+
+            if (col.includes('_pct') || col.includes('_percentage') || ['avg_return', 'best_return', 'worst_return', 'avg_performance', 'val_accuracy', 'val_f1_macro'].includes(col)) {
+                const numVal = parseFloat(value);
+                if (!isNaN(numVal)) {
+                    cellClass = numVal > 0 ? 'text-green-400' : numVal < 0 ? 'text-red-400' : '';
+                    if (['val_accuracy', 'val_f1_macro'].includes(col)) {
+                        formattedValue = `${(numVal * 100).toFixed(2)}%`;
+                    } else {
+                        formattedValue = `${numVal.toFixed(2)}%`;
+                    }
+                }
+            }
+            else if (col.endsWith('_timestamp') || col === 'timestamp') {
+                const date = new Date(value);
+                if (!isNaN(date.getTime())) {
+                    formattedValue = date.toLocaleString();
+                }
+            }
+            else if (col.endsWith('_price')) {
+                const numVal = parseFloat(value);
+                if (!isNaN(numVal)) {
+                    formattedValue = numVal.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+                }
+            }
+            else if (col.endsWith('_cap') || col.endsWith('_volume') || col.endsWith('_count') || col.endsWith('_trades')) {
+                const numVal = parseInt(value);
+                if (!isNaN(numVal)) {
+                    formattedValue = numVal.toLocaleString();
+                }
+            }
+            else if (['predicted_confidence', 'predicted_volatility', 'feature_finbert_score', 'avg_training_loss', 'val_confidence_mse', 'val_volatility_mse'].includes(col)) {
+                const numVal = parseFloat(value);
+                if (!isNaN(numVal)) {
+                    formattedValue = numVal.toFixed(4);
+                }
+            }
+            else if (['feature_pe_ratio', 'feature_rsi', 'feature_keyword_score', 'weight'].includes(col)) {
+                const numVal = parseFloat(value);
+                if (!isNaN(numVal)) {
+                    formattedValue = numVal.toFixed(2);
+                }
+            }
+
+            return { formattedValue, cellClass };
+        }
+
+        function renderTable() {
+            const container = document.getElementById('table-container');
+            if (filteredData.length === 0) {
+                container.innerHTML = '<p class="text-center text-gray-400 p-8">No data to display.</p>';
+                return;
+            }
+
+            const tableLayoutClass = ['performance_analysis', 'keyword_analysis'].includes(currentTable) ? 'table-layout-fixed' : '';
+            const columns = columnOrder.filter(col => columnVisibility[col]);
+            const startIndex = (currentPage - 1) * rowsPerPage;
+            const endIndex = Math.min(startIndex + rowsPerPage, filteredData.length);
+            const pageData = filteredData.slice(startIndex, endIndex);
+            
+            let tableHTML = `
+                <table class="w-full ${tableLayoutClass}">
+                    <thead>
+                        <tr>
+                            <th class="w-12"><input type="checkbox" id="select-all" class="form-checkbox"></th>
+                            ${columns.map(col => {
+                                let sortIndicator = '';
+                                if (sortColumn === col) {
+                                    sortIndicator = sortDirection === 'asc' ? ' ↑' : ' ↓';
+                                }
+                                const filterIconClass = columnFilters[col] && columnFilters[col].length > 0 ? 'active' : '';
+                                // FIX: Reverted to inline onclick which is known to work in this context.
+                                return `<th class="sortable" data-column="${col}">
+                                    <div class="flex items-center justify-between">
+                                        <span>${col}${sortIndicator}</span>
+                                        <span class="filter-icon ${filterIconClass}" onclick="showColumnFilter(event, '${col}')">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 011-1h12a1 1 0 011 1v3a1 1 0 01-.293.707L12 11.414V15a1 1 0 01-.293.707l-2 2A1 1 0 018 17v-5.586L3.293 6.707A1 1 0 013 6V3z" clip-rule="evenodd" /></svg>
+                                        </span>
+                                    </div>
+                                </th>`;
+                            }).join('')}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${pageData.map(row => `
+                            <tr class="clickable" data-row-index="${row._rowIndex}">
+                                <td><input type="checkbox" class="row-checkbox form-checkbox" data-row-index="${row._rowIndex}"></td>
+                                ${columns.map(col => {
+                                    const value = row[col];
+                                    const { formattedValue, cellClass } = formatCellValue(value, col);
+                                    const fullText = String(value === null || value === undefined ? '' : value).replace(/"/g, '&quot;');
+                                    return `<td class="${cellClass}" title="${fullText}">${formattedValue}</td>`;
+                                }).join('')}
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+
+            container.innerHTML = tableHTML;
+            renderPagination();
+            setupTableEventListeners();
+            
+            const headerRow = document.querySelector('#table-container thead tr');
+            if (headerRow) {
+                if (sortableInstance) {
+                    sortableInstance.destroy();
+                }
+                sortableInstance = new Sortable(headerRow, {
+                    animation: 150,
+                    handle: '.sortable',
+                    onEnd: (evt) => {
+                        const movedItem = columnOrder.splice(evt.oldIndex - 1, 1)[0];
+                        columnOrder.splice(evt.newIndex - 1, 0, movedItem);
+                        renderTable();
+                    }
+                });
+            }
+        }
+
+        function renderPagination() {
+            const container = document.getElementById('pagination-container');
+            const totalPages = Math.ceil(filteredData.length / rowsPerPage);
+            if (totalPages <= 1) {
+                container.innerHTML = '';
+                return;
+            }
+            let paginationHTML = `<div class="flex justify-between items-center"><div class="text-sm text-gray-400">Showing ${((currentPage - 1) * rowsPerPage) + 1} to ${Math.min(currentPage * rowsPerPage, filteredData.length)} of ${filteredData.length} entries</div><div class="flex space-x-2">`;
+            paginationHTML += `<button ${currentPage === 1 ? 'disabled' : ''} class="px-3 py-1 bg-gray-700 text-white rounded ${currentPage === 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-600'}" onclick="changePage(${currentPage - 1})">Previous</button>`;
+            for (let i = Math.max(1, currentPage - 2); i <= Math.min(totalPages, currentPage + 2); i++) {
+                paginationHTML += `<button class="px-3 py-1 ${i === currentPage ? 'bg-blue-600' : 'bg-gray-700'} text-white rounded hover:bg-blue-500" onclick="changePage(${i})">${i}</button>`;
+            }
+            paginationHTML += `<button ${currentPage === totalPages ? 'disabled' : ''} class="px-3 py-1 bg-gray-700 text-white rounded ${currentPage === totalPages ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-600'}" onclick="changePage(${currentPage + 1})">Next</button>`;
+            paginationHTML += '</div></div>';
+            container.innerHTML = paginationHTML;
+        }
+
+        function changePage(page) {
+            const totalPages = Math.ceil(filteredData.length / rowsPerPage);
+            if (page >= 1 && page <= totalPages) {
+                currentPage = page;
+                renderTable();
+            }
+        }
+
+        function setupTableEventListeners() {
+            document.querySelectorAll('.sortable').forEach(header => {
+                header.addEventListener('click', function() {
+                    const column = this.getAttribute('data-column');
+                    if (sortColumn === column) {
+                        sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        sortColumn = column;
+                        sortDirection = 'asc';
+                    }
+                    sortData();
+                    renderTable();
+                });
+            });
+
+            const selectAllCheckbox = document.getElementById('select-all');
+            if (selectAllCheckbox) {
+                selectAllCheckbox.addEventListener('change', function() {
+                    const checkboxes = document.querySelectorAll('.row-checkbox');
+                    checkboxes.forEach(checkbox => {
+                        checkbox.checked = this.checked;
+                        const rowIndex = parseInt(checkbox.getAttribute('data-row-index'));
+                        if (this.checked) { selectedRows.add(rowIndex); } else { selectedRows.delete(rowIndex); }
+                    });
+                    updateDeleteButton();
+                });
+            }
+            document.querySelectorAll('.row-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', function() {
+                    const rowIndex = parseInt(this.getAttribute('data-row-index'));
+                    if (this.checked) { selectedRows.add(rowIndex); } else { selectedRows.delete(rowIndex); }
+                    updateDeleteButton();
+                });
+            });
+            document.querySelectorAll('tbody tr.clickable').forEach(row => {
+                row.addEventListener('click', function(e) {
+                    if (e.target.type !== 'checkbox') {
+                        const rowIndex = parseInt(this.getAttribute('data-row-index'));
+                        showRowDetails(rowIndex);
+                    }
+                });
+            });
+        }
+
+        function setupColumnToggle(columns) {
+            const toggleBtn = document.getElementById('toggle-columns-btn');
+            const checklist = document.getElementById('column-checklist');
+            if (columns.length > 5) {
+                toggleBtn.style.display = 'block';
+                let checklistHTML = '';
+                columns.forEach(col => {
+                    checklistHTML += `<label class="flex items-center px-4 py-2 hover:bg-gray-600 cursor-pointer"><input type="checkbox" class="form-checkbox mr-2" data-column="${col}" ${columnVisibility[col] ? 'checked' : ''}><span class="text-sm">${col}</span></label>`;
+                });
+                checklist.querySelector('.py-1').innerHTML = checklistHTML;
+                toggleBtn.addEventListener('click', function() { checklist.classList.toggle('hidden'); });
+                checklist.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+                    checkbox.addEventListener('change', function() {
+                        const column = this.getAttribute('data-column');
+                        columnVisibility[column] = this.checked;
+                        renderTable();
+                    });
+                });
+                document.addEventListener('click', function(e) {
+                    if (!toggleBtn.contains(e.target) && !checklist.contains(e.target)) {
+                        checklist.classList.add('hidden');
+                    }
+                });
+            } else {
+                toggleBtn.style.display = 'none';
+            }
+        }
+
+        function sortData() {
+            filteredData.sort((a, b) => {
+                let aVal = a[sortColumn]; let bVal = b[sortColumn];
+                if (aVal === null || aVal === undefined) aVal = '';
+                if (bVal === null || bVal === undefined) bVal = '';
+                if (!isNaN(aVal) && !isNaN(bVal) && aVal !== '' && bVal !== '') {
+                    aVal = parseFloat(aVal);
+                    bVal = parseFloat(bVal);
+                }
+                if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+                if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+                return 0;
+            });
+        }
+
+        function updateDeleteButton() {
+            const deleteBtn = document.getElementById('delete-selected-btn');
+            if (selectedRows.size > 0) {
+                deleteBtn.disabled = false;
+                deleteBtn.classList.remove('delete-btn-disabled');
+            } else {
+                deleteBtn.disabled = true;
+                deleteBtn.classList.add('delete-btn-disabled');
+            }
+        }
+
+        function showRowDetails(rowIndex) {
+            const row = currentData[rowIndex];
+            if (!row) return;
+            let detailsHTML = '<div class="space-y-4">';
+            Object.keys(row).forEach(key => {
+                if (key !== '_rowIndex') {
+                    let value = row[key];
+                    if (value === null || value === undefined) { value = 'N/A'; }
+                    else if (typeof value === 'string' && value.length > 200) { value = `<div class="max-h-40 overflow-y-auto bg-gray-800 p-2 rounded text-sm">${value}</div>`; }
+                    detailsHTML += `<div><strong class="text-blue-400">${key}:</strong><div class="mt-1">${value}</div></div>`;
+                }
+            });
+            detailsHTML += '</div>';
+            showModal('Row Details', detailsHTML);
+        }
+
+        function showModal(title, content) {
+            const modal = document.createElement('div');
+            modal.className = 'modal-overlay';
+            modal.innerHTML = `<div class="modal-content"><div class="flex justify-between items-center mb-4"><h2 class="text-xl font-bold">${title}</h2><button class="text-gray-400 hover:text-white text-2xl" onclick="this.closest('.modal-overlay').remove()">&times;</button></div><div>${content}</div></div>`;
+            document.body.appendChild(modal);
+        }
+
+        function closeAllPopups() {
+            const popup = document.getElementById('filter-popup');
+            if (popup) {
+                popup.remove();
+            }
+        }
+
+        function applyColumnFilters(column, clear = false) {
+            if (clear) {
+                delete columnFilters[column];
+            } else {
+                const popup = document.getElementById('filter-popup');
+                if (popup) {
+                    const checkedValues = [];
+                    popup.querySelectorAll('#filter-checklist input[type="checkbox"]:checked').forEach(checkbox => {
+                        checkedValues.push(checkbox.value);
+                    });
+                    if (checkedValues.length > 0) {
+                        columnFilters[column] = checkedValues;
+                    } else {
+                        delete columnFilters[column]; // If nothing is checked, clear the filter for this column
+                    }
+                }
+            }
+            closeAllPopups();
+            applyAllFilters();
+        }
+
+        function applyAllFilters() {
+            const filterText = document.getElementById('filter-input').value.toLowerCase();
+            let tempFilteredData = [...currentData];
+            if (filterText) {
+                tempFilteredData = tempFilteredData.filter(row => Object.values(row).some(value => value?.toString().toLowerCase().includes(filterText)));
+            }
+            for (const [column, values] of Object.entries(columnFilters)) {
+                if (values && values.length > 0) {
+                    tempFilteredData = tempFilteredData.filter(row => {
+                        const rowValue = (row[column] === null || row[column] === undefined) ? '' : row[column].toString();
+                        return values.includes(rowValue);
+                    });
+                }
+            }
+            filteredData = tempFilteredData;
+            currentPage = 1;
+            renderTable();
+        }
+
+        document.getElementById('filter-input').addEventListener('input', applyAllFilters);
+
+        document.getElementById('export-data-btn').addEventListener('click', function() {
+            if (currentTable === 'dashboard' || currentTable === 'advanced-analytics') { alert('Please select a data table to export.'); return; }
+            const csv = Papa.unparse(filteredData.map(row => { const cleanRow = { ...row }; delete cleanRow._rowIndex; return cleanRow; }));
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${currentTable}_export.csv`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+        });
+
+        document.getElementById('export-db-btn').addEventListener('click', function() {
+            if (!db) return;
+            const data = db.export();
+            const blob = new Blob([data], { type: 'application/octet-stream' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'system_modified.db';
+            a.click();
+            window.URL.revokeObjectURL(url);
+        });
+
+        document.getElementById('refresh-analytics-btn').addEventListener('click', function() {
+            if (currentTable === 'dashboard') { loadDashboard(); } 
+            else if (currentTable === 'advanced-analytics') { loadAdvancedAnalytics(); }
+        });
+
+        document.getElementById('delete-selected-btn').addEventListener('click', function() {
+            if (selectedRows.size === 0) return;
+            if (confirm(`Are you sure you want to delete ${selectedRows.size} selected row(s)?`)) {
+                alert('Delete functionality would be implemented here. This requires modifying the database.');
+            }
+        });
+
+        document.getElementById('find-duplicates-btn').addEventListener('click', function() {
+            alert('Duplicate detection functionality would be implemented here.');
+        });
+
+        document.getElementById('clear-table-btn').addEventListener('click', function() {
+            if (confirm(`Are you sure you want to clear all data from the ${currentTable} table? This cannot be undone.`)) {
+                alert('Clear table functionality would be implemented here. This requires modifying the database.');
+            }
+        });
+
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.filter-popup') && !e.target.closest('.filter-icon') && !e.target.closest('#toggle-columns-btn') && !e.target.closest('#column-checklist')) {
+                closeAllPopups();
+            }
+        });
+    </script>
+</body>
+</html>

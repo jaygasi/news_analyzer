@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading System Analytics Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #030712; }
+        .tab-active { color: #3b82f6; border-color: #3b82f6; }
+        .tab-inactive { color: #9ca3af; border-color: transparent; }
+        .sortable-ghost { background-color: #374151 !important; opacity: 0.5; }
+        .chart-container { position: relative; height: 300px; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect, useCallback, useMemo, useRef } = React;
+
+        // --- Helper & Utility Functions ---
+        const formatCellValue = (value, col) => {
+            if (value === null || value === undefined) return { formattedValue: 'N/A', cellClass: '' };
+            
+            let formattedValue = value;
+            let cellClass = '';
+            const numVal = parseFloat(value);
+
+            if (!isNaN(numVal)) {
+                 if (col.includes('_pct') || ['avg_return', 'best_return', 'worst_return', 'avg_performance', 'val_accuracy', 'val_f1_macro'].includes(col)) {
+                    cellClass = numVal > 0 ? 'text-green-400' : numVal < 0 ? 'text-red-400' : '';
+                    formattedValue = `${numVal.toFixed(2)}%`;
+                } else if (col.endsWith('_price')) {
+                    formattedValue = numVal.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+                } else if (col.endsWith('_cap') || col.endsWith('_volume') || col.endsWith('_count') || col.endsWith('_trades')) {
+                    formattedValue = parseInt(value).toLocaleString();
+                } else if (['predicted_confidence', 'predicted_volatility', 'feature_finbert_score'].includes(col)) {
+                    formattedValue = numVal.toFixed(4);
+                } else if (value % 1 !== 0) {
+                    formattedValue = numVal.toFixed(2);
+                } else {
+                    formattedValue = numVal.toLocaleString();
+                }
+            } else if (col.endsWith('_timestamp') || col === 'timestamp') {
+                const date = new Date(value);
+                if (!isNaN(date.getTime())) {
+                    formattedValue = date.toLocaleString();
+                }
+            }
+            
+            return { formattedValue, cellClass };
+        };
+
+        // --- Reusable UI Components ---
+        const Card = ({ children, className = '' }) => (
+            <div className={`bg-gray-900 border border-gray-700 rounded-lg shadow-lg p-4 sm:p-6 ${className}`}>
+                {children}
+            </div>
+        );
+
+        const MetricCard = ({ title, value, icon }) => (
+            <Card>
+                <div className="flex items-center">
+                    <div className="flex-shrink-0 bg-gray-800 rounded-md p-3">{icon}</div>
+                    <div className="ml-4">
+                        <p className="text-sm font-medium text-gray-400 truncate">{title}</p>
+                        <p className="text-2xl font-semibold text-white">{value}</p>
+                    </div>
+                </div>
+            </Card>
+        );
+
+        const ChartComponent = ({ chartId, type, data, options }) => {
+            const chartRef = useRef(null);
+            useEffect(() => {
+                const ctx = document.getElementById(chartId)?.getContext('2d');
+                if (!ctx) return;
+                if (chartRef.current) chartRef.current.destroy();
+                chartRef.current = new Chart(ctx, { type, data, options });
+                return () => chartRef.current?.destroy();
+            }, [chartId, data, options, type]);
+            return <canvas id={chartId}></canvas>;
+        };
+
+        const Modal = ({ isOpen, onClose, title, children }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+                    <div className="bg-gray-900 border border-gray-700 rounded-lg shadow-xl w-full max-w-2xl m-4">
+                        <div className="flex justify-between items-center p-4 border-b border-gray-700">
+                            <h2 className="text-xl font-semibold text-white">{title}</h2>
+                            <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl">&times;</button>
+                        </div>
+                        <div className="p-6 max-h-[70vh] overflow-y-auto">{children}</div>
+                    </div>
+                </div>
+            );
+        };
+        
+        const NewsAnalysisModal = ({ trade, onClose }) => {
+            const [analysis, setAnalysis] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                const analyzeNews = async () => {
+                    if (!trade || !trade.news_text) {
+                        setAnalysis({ error: "No news text available for this trade." });
+                        setLoading(false);
+                        return;
+                    }
+                    const prompt = `You are a financial analyst. Analyze the following news article and provide a structured JSON response with a summary, sentiment ('Positive', 'Negative', 'Neutral'), and key bullish/bearish points. Article: --- ${trade.news_text} ---`;
+                    try {
+                        const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+                        const payload = { 
+                            contents: chatHistory,
+                            generationConfig: { 
+                                responseMimeType: "application/json",
+                                responseSchema: {
+                                    type: "OBJECT",
+                                    properties: {
+                                        summary: { type: "STRING" },
+                                        sentiment: { type: "STRING" },
+                                        bullish_points: { type: "ARRAY", items: { type: "STRING" } },
+                                        bearish_points: { type: "ARRAY", items: { type: "STRING" } }
+                                    },
+                                    required: ["summary", "sentiment", "bullish_points", "bearish_points"]
+                                }
+                            }
+                        };
+                        const apiKey = "AIzaSyByM14Ks3a4kP7BpasRGUr4DvSAgZUtreA"; 
+                        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                        const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                        const result = await response.json();
+                        if (result.candidates && result.candidates[0].content.parts[0].text) {
+                            setAnalysis(JSON.parse(result.candidates[0].content.parts[0].text));
+                        } else {
+                            setAnalysis({ error: "Failed to get a valid analysis from the AI model." });
+                        }
+                    } catch (error) {
+                        console.error("Error fetching AI analysis:", error);
+                        setAnalysis({ error: "An error occurred while fetching the AI analysis." });
+                    } finally {
+                        setLoading(false);
+                    }
+                };
+                analyzeNews();
+            }, [trade]);
+
+            const sentimentColor = { 'Positive': 'bg-green-500/20 text-green-300', 'Negative': 'bg-red-500/20 text-red-300', 'Neutral': 'bg-gray-500/20 text-gray-300' };
+
+            return (
+                <Modal isOpen={true} onClose={onClose} title={`AI News Analysis for ${trade.ticker}`}>
+                    {loading && <p>✨ Analyzing news with Gemini...</p>}
+                    {analysis && !loading && (
+                        <div className="space-y-4 text-gray-300">
+                            {analysis.error ? <p className="text-red-400">{analysis.error}</p> : (
+                                <>
+                                    <div><h3 className="font-semibold text-white mb-1">Summary</h3><p>{analysis.summary}</p></div>
+                                    <div><h3 className="font-semibold text-white mb-2">Sentiment</h3><span className={`px-2 py-1 text-sm font-medium rounded-full ${sentimentColor[analysis.sentiment] || 'bg-gray-600'}`}>{analysis.sentiment}</span></div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div><h3 className="font-semibold text-green-400 mb-1">Bullish Points</h3><ul className="list-disc list-inside space-y-1">{analysis.bullish_points.map((p, i) => <li key={i}>{p}</li>)}</ul></div>
+                                        <div><h3 className="font-semibold text-red-400 mb-1">Bearish Points</h3><ul className="list-disc list-inside space-y-1">{analysis.bearish_points.map((p, i) => <li key={i}>{p}</li>)}</ul></div>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
+                </Modal>
+            );
+        };
+
+        const AppHeader = ({ onFileChange, dbStatus }) => (
+            <header className="mb-8">
+                <div className="text-center">
+                    <h1 className="text-4xl font-bold text-white tracking-tight">Trading System Analytics</h1>
+                    <p className="mt-2 text-lg text-gray-400">An interactive dashboard for your trading database.</p>
+                </div>
+                <div className="mt-6 max-w-md mx-auto flex items-center justify-center space-x-4">
+                    <label htmlFor="db-upload" className="relative cursor-pointer bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200">
+                        <span>{dbStatus.loaded ? 'Load New DB' : 'Upload system.db'}</span>
+                        <input id="db-upload" type="file" className="sr-only" onChange={onFileChange} accept=".db,.sqlite,.sqlite3" />
+                    </label>
+                    <p className={`text-sm ${dbStatus.error ? 'text-red-400' : 'text-gray-400'}`}>{dbStatus.message}</p>
+                </div>
+            </header>
+        );
+
+        const Tabs = ({ activeTab, setActiveTab }) => {
+            const TABS = ['Dashboard', 'Trades', 'Training History', 'Keyword Analysis', 'Performance Analysis'];
+            return (
+                <div className="border-b border-gray-700 mb-6">
+                    <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+                        {TABS.map(tab => (
+                            <button
+                                key={tab}
+                                onClick={() => setActiveTab(tab.toLowerCase().replace(/ /g, '_'))}
+                                className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200 ${activeTab === tab.toLowerCase().replace(/ /g, '_') ? 'tab-active' : 'tab-inactive hover:border-gray-500 hover:text-gray-300'}`}
+                            >
+                                {tab}
+                            </button>
+                        ))}
+                    </nav>
+                </div>
+            );
+        };
+
+        const Dashboard = React.memo(({ db }) => {
+            const [dashboardData, setDashboardData] = useState(null);
+            const [insights, setInsights] = useState([]);
+            const [loadingInsights, setLoadingInsights] = useState(true);
+
+            useEffect(() => {
+                if (!db) return;
+                try {
+                    const totalTrades = db.exec("SELECT COUNT(*) FROM trades")[0].values[0][0];
+                    const completedTradesResult = db.exec("SELECT perf_eod_pct, predicted_confidence FROM trades WHERE tracking_status = 'completed' AND perf_eod_pct IS NOT NULL");
+                    if (!completedTradesResult[0]) {
+                        setDashboardData({ totalTrades: 0, winRate: '0%', avgReturn: '0%', perfDistData: { labels: [], datasets: [] }, completedTrades: [] });
+                        return;
+                    }
+                    const completedTrades = completedTradesResult[0].values;
+                    const winningTradesCount = completedTrades.filter(t => t[0] > 0).length;
+                    const winRate = completedTrades.length > 0 ? (winningTradesCount / completedTrades.length) * 100 : 0;
+                    const avgReturn = completedTrades.length > 0 ? completedTrades.reduce((acc, t) => acc + t[0], 0) / completedTrades.length : 0;
+                    
+                    const perfDistData = {
+                        labels: ['<-10%', '-10% to -5%', '-5% to 0%', '0% to 5%', '5% to 10%', '>10%'],
+                        datasets: [{
+                            label: 'Number of Trades',
+                            data: [
+                                completedTrades.filter(t => t[0] < -10).length,
+                                completedTrades.filter(t => t[0] >= -10 && t[0] < -5).length,
+                                completedTrades.filter(t => t[0] >= -5 && t[0] < 0).length,
+                                completedTrades.filter(t => t[0] >= 0 && t[0] < 5).length,
+                                completedTrades.filter(t => t[0] >= 5 && t[0] < 10).length,
+                                completedTrades.filter(t => t[0] >= 10).length,
+                            ],
+                            backgroundColor: 'rgba(59, 130, 246, 0.6)',
+                            borderColor: 'rgba(59, 130, 246, 1)',
+                            borderWidth: 1
+                        }]
+                    };
+
+                    setDashboardData({
+                        totalTrades,
+                        winRate: `${winRate.toFixed(1)}%`,
+                        avgReturn: `${avgReturn.toFixed(2)}%`,
+                        perfDistData,
+                        completedTrades
+                    });
+                } catch (e) {
+                    console.error("Error calculating dashboard data:", e);
+                }
+            }, [db]);
+            
+            useEffect(() => {
+                const generateAIInsights = async () => {
+                    if (!dashboardData || !dashboardData.completedTrades || dashboardData.completedTrades.length < 5) {
+                        setInsights([{type: 'info', text: 'Not enough data for AI insights. Complete more trades.'}]);
+                        setLoadingInsights(false);
+                        return;
+                    }
+                    setLoadingInsights(true);
+
+                    const summaryStats = `Total Trades: ${dashboardData.completedTrades.length}, Win Rate: ${dashboardData.winRate}, Avg P/L: ${dashboardData.avgReturn}.`;
+                    const prompt = `As a financial analyst, analyze these stats: ${summaryStats}. Provide 2-3 concise, actionable insights.`;
+
+                    try {
+                        const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+                        const payload = { 
+                            contents: chatHistory,
+                            generationConfig: {
+                                responseMimeType: "application/json",
+                                responseSchema: {
+                                    type: "OBJECT", properties: {
+                                        insights: { type: "ARRAY", items: {
+                                            type: "OBJECT", properties: {
+                                                type: { type: "STRING" },
+                                                text: { type: "STRING" }
+                                            }, required: ["type", "text"]
+                                        }}
+                                    }
+                                }
+                            }
+                        };
+                        const apiKey = "AIzaSyByM14Ks3a4kP7BpasRGUr4DvSAgZUtreA";
+                        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                        const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                        const result = await response.json();
+                        if (result.candidates && result.candidates[0].content.parts[0].text) {
+                            setInsights(JSON.parse(result.candidates[0].content.parts[0].text).insights || []);
+                        } else {
+                             setInsights([{type: 'error', text: 'Could not generate AI insights.'}]);
+                        }
+                    } catch (error) {
+                        console.error("Error fetching AI insights:", error);
+                        setInsights([{type: 'error', text: 'An error occurred while fetching insights.'}]);
+                    } finally {
+                        setLoadingInsights(false);
+                    }
+                };
+                
+                if (dashboardData) {
+                    generateAIInsights();
+                }
+            }, [dashboardData]);
+
+
+            if (!dashboardData) return <div className="text-center text-gray-400 p-8">Loading dashboard...</div>;
+
+            const chartOptions = {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { labels: { color: '#e5e7eb' } } },
+                scales: { y: { beginAtZero: true, ticks: { color: '#9ca3af' }, grid: { color: '#374151' } }, x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } } }
+            };
+
+            return (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <MetricCard title="Total Trades" value={dashboardData.totalTrades} icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>} />
+                        <MetricCard title="Win Rate" value={dashboardData.winRate} icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>} />
+                        <MetricCard title="Avg. P/L %" value={dashboardData.avgReturn} icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v.01M12 6v-1m0-1V4m0 2.01V5M12 20v-1m0-1v-1m0-1v-1m0-1v-1m0-1v-1m0-1v-1m0-1v-1" /></svg>} />
+                    </div>
+                    <div className="lg:col-span-2">
+                         <Card>
+                            <h3 className="text-lg font-semibold text-white mb-4">Performance Distribution</h3>
+                            <div className="chart-container">
+                                {dashboardData.perfDistData && <ChartComponent chartId="perfDistChart" type="bar" data={dashboardData.perfDistData} options={chartOptions} />}
+                            </div>
+                        </Card>
+                    </div>
+                    <div className="lg:col-span-1">
+                        <Card>
+                            <h3 className="text-lg font-semibold text-white mb-4">✨ AI System Insights</h3>
+                            <div className="space-y-4">
+                                {loadingInsights ? <p className="text-sm text-gray-400">Generating insights...</p> : insights.map((insight, i) => (
+                                    <div key={i} className="flex items-start space-x-3">
+                                        <div className="flex-shrink-0 pt-1">
+                                            {insight.type === 'warning' ? 
+                                                <svg className="h-5 w-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd"></path></svg> :
+                                                <svg className="h-5 w-5 text-blue-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"></path></svg>
+                                            }
+                                        </div>
+                                        <p className="text-sm text-gray-300">{insight.text}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </Card>
+                    </div>
+                </div>
+            );
+        });
+        
+        const DataTable = React.memo(({ tableData, tableName, onTickerSelect }) => {
+            const { columns, rows } = tableData;
+            const [columnOrder, setColumnOrder] = useState([]);
+            const [sortConfig, setSortConfig] = useState(null);
+            const [filter, setFilter] = useState('');
+            const [analyzingTrade, setAnalyzingTrade] = useState(null);
+            const [pagination, setPagination] = useState({ currentPage: 1, rowsPerPage: 15 });
+            const [columnVisibility, setColumnVisibility] = useState({});
+            const [isColToggleOpen, setIsColToggleOpen] = useState(false);
+            const sortableInstanceRef = useRef(null);
+
+            useEffect(() => {
+                const savedOrder = localStorage.getItem(`columnOrder_${tableName}`);
+                const savedVisibility = localStorage.getItem(`columnVisibility_${tableName}`);
+                
+                const initialOrder = savedOrder ? JSON.parse(savedOrder) : columns;
+                const initialVisibility = savedVisibility ? JSON.parse(savedVisibility) : columns.reduce((acc, col) => ({ ...acc, [col]: true }), {});
+
+                setColumnOrder(initialOrder);
+                setColumnVisibility(initialVisibility);
+            }, [columns, tableName]);
+
+            const filteredAndSortedRows = useMemo(() => {
+                let sortedRows = [...rows];
+                if (filter) {
+                    sortedRows = sortedRows.filter(row => 
+                        Object.values(row).some(val => 
+                            String(val).toLowerCase().includes(filter.toLowerCase())
+                        )
+                    );
+                }
+                if (sortConfig) {
+                    sortedRows.sort((a, b) => {
+                        if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'ascending' ? -1 : 1;
+                        if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'ascending' ? 1 : -1;
+                        return 0;
+                    });
+                }
+                return sortedRows;
+            }, [rows, sortConfig, filter]);
+
+            const paginatedRows = useMemo(() => {
+                const startIndex = (pagination.currentPage - 1) * pagination.rowsPerPage;
+                return filteredAndSortedRows.slice(startIndex, startIndex + pagination.rowsPerPage);
+            }, [filteredAndSortedRows, pagination]);
+
+            const handleSort = (key) => {
+                let direction = 'ascending';
+                if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
+                    direction = 'descending';
+                }
+                setSortConfig({ key, direction });
+            };
+
+            const toggleColumn = (col) => {
+                const newVisibility = { ...columnVisibility, [col]: !columnVisibility[col] };
+                setColumnVisibility(newVisibility);
+                localStorage.setItem(`columnVisibility_${tableName}`, JSON.stringify(newVisibility));
+            };
+
+            const tableRef = useRef(null);
+            useEffect(() => {
+                if (tableRef.current) {
+                    if (sortableInstanceRef.current) {
+                        sortableInstanceRef.current.destroy();
+                    }
+                    sortableInstanceRef.current = new Sortable(tableRef.current.querySelector('thead tr'), {
+                        animation: 150,
+                        ghostClass: 'sortable-ghost',
+                        onEnd: (evt) => {
+                            const newOrder = Array.from(evt.target.children).map(th => th.dataset.column).filter(Boolean);
+                            setColumnOrder(newOrder);
+                            localStorage.setItem(`columnOrder_${tableName}`, JSON.stringify(newOrder));
+                        }
+                    });
+                }
+            }, [columnOrder, tableName]);
+
+            return (
+                <Card>
+                    {analyzingTrade && <NewsAnalysisModal trade={analyzingTrade} onClose={() => setAnalyzingTrade(null)} />}
+                    <div className="flex flex-wrap items-center justify-between mb-4 gap-4">
+                        <input 
+                            type="text"
+                            placeholder="Filter table..."
+                            value={filter}
+                            onChange={(e) => setFilter(e.target.value)}
+                            className="w-full sm:w-auto flex-grow p-2 bg-gray-800 border border-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                         <div className="relative">
+                            <button onClick={() => setIsColToggleOpen(!isColToggleOpen)} className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md">
+                                Columns
+                            </button>
+                            {isColToggleOpen && (
+                                <div className="absolute right-0 mt-2 w-56 bg-gray-800 border border-gray-700 rounded-md shadow-lg z-10">
+                                    <div className="py-1 max-h-96 overflow-y-auto">
+                                        {columns.map(col => (
+                                            <label key={col} className="flex items-center px-4 py-2 hover:bg-gray-700 cursor-pointer">
+                                                <input type="checkbox" checked={!!columnVisibility[col]} onChange={() => toggleColumn(col)} className="form-checkbox mr-3" />
+                                                <span className="text-sm text-gray-300">{col}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full" ref={tableRef}>
+                            <thead>
+                                <tr className="bg-gray-800">
+                                    {columnOrder.filter(c => columnVisibility[c]).map(col => (
+                                        <th key={col} data-column={col} onClick={() => handleSort(col)} className="p-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-700">
+                                            {col.replace(/_/g, ' ')}
+                                            {sortConfig?.key === col && (sortConfig.direction === 'ascending' ? ' ▲' : ' ▼')}
+                                        </th>
+                                    ))}
+                                    {tableName === 'trades' && <th className="p-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">AI Analysis</th>}
+                                </tr>
+                            </thead>
+                            <tbody className="bg-gray-900 divide-y divide-gray-800">
+                                {paginatedRows.map((row, index) => (
+                                    <tr key={index} className="hover:bg-gray-800/50">
+                                        {columnOrder.filter(c => columnVisibility[c]).map(col => {
+                                            const { formattedValue, cellClass } = formatCellValue(row[col], col);
+                                            return (
+                                                <td key={col} className={`p-3 text-sm whitespace-nowrap ${cellClass}`}>
+                                                    {col === 'ticker' ? (
+                                                        <button onClick={() => onTickerSelect(row[col])} className="font-bold hover:text-blue-400">{formattedValue}</button>
+                                                    ) : (
+                                                        formattedValue
+                                                    )}
+                                                </td>
+                                            )
+                                        })}
+                                        {tableName === 'trades' && (
+                                            <td className="p-3 text-sm whitespace-nowrap">
+                                                <button onClick={() => setAnalyzingTrade(row)} className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold py-1 px-2 rounded-md transition-colors">
+                                                    ✨ Analyze News
+                                                </button>
+                                            </td>
+                                        )}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                     <div className="flex justify-between items-center mt-4">
+                        <span className="text-sm text-gray-400">
+                            Page {pagination.currentPage} of {Math.ceil(filteredAndSortedRows.length / pagination.rowsPerPage)}
+                        </span>
+                        <div className="flex space-x-2">
+                            <button onClick={() => setPagination(p => ({...p, currentPage: p.currentPage - 1}))} disabled={pagination.currentPage === 1} className="px-3 py-1 bg-gray-700 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed">Previous</button>
+                            <button onClick={() => setPagination(p => ({...p, currentPage: p.currentPage + 1}))} disabled={pagination.currentPage * pagination.rowsPerPage >= filteredAndSortedRows.length} className="px-3 py-1 bg-gray-700 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
+                        </div>
+                    </div>
+                </Card>
+            );
+        });
+
+        const StockDrilldown = React.memo(({ ticker, db, onClose, onTickerSelect }) => {
+            const [stockData, setStockData] = useState(null);
+
+            useEffect(() => {
+                if (!db || !ticker) return;
+                try {
+                    const res = db.exec(`SELECT * FROM trades WHERE ticker = '${ticker}' AND tracking_status = 'completed' AND perf_eod_pct IS NOT NULL`);
+                    if (res.length > 0 && res[0].values.length > 0) {
+                        const trades = res[0].values.map(row => res[0].columns.reduce((obj, col, i) => ({ ...obj, [col]: row[i] }), {}));
+                        const winRate = trades.filter(t => t.perf_eod_pct > 0).length / trades.length * 100;
+                        const avgReturn = trades.reduce((acc, t) => acc + t.perf_eod_pct, 0) / trades.length;
+                        
+                        const perfOverTimeData = {
+                            labels: trades.map(t => new Date(t.timestamp).toLocaleDateString()),
+                            datasets: [{
+                                label: 'P/L %',
+                                data: trades.map(t => t.perf_eod_pct),
+                                backgroundColor: trades.map(t => t.perf_eod_pct > 0 ? 'rgba(34, 197, 94, 0.6)' : 'rgba(239, 68, 68, 0.6)'),
+                                borderColor: trades.map(t => t.perf_eod_pct > 0 ? 'rgba(34, 197, 94, 1)' : 'rgba(239, 68, 68, 1)'),
+                                borderWidth: 1
+                            }]
+                        };
+
+                        setStockData({
+                            totalTrades: trades.length,
+                            winRate: `${winRate.toFixed(1)}%`,
+                            avgReturn: `${avgReturn.toFixed(2)}%`,
+                            perfOverTimeData,
+                            tableData: { columns: res[0].columns, rows: trades }
+                        });
+                    } else {
+                        setStockData({ totalTrades: 0, winRate: 'N/A', avgReturn: 'N/A', perfOverTimeData: null, tableData: { columns: [], rows: [] } });
+                    }
+                } catch (e) { console.error("Error fetching stock drilldown data:", e); }
+            }, [db, ticker]);
+
+            if (!stockData) return <div className="text-center text-gray-400 p-8">Loading data for {ticker}...</div>;
+            
+            return (
+                <div>
+                    <button onClick={onClose} className="mb-4 text-blue-400 hover:text-blue-300">&larr; Back to Dashboard</button>
+                    <h2 className="text-3xl font-bold text-white mb-6">Analysis for ${ticker}</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                        <MetricCard title="Total Trades" value={stockData.totalTrades} icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>} />
+                        <MetricCard title="Win Rate" value={stockData.winRate} icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>} />
+                        <MetricCard title="Avg. P/L %" value={stockData.avgReturn} icon={<svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v.01M12 6v-1m0-1V4m0 2.01V5M12 20v-1m0-1v-1m0-1v-1m0-1v-1m0-1v-1m0-1v-1m0-1v-1" /></svg>} />
+                    </div>
+                    {stockData.perfOverTimeData && (
+                        <Card>
+                            <h3 className="text-lg font-semibold text-white mb-4">Performance Over Time</h3>
+                            <div className="chart-container">
+                                <ChartComponent chartId="stockPerfChart" type="bar" data={stockData.perfOverTimeData} options={{ responsive: true, maintainAspectRatio: false }} />
+                            </div>
+                        </Card>
+                    )}
+                    <div className="mt-6">
+                        <h3 className="text-xl font-bold text-white mb-4">All Trades for {ticker}</h3>
+                        <DataTable tableData={stockData.tableData} tableName="trades" onTickerSelect={onTickerSelect} />
+                    </div>
+                </div>
+            );
+        });
+
+        const App = () => {
+            const [db, setDb] = useState(null);
+            const [dbStatus, setDbStatus] = useState({ loaded: false, message: 'Please upload your database file.', error: false });
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [selectedTicker, setSelectedTicker] = useState(null);
+            const [dataCache, setDataCache] = useState({});
+            const [isLoading, setIsLoading] = useState(false);
+
+            const handleFileChange = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                setIsLoading(true);
+                setDbStatus({ loaded: false, message: 'Loading database...', error: false });
+                try {
+                    const buffer = await file.arrayBuffer();
+                    const SQL = await initSqlJs({ locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}` });
+                    const database = new SQL.Database(new Uint8Array(buffer));
+                    setDb(database);
+                    setDataCache({});
+                    setDbStatus({ loaded: true, message: `Loaded: ${file.name}`, error: false });
+                    setActiveTab('dashboard');
+                    setSelectedTicker(null);
+                } catch (err) {
+                    console.error(err);
+                    setDbStatus({ loaded: false, message: 'Error loading database file.', error: true });
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            useEffect(() => {
+                if (db && activeTab !== 'dashboard' && !dataCache[activeTab]) {
+                    setIsLoading(true);
+                    setTimeout(() => {
+                        try {
+                            let query = '';
+                            switch (activeTab) {
+                                case 'keyword_analysis':
+                                    query = `SELECT k.keyword, k.weight, AVG(t.perf_eod_pct) as avg_performance, COUNT(*) as trade_count, SUM(CASE WHEN t.perf_eod_pct > 0 THEN 1 ELSE 0 END) as winning_trades FROM keyword_matches k LEFT JOIN trades t ON k.trade_id = t.id AND t.tracking_status = 'completed' GROUP BY k.keyword, k.weight ORDER BY avg_performance DESC`;
+                                    break;
+                                case 'performance_analysis':
+                                    query = `SELECT ticker, COUNT(*) as total_trades, AVG(perf_eod_pct) as avg_return, SUM(CASE WHEN perf_eod_pct > 0 THEN 1 ELSE 0 END) as winning_trades, MAX(perf_eod_pct) as best_return, MIN(perf_eod_pct) as worst_return FROM trades WHERE tracking_status = 'completed' AND perf_eod_pct IS NOT NULL GROUP BY ticker ORDER BY avg_return DESC`;
+                                    break;
+                                default:
+                                    query = `SELECT * FROM ${activeTab}`;
+                            }
+                            const res = db.exec(query);
+                            if (res.length > 0) {
+                                const columns = res[0].columns;
+                                const rows = res[0].values.map(row => 
+                                    columns.reduce((obj, col, i) => ({ ...obj, [col]: row[i] }), {})
+                                );
+                                setDataCache(prev => ({ ...prev, [activeTab]: { columns, rows } }));
+                            } else {
+                                setDataCache(prev => ({ ...prev, [activeTab]: { columns: [], rows: [] } }));
+                            }
+                        } catch (e) {
+                            console.error(`Failed to fetch data for tab ${activeTab}:`, e);
+                            setDataCache(prev => ({ ...prev, [activeTab]: { columns: [], rows: [] } }));
+                        } finally {
+                            setIsLoading(false);
+                        }
+                    }, 10);
+                }
+            }, [db, activeTab, dataCache]);
+
+            const handleTickerSelect = useCallback((ticker) => setSelectedTicker(ticker), []);
+            const handleCloseDrilldown = useCallback(() => setSelectedTicker(null), []);
+
+            const currentView = useMemo(() => {
+                if (isLoading && !db) return <div className="text-center text-gray-400 p-8">Loading database...</div>;
+                if (!db) return null;
+                
+                if (selectedTicker) {
+                    return <StockDrilldown ticker={selectedTicker} db={db} onClose={handleCloseDrilldown} onTickerSelect={handleTickerSelect} />;
+                }
+                if (activeTab === 'dashboard') {
+                    return <Dashboard db={db} />;
+                }
+                if (isLoading || !dataCache[activeTab]) {
+                    return <div className="text-center text-gray-400 p-8">Loading data for {activeTab}...</div>;
+                }
+                if (dataCache[activeTab]) {
+                    return <DataTable tableData={dataCache[activeTab]} tableName={activeTab} onTickerSelect={handleTickerSelect} />;
+                }
+                return null;
+            }, [db, activeTab, selectedTicker, dataCache, isLoading, handleCloseDrilldown, handleTickerSelect]);
+
+            return (
+                <div className="min-h-screen bg-gray-950 text-gray-200 p-4 sm:p-6 lg:p-8">
+                    <div className="mx-auto">
+                        <AppHeader onFileChange={handleFileChange} dbStatus={dbStatus} />
+                        {db && (
+                            <main>
+                                {!selectedTicker && <Tabs activeTab={activeTab} setActiveTab={setActiveTab} />}
+                                {currentView}
+                            </main>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

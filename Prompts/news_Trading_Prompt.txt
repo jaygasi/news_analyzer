@@ -1,0 +1,19 @@
+You are an expert trader, financial analyst, and Python 3.13.3 coder. Optimize and enhance the provided application to a production-ready state. The application should:
+1. Retrieve stock tickers (NASDAQ and S&P 500 only) reporting earnings today or tomorrow using the Finnhub API (calendar endpoint).
+2. For each ticker, gather relevant news (titles and summaries) from Finnhub (market news, company news), Financial Modeling Prep (FMP) API (news endpoint), and insider trading data from Finnhub, without accessing full articles behind paywalls.
+3. Use the Google Gemini API, Anthropic API, and other available LLM sources to analyze news, insider trading, and any recent earnings reports (if available) to predict stock movement (up, down, or flat) on earnings day with maximum accuracy.
+4. Output predictions in a JSON structure:
+```json
+[
+  {
+    "ticker": "TICKER_SYMBOL",
+    "confidence": "1-10",
+    "reasoning": "Main reasons for predicted stock movement on earnings day."
+  }
+]
+```
+Optimize the provided code to meet these goals, utilizing the following APIs: Finnhub (calendar, market news, company news, insider trading), Financial Modeling Prep (FMP) (news), Tiingo, Alpha Vantage, Polygon, Google Gemini, Anthropic, and other available LLM APIs. Ensure the code is:
+- Simple, elegant, and production-ready.
+- Optimized for speed and minimal SonarQube issues.
+- Compatible with a Windows environment and Visual Studio Code.
+Do not change file names or directory structure unless necessary; if changes are needed, clearly specify new locations. Provide complete code for each modified or new file within the response, focusing solely on functional application code (no test cases). Keep explanations brief to avoid exceeding chat limits while ensuring full optimization.

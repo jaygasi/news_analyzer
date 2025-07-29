@@ -1,0 +1,16 @@
+{
+  "python.defaultInterpreterPath": "/home/jay/python_envs/rate/bin/python3",
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter",
+    "editor.formatOnSave": true
+  },
+  "python.linting.pylintEnabled": false,
+  "python.linting.flake8Enabled": true,
+
+  // This is the key setting to automatically activate the virtual environment in new terminals.
+  "python.terminal.activateEnvironment": true,
+  "sonarlint.connectedMode.project": {
+    "connectionId": "jaygasi",
+    "projectKey": "jaygasi_news_analyzer"
+  }
+}
