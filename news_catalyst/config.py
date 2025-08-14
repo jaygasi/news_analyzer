@@ -41,8 +41,8 @@ class DirectoryConfig:
 class DataConfig:
     """Data collection and processing configuration"""
     # Real-time data intervals (seconds)
-    price_tick_interval: float = 0.1  # 100ms for real-time
-    news_check_interval: float = 1.0  # 1 second
+    price_tick_interval: float = 3.0  # 3 seconds
+    news_check_interval: float = 30.0  # 30 seconds
     momentum_calc_interval: float = 0.5  # 500ms
     
     # API rate limits
@@ -194,7 +194,7 @@ STOP_LOSS_PERCENT = 0.02  # Will be replaced by dynamic ATR-based stops
 # AI parameters
 USE_OPENAI_ANALYSIS = CONFIG.ai.use_openai
 MIN_NEWS_TOPIC_CONFIDENCE = 1
-MAX_NEWS_ARTICLE_AGE_MINS = 60.0  # Reduced from 8 hours to 1 hour
+MAX_NEWS_ARTICLE_AGE_MINS = 240.0  # Increased to 4 hours
 
 # Data collection intervals
 NEWS_DATA_COLLECTION_INTERVAL = int(CONFIG.data.news_check_interval)
