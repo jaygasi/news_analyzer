@@ -49,6 +49,18 @@ def init_db():
 
     cursor.execute(
         """
+    CREATE TABLE IF NOT EXISTS economic_indicators (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        indicator_name TEXT NOT NULL,
+        value REAL NOT NULL,
+        UNIQUE(date, indicator_name)
+    );
+    """
+    )
+
+    cursor.execute(
+        """
     CREATE TABLE IF NOT EXISTS keyword_matches (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         trade_id INTEGER NOT NULL,
@@ -111,6 +123,18 @@ def init_db():
         cursor.execute("ALTER TABLE trades ADD COLUMN feature_volume REAL")
     if "feature_change_percent" not in columns:
         cursor.execute("ALTER TABLE trades ADD COLUMN feature_change_percent REAL")
+
+    # --- Add columns for economic indicators (if they don't exist) ---
+    economic_features = [
+        "feature_economic_gdp",
+        "feature_economic_cpi",
+        "feature_economic_fed_funds",
+        "feature_economic_unemployment",
+    ]
+    for feature in economic_features:
+        if feature not in columns:
+            logging.info(f"Adding '{feature}' column to trades table.")
+            cursor.execute(f"ALTER TABLE trades ADD COLUMN {feature} REAL")
 
     cursor.execute("PRAGMA table_info(training_history)")
     training_history_columns = {row["name"]: row for row in cursor.fetchall()}
@@ -397,3 +421,69 @@ def get_trades_column_names() -> List[str]:
     column_names = [row["name"] for row in cursor.fetchall()]
     conn.close()
     return column_names
+
+
+def log_economic_data_batch(data: List[Dict[str, Any]], conn: sqlite3.Connection):
+    """
+    Batch inserts economic indicator data into the database.
+
+    Args:
+        data (List[Dict[str, Any]]): A list of dictionaries, where each dict
+                                     represents a row with 'date', 'indicator_name', and 'value'.
+        conn (sqlite3.Connection): An active database connection.
+    """
+    if not data:
+        return
+
+    cursor = conn.cursor()
+    insert_data = [
+        (item['date'], item['indicator_name'], item['value']) for item in data
+    ]
+
+    try:
+        cursor.executemany(
+            "INSERT OR IGNORE INTO economic_indicators (date, indicator_name, value) VALUES (?, ?, ?)",
+            insert_data,
+        )
+        logging.info(f"Logged {len(insert_data)} economic data points in batch.")
+    except sqlite3.Error as e:
+        logging.error(f"Error logging economic data in batch: {e}")
+
+
+def get_latest_economic_indicators(date_str: str) -> Dict[str, float]:
+    """
+    Fetches the most recent value for each economic indicator on or before a given date.
+
+    Args:
+        date_str (str): The date in 'YYYY-MM-DD' format.
+
+    Returns:
+        Dict[str, float]: A dictionary mapping indicator names to their latest values.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # This query finds the latest record for each indicator_name on or before the given date.
+    # It uses a window function to rank records by date for each indicator.
+    sql = """
+    SELECT indicator_name, value
+    FROM (
+        SELECT
+            indicator_name,
+            value,
+            ROW_NUMBER() OVER(PARTITION BY indicator_name ORDER BY date DESC) as rn
+        FROM economic_indicators
+        WHERE date <= ?
+    )
+    WHERE rn = 1;
+    """
+
+    try:
+        cursor.execute(sql, (date_str,))
+        results = {row['indicator_name']: row['value'] for row in cursor.fetchall()}
+        return results
+    except sqlite3.Error as e:
+        logging.error(f"Error fetching latest economic indicators: {e}")
+        return {}
+    finally:
+        conn.close()

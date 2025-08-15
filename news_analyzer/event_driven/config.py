@@ -8,6 +8,17 @@ load_dotenv()
 FMP_API_KEY = os.getenv("FMP_API_KEY")
 FMP_BASE_URL = os.getenv("FMP_BASE_URL", "https://financialmodelingprep.com/stable")
 
+# --- FRED Economic Data Configuration ---
+FRED_API_KEY = os.getenv("FRED_API_KEY")
+# Key economic indicators to track from FRED.
+# Series IDs can be found on the FRED website (https://fred.stlouisfed.org/).
+FRED_INDICATOR_SERIES = {
+    "GDP": "GDP",  # Gross Domestic Product
+    "CPI": "CPIAUCSL",  # Consumer Price Index for All Urban Consumers
+    "FED_FUNDS": "FEDFUNDS",  # Federal Funds Effective Rate
+    "UNEMPLOYMENT": "UNRATE",  # Civilian Unemployment Rate
+}
+
 # --- News Source Configuration ---
 # Set to True to enable fetching from the respective source.
 ENABLE_FMP_NEWS_SOURCE = True

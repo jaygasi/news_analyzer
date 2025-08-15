@@ -13,4 +13,9 @@ NUMERICAL_FEATURE_NAMES = [
     "beta", # Beta is available in the FMP profile
     "volume",
     "change_percent",
+    # --- Economic Indicator Features ---
+    "economic_gdp",
+    "economic_cpi",
+    "economic_fed_funds",
+    "economic_unemployment",
 ]

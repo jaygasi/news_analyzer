@@ -2,6 +2,8 @@
 from typing import Dict, Any, Tuple
 import logging
 from SHARED_CONSTANTS import NUMERICAL_FEATURE_NAMES
+from database import get_latest_economic_indicators
+from config import FRED_INDICATOR_SERIES
 from config import KEYWORD_WEIGHTS, COMPLEX_KEYWORD_RULES
 import re
 
@@ -103,7 +105,17 @@ def prepare_numerical_features(
     fmp_features = _extract_fmp_features(details)
     features.update(fmp_features)
 
+    # --- Add Economic Indicator Features ---
+    news_date_str = (news_item.get("publishedDate") or " ").split(" ")[0]
+    if news_date_str and FRED_INDICATOR_SERIES:
+        latest_econ_data = get_latest_economic_indicators(news_date_str)
+        for indicator_name in sorted(FRED_INDICATOR_SERIES.keys()):
+            feature_name = f"economic_{indicator_name.lower()}"
+            # Use the fetched value, or 0.0 as a neutral default if data is missing for that date
+            features[feature_name] = latest_econ_data.get(indicator_name, 0.0)
+
     # Ensure final feature set is ordered and complete according to the master list
+    # Note: The new 'economic_*' features must be added to NUMERICAL_FEATURE_NAMES in SHARED_CONSTANTS.py
     final_features = {name: features.get(name, 0.0) for name in NUMERICAL_FEATURE_NAMES}
     
     return final_features, matched_keywords
